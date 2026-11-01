@@ -1,0 +1,139 @@
+{
+  "args": {
+    "seconds": 4.0,
+    "warmup": 4.0,
+    "mode": 0,
+    "web": "both",
+    "backend": "opengl",
+    "triangles": 200000,
+    "tex_size": "",
+    "render_loop": "",
+    "out": "spikes\\s1_s2\\results\\x_gl_s1_static_both.json",
+    "stay": false,
+    "screen": 1,
+    "swap_interval": -1,
+    "static": true,
+    "no_timer_period": false
+  },
+  "pyside6": "6.12.0",
+  "graphics_api": "OpenGL",
+  "screen": {
+    "name": "Cintiq 16",
+    "refreshHz": 60.0,
+    "dpr": 1.0,
+    "size": "1920x1080",
+    "window": "1920x1080"
+  },
+  "swapped_frames": 240,
+  "gui_cpu_busy_pct": 2.73,
+  "timer_latency_ms": {
+    "samples": 540,
+    "p50": 0.074,
+    "p95": 11.154,
+    "p99": 12.072,
+    "max": 12.314,
+    "mean": 4.305
+  },
+  "tex": {
+    "renderFps": 0.0,
+    "renderCpuMs": 0.0,
+    "renderGpuMs": 0.0,
+    "uploadCpuMs": 0.0,
+    "uploadGpuMs": 0.0,
+    "syncMs": 0.0,
+    "renderFpsMin": 0.0,
+    "frames": 0,
+    "glRenderer": "NVIDIA GeForce RTX 4070 Ti/PCIe/SSE2",
+    "glVersion": "4.6.0 NVIDIA 596.49",
+    "uploadBytes": 0
+  },
+  "web": {
+    "webglFpsMean": 56.75,
+    "webglFpsMin": 47,
+    "monacoEditsPerSec": 19.5,
+    "webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti (0x00002782) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "monaco": "on",
+    "range": {
+      "status": 206,
+      "length": 1048576,
+      "bytesOk": true,
+      "contentRange": "bytes 1048576-2097151/33554432",
+      "xRange": null,
+      "acceptRanges": "bytes",
+      "ms": 22.2,
+      "suffixLength": 16,
+      "suffixStatus": 206,
+      "head1k": {
+        "ms": 1.8,
+        "status": 206,
+        "len": 1024
+      },
+      "tail1k": {
+        "ms": 1.5,
+        "status": 206,
+        "len": 1024
+      },
+      "urlSlice": {
+        "ms": 219.5,
+        "status": 200,
+        "len": 1024,
+        "bytesOk": true,
+        "xRange": "bytes 33553408-33554431/33554432"
+      }
+    },
+    "bulk": {
+      "status": 200,
+      "bytes": 33554432,
+      "mbps": 146,
+      "ms": 220
+    },
+    "errors": []
+  },
+  "pyframe": {},
+  "served": [
+    {
+      "path": "/vendor/min/vs/editor/editor.main.css",
+      "range": null,
+      "query": null,
+      "total": 131858,
+      "served": 131858
+    },
+    {
+      "path": "/vendor/min/vs/language/json/jsonMode.js",
+      "range": null,
+      "query": null,
+      "total": 42545,
+      "served": 42545
+    },
+    {
+      "path": "/blob.bin",
+      "range": null,
+      "query": null,
+      "total": 33554432,
+      "served": 33554432
+    },
+    {
+      "path": "/vendor/min/vs/base/worker/workerMain.js",
+      "range": null,
+      "query": null,
+      "total": 376515,
+      "served": 376515
+    },
+    {
+      "path": "/vendor/min/vs/language/json/jsonWorker.js",
+      "range": null,
+      "query": null,
+      "total": 131177,
+      "served": 131177
+    },
+    {
+      "path": "/vendor/min/vs/base/worker/workerMain.js",
+      "range": null,
+      "query": null,
+      "total": 376515,
+      "served": 376515
+    }
+  ],
+  "gui_idle_pct": 97.27,
+  "swapped_fps": 59.99
+}

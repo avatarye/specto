@@ -1,0 +1,130 @@
+# v2 #184, the scratch pad as a markdown view. Project: tools/gui_flows/v2-184-seed.py
+# <folder> (the #46 project plus pics/red.png) with v2-46-canvas.json (file tree fege,
+# gallery kobi, json, markdown, map); app flag
+# --agent scripted:<abs>/tools/gui_flows/v2-184-agent-script.json.
+# The project node's double-click opens the pad beside the file tree (Page 1, empty: the
+# drop hint); a path copied from the tree's menu and pasted with Ctrl+V lands as a
+# paragraph; the agent appends a heading and words, the red swatch (a png asset,
+# embedded) and a link to the overview notes (one thread row with Undo); a click on the
+# link shows the notes in the pad's preview; the row's Undo takes the agent's blocks back
+# at once; E edits the page in Monaco, the edit autosaves and Ctrl+Z takes it back; the
+# tab strip adds a page (+), renames it (double-click), takes a paste, moves by a drag,
+# switches on a click and closes a page (Ctrl+Z brings it back).
+# Drops from views (#185's drag sources), Explorer and a browser: see the notes at the end
+# (by hand until gui_drive can start an OLE drag).
+resize 1600 900
+wait 1500
+submit tools/gui_flows/v2-46-canvas.json gallery, sidecar json, notes and a map of the project
+wait 6000
+# the tree starts collapsed (#231): open notes/ first
+wait_until treeRow:fege:notes 20000
+expand fege:notes
+wait_until treeRow:fege:notes/run-log.md 20000
+# the relative path of a note on the clipboard (the tree's menu), for the pastes below
+rclick treeRow:fege:notes/run-log.md 0.6 0.5
+wait 600
+click menu:copy.relative_path
+wait 400
+# 1 the project node's double-click: the scratch pad, panned into view
+dblclick projectNode
+wait 2500
+wait_until slot:@scratch 5000
+wait_until scratchTab:@scratch:p1 5000
+assert_web @scratch chars 0 10000
+shot 184-01-empty-pad.png
+# 2 Ctrl+V in the page: the path, as a paragraph
+click scratchSlot:@scratch 0.5 0.6
+key ctrl+v
+wait 1200
+assert_web @scratch chars 17 5000
+shot 184-02-pasted-path.png
+# 3 the agent appends a heading, the red swatch and a link: one scratch row with Undo
+hover agentIcon
+wait 1200
+click promptInput
+type keep a note on the overexposure, the red swatch and the overview notes
+key enter
+wait 4000
+wait_until replyScratch 15000
+assert_found replyScratchUndo
+assert_web @scratch headings.0.text "Exposure" 5000
+assert_web @scratch images.0.loaded true 8000
+shot 184-03-agent-appended.png
+key escape
+wait 400
+# 4 a click on the link: the pad's preview beside it shows the notes
+webclick @scratch links.0.rect
+wait 2500
+wait_until slot:@preview 8000
+shot 184-04-link-in-preview.png
+print snap {"target": "@scratch"}
+# 5 the scratch row's Undo takes the agent's three blocks back at once
+hover agentIcon
+wait 1200
+click replyScratchUndo
+wait 1000
+assert_web @scratch chars 17 5000
+shot 184-05-agent-undone.png
+key escape
+wait 400
+# 6 E edits the page as markdown; the edit autosaves; Ctrl+Z takes it back
+click scratchSlot:@scratch 0.5 0.8
+key e
+wait 1500
+assert_web @scratch source true 5000
+key ctrl+end
+type  -- my own words
+wait 1800
+assert_web @scratch dirty false 5000
+assert_web @scratch chars 32 5000
+shot 184-06-source-edited.png
+webclick @scratch buttons.toggle
+wait 800
+assert_web @scratch source false 5000
+key ctrl+z
+wait 1000
+assert_web @scratch chars 17 5000
+shot 184-07-edit-undone.png
+# 7 pages: + adds one (shown, empty), double-click renames it, a paste lands on it
+click scratchTabAdd:@scratch
+wait 1200
+wait_until scratchTab:@scratch:p2 3000
+assert_web @scratch page "p2" 5000
+dblclick scratchTabName:@scratch:p2
+wait 400
+selectall
+type lidar
+key enter
+wait 600
+assert_text scratchTabName:@scratch:p2 lidar
+click scratchSlot:@scratch 0.5 0.6
+key ctrl+v
+wait 1000
+assert_web @scratch chars 17 5000
+shot 184-08-second-page.png
+# the tab dragged before the first one; a click shows the first page again
+dragxy scratchTab:@scratch:p2 -120 0 0.3 0.5 shot=184-09-moving-tab.png
+wait 600
+click scratchTabName:@scratch:p1
+wait 1000
+assert_web @scratch page "p1" 5000
+# close the lidar page (one step, a notice), Ctrl+Z brings it back
+hover scratchTab:@scratch:p2
+wait 300
+click scratchTabClose:@scratch:p2
+wait 800
+assert_missing scratchTab:@scratch:p2
+shot 184-10-page-closed.png
+key ctrl+z
+wait 800
+assert_found scratchTab:@scratch:p2
+print snap {"target": "@scratch"}
+#
+# By hand (no OLE drag in gui_drive yet), each one undo step:
+# - a gallery tile (kobi) dropped on the page: a quoted link with "— kobi · runs/..."
+# - an image view crop (#185, meta.rendered): an embedded picture in <page>.assets/
+# - a markdown selection (#185, kind text): its words, quoted with the note's name
+# - two files from Explorer: two links, one step; the same drop on a tab: that page
+# - an image from a browser: an embedded picture; a link alone: a link
+# - in the source editor, a drop lands at the caret
+# - a relaunch: the pages come back from .specto/scratch

@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Specto mockup - A Studio - overworld</title>
+<style>
+:root{
+  --bg0:#18191b; --panel:#25262a; --hdr:#2f3135; --line:#3a3c41;
+  --text:#c8cacf; --dim:#868a92; --faint:#5d6168; --accent:#4c8dff; --agent:#b98cff; --agentbg:rgba(185,140,255,.12);
+  --time:#e6c14a; --cam:#4fc6dd; --item:#6fd17c; --sel:#e273cb;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace; --ui:"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1600px;height:1000px;overflow:hidden}
+body{background:radial-gradient(1200px 700px at 20% 10%,#1c4a57,#0d1f27 60%,#091419);font:11.5px/1.35 var(--ui);color:var(--text)}
+.win{position:absolute;left:14px;top:12px;width:1572px;height:976px;background:var(--bg0);border:1px solid #000;border-radius:8px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.06);display:flex;flex-direction:column}
+.title{height:30px;flex:none;background:#1f2023;display:flex;align-items:center;padding-left:10px;color:#a9acb2;font-size:12px;border-bottom:1px solid #111}
+.title .caps{margin-left:auto;display:flex;height:100%}
+.title .caps span{width:46px;display:flex;align-items:center;justify-content:center;color:#bbb}
+.top{height:32px;flex:none;background:#2a2733;border-bottom:1px solid #3d3350;display:flex;align-items:center;gap:10px;padding:0 10px}
+.mode{font:700 11px var(--mono);letter-spacing:.12em;color:#e8e9eb;background:#3c4048;padding:3px 8px;border-radius:2px}
+.paused{display:flex;align-items:center;gap:6px;font:700 11px var(--mono);letter-spacing:.1em;color:#f2c46b;border:1px solid #6b5527;background:#3a3020;padding:2px 8px;border-radius:2px}
+.dim{color:var(--dim)}
+.g{font:700 10.5px var(--mono);color:var(--agent)}
+.btn{padding:2px 9px;border:1px solid #4c4f55;border-radius:3px;background:#34363b;color:#dfe1e4}
+.btn.ag{border-color:#6a5592;background:#3b3150;color:#ecdfff}
+.kbd{font:10px var(--mono);color:#9a9ea5;border:1px solid #4a4d53;border-radius:3px;padding:0 4px;background:#2a2c30}
+.mid{flex:1;display:flex;min-height:0}
+.rail{width:42px;background:#222326;border-right:1px solid #151617;display:flex;flex-direction:column;align-items:center;padding-top:8px;gap:4px}
+.rail span{width:30px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:3px;color:#aaa}
+.rail span.on{background:#2f4468;outline:1px solid var(--accent)}
+.cv{flex:1;position:relative;overflow:hidden;
+  background-color:#1a2331;
+  background-image:linear-gradient(rgba(120,160,220,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(120,160,220,.07) 1px,transparent 1px),linear-gradient(rgba(120,160,220,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(120,160,220,.035) 1px,transparent 1px);
+  background-size:100px 100px,100px 100px,20px 20px,20px 20px}
+.cv:after{content:"PAUSED";position:absolute;right:18px;bottom:8px;font:700 64px var(--mono);letter-spacing:.2em;color:rgba(242,196,107,.06)}
+.wire-layer{position:absolute;left:0;top:0;pointer-events:none;z-index:5}
+.wire-label{font:9.5px var(--mono)}
+.wire-label-bg{fill:#1a2331}
+/* frames */
+.frame{position:absolute;border:4px double #9fb3cf;}
+.frame.sel{border-color:#7fb0ff}
+.flabel{position:absolute;left:-4px;top:-24px;display:flex;gap:8px;align-items:center;font:11px var(--mono);color:#cfd9e8;white-space:nowrap}
+.flabel b{font:700 12px var(--ui);color:#fff}
+.flabel .mon{padding:1px 6px;background:#2b3a52;border:1px solid #4a6286;color:#cfe0ff;border-radius:2px}
+.flabel .mon.unb{background:#2d2f33;border-color:#555;color:#aaa}
+/* panels */
+.pn{position:absolute;background:#24272d;border:1px solid #4a5160;display:flex;flex-direction:column;z-index:3}
+.pn .hd{height:16px;flex:none;background:#30343c;display:flex;align-items:center;gap:4px;padding:0 4px;font-size:10px;white-space:nowrap;overflow:hidden;border-bottom:1px solid #1d1f23}
+.pn .hd b{color:#e9eaec;font-weight:600}
+.pn .hd .ad{font:9px var(--mono);color:var(--dim)}
+.pn .hd .age{margin-left:auto;font:8.5px var(--mono);color:#a08a5a}
+.pn .bd{flex:1;position:relative;overflow:hidden}
+.pn .bd canvas{display:block;width:100%;height:100%;filter:saturate(.45) brightness(.72) contrast(.95)}
+.pn .col{position:absolute;left:3px;bottom:3px;font:8.5px var(--mono);color:#cfe0ff;background:rgba(30,45,70,.9);border:1px solid #3c5a86;padding:0 4px;border-radius:2px}
+.pn .vt{position:absolute;right:3px;bottom:3px;font:8.5px var(--mono);color:#bbb;background:rgba(20,20,22,.8);padding:0 4px;border-radius:2px}
+.pn.add{border-color:var(--agent);box-shadow:0 0 0 1px var(--agent),0 0 14px rgba(185,140,255,.35)}
+.pn.add .hd,.pn.mod .hd{background:linear-gradient(90deg,#43375a,#30343c);box-shadow:inset 2px 0 0 var(--agent)}
+.pn.mod{border-color:#7a64a5}
+.pn.ghost{opacity:.42;border:1px dashed #b98cff;background:transparent}
+.pn.ghost .hd{background:transparent;text-decoration:line-through;text-decoration-color:#b98cff}
+.pn.parked .bd canvas{filter:saturate(.2) brightness(.5)}
+.pn.focus{outline:1px solid var(--accent);outline-offset:1px}
+.port{position:absolute;width:9px;height:9px;border-radius:50%;border:1.5px solid #1a2331;z-index:6;transform:translate(-50%,-50%)}
+.fake{padding:3px 4px;font:8.5px/1.5 var(--mono);color:#8b929c}
+.fake i{display:block;height:4px;background:#3a3f48;margin:4px 0;border-radius:1px}
+.region{position:absolute;border:1px dashed #6d7f99;background:rgba(110,140,190,.05)}
+.region .rl{position:absolute;left:8px;top:-9px;background:#1a2331;padding:0 6px;font:11px var(--mono);color:#aebfd8}
+/* changeset */
+.side{width:270px;background:#222326;border-left:1px solid #151617;display:flex;flex-direction:column}
+.sh{height:26px;display:flex;align-items:center;padding:0 10px;background:#2b2d31;border-bottom:1px solid #1a1b1d;font-weight:600;color:#e3e4e7;gap:8px}
+.ch{padding:7px 10px;border-bottom:1px solid #2c2e33;display:flex;flex-direction:column;gap:3px}
+.ch .l1{display:flex;align-items:center;gap:6px;color:#e3e4e7}
+.ch .l2{font:10px var(--mono);color:#8e8a99;padding-left:26px}
+.ch .acts{margin-left:auto;display:flex;gap:4px}
+.ch .acts span{font-size:10px;color:#a9acb2;border:1px solid #44474d;padding:0 5px;border-radius:2px}
+.ch.cur{background:#2c2638;box-shadow:inset 2px 0 0 var(--agent)}
+.older{padding:7px 10px;color:#80848b;border-bottom:1px solid #2c2e33;display:flex;gap:6px}
+.lg{padding:8px 10px;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center;font:10.5px var(--mono);color:#aeb2b8}
+.lg i{display:inline-block;width:26px;height:2px}
+.status{height:22px;flex:none;background:#1f2023;border-top:1px solid #111;display:flex;align-items:center;gap:16px;padding:0 10px;color:#8b8f96;font-size:10.5px}
+.status .r{margin-left:auto;display:flex;gap:16px}
+.mini{position:absolute;right:16px;bottom:96px;width:170px;height:104px;background:rgba(20,26,36,.92);border:1px solid #3d4b61;z-index:8}
+.mini div{position:absolute;border:1px solid #8ea3c2}
+.note{position:absolute;background:#3b3624;border:1px solid #6b5f35;color:#e6d9a8;font-size:10.5px;padding:6px 8px;width:150px;z-index:3}
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="title">Specto &mdash; robotA &mdash; Overworld<div class="caps"><span>&#8212;</span><span>&#9744;</span><span>&#10005;</span></div></div>
+  <div class="top">
+    <span class="mode">OVERWORLD</span>
+    <span class="paused"><svg width="10" height="10"><rect x="1" y="1" width="3" height="8" fill="#f2c46b"/><rect x="6" y="1" width="3" height="8" fill="#f2c46b"/></svg>PAUSED</span>
+    <span class="dim">rendering stopped &middot; panels show snapshots taken 00:08 ago &middot; GPU released 3.6 GB</span>
+    <span style="margin-left:auto" class="g">&#916;</span><span style="color:#e6dcff;font-weight:600">turn 12: 4 changes</span>
+    <span class="g">[+]1</span><span class="g">[~]2</span><span class="g">[-]1</span>
+    <span class="btn ag">Review</span><span class="btn">Revert turn</span>
+    <span class="btn">Normal view <span class="kbd">Tab</span></span>
+  </div>
+  <div class="mid">
+    <div class="rail">
+      <span class="on"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M3 2l9 6-4 1 2 5-2 1-2-5-3 3z" fill="#dfe8ff"/></svg></span>
+      <span><svg width="14" height="14" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" fill="none" stroke="#aaa" stroke-width="2.4" stroke-dasharray="0"/><rect x="4" y="5" width="8" height="6" fill="none" stroke="#222326" stroke-width="1"/></svg></span>
+      <span><svg width="14" height="14" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" fill="none" stroke="#aaa" stroke-dasharray="2 2"/></svg></span>
+      <span><svg width="14" height="14" viewBox="0 0 16 16"><circle cx="3" cy="12" r="2" fill="#aaa"/><circle cx="13" cy="4" r="2" fill="#aaa"/><path d="M3 12C8 12 8 4 13 4" fill="none" stroke="#aaa"/></svg></span>
+      <span><svg width="14" height="14" viewBox="0 0 16 16"><path d="M2 10h12v4H2z M5 10V5h6v5" fill="none" stroke="#aaa"/></svg></span>
+      <span style="margin-top:auto;margin-bottom:8px"><svg width="14" height="14" viewBox="0 0 16 16"><path d="M3 8h10M8 3v10" stroke="#aaa" stroke-width="1.4"/></svg></span>
+    </div>
+    <div class="cv" id="cv" data-wire-root>
+      <svg class="wire-layer"></svg>
+      <div class="mini"><div style="left:8px;top:14px;width:70px;height:40px;border-color:#7fb0ff"></div><div style="left:88px;top:14px;width:38px;height:24px"></div><div style="left:88px;top:44px;width:38px;height:21px"></div><div style="left:8px;top:64px;width:56px;height:20px;border-style:dashed;border-color:#6d7f99"></div><span style="position:absolute;left:6px;bottom:3px;font:9px var(--mono);color:#7d8aa0">3 frames &middot; 2 regions</span></div>
+    </div>
+    <div class="side">
+      <div class="sh"><span class="g">&#916;</span>Changeset<span style="margin-left:auto;font-weight:400;color:#8a8e95;font-size:10.5px">turn 12 &middot; claude-code</span></div>
+      <div class="ch cur"><div class="l1"><span class="g">[+]</span>Controls <span style="font:10px var(--mono);color:#9a9ea5">ctl:v11</span><div class="acts"><span>fly to</span><span>revert</span></div></div><div class="l2">docked right of Map v4, frame Review<br>3 controls, bound to time, cam</div></div>
+      <div class="ch"><div class="l1"><span class="g">[~]</span>Gallery <span style="font:10px var(--mono);color:#9a9ea5">view:v2</span><div class="acts"><span>fly to</span><span>revert</span></div></div><div class="l2">filter: all &rarr; cam_front</div></div>
+      <div class="ch"><div class="l1"><span class="g">[~]</span>link <span style="color:var(--time);font:10.5px var(--mono)">time</span> &rarr; Video v8<div class="acts"><span>fly to</span><span>revert</span></div></div><div class="l2">offset_ms &larr; ctl:v11.slider</div></div>
+      <div class="ch"><div class="l1"><span class="g">[-]</span><s>Gallery</s> <span style="font:10px var(--mono);color:#9a9ea5">view:v1</span><div class="acts"><span>fly to</span><span>restore</span></div></div><div class="l2">was parked in "run 7"; ghost kept until reviewed</div></div>
+      <div class="older"><span style="color:#5d6168">&#9656;</span>turn 11 &middot; you &middot; 2 manual edits</div>
+      <div class="older"><span style="color:#5d6168">&#9656;</span>turn 10 &middot; claude-code &middot; 6 changes &middot; reviewed</div>
+      <div class="older"><span style="color:#5d6168">&#9656;</span>turn 9 &middot; recipe:lidar-review@4</div>
+      <div class="sh" style="margin-top:10px">Channels</div>
+      <div class="lg">
+        <i style="background:var(--time)"></i><span>time &middot; 5 ports</span>
+        <i style="background:var(--cam)"></i><span>cam &middot; 2 ports (two-way)</span>
+        <i style="background:var(--item)"></i><span>item &middot; 2 ports</span>
+        <i style="background:var(--sel)"></i><span>sel &middot; 2 ports</span>
+      </div>
+      <div class="sh" style="margin-top:10px">Locks</div>
+      <div class="lg" style="grid-template-columns:auto 1fr"><span>&#128274;&#xFE0E;</span><span>frame Review layout (you)</span><span>&#128274;&#xFE0E;</span><span>view:v3 camera (you)</span></div>
+    </div>
+  </div>
+  <div class="status">
+    <span>robotA.specto</span><span>3 frames &middot; 15 widgets &middot; 4 parked &middot; 2 regions</span><span>zoom 37%</span>
+    <div class="r"><span>Tab: normal view &middot; hold Tab: peek</span><span style="color:#a596c4">changeset unreviewed</span></div>
+  </div>
+</div>
+<script>
+const C = { time:'#e6c14a', cam:'#4fc6dd', item:'#6fd17c', sel:'#e273cb' };
+const cv = document.getElementById('cv');
+function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+function frame(x, y, w, h, name, size, mon, unbound, sel) {
+  const f = el('div', 'frame' + (sel ? ' sel' : '')); Object.assign(f.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+  f.appendChild(el('div', 'flabel', `<b>${name}</b><span>${size}</span><span class="mon${unbound ? ' unb' : ''}">${mon}</span>`));
+  cv.appendChild(f);
+}
+// panel(spec): x,y,w,h in canvas px
+function panel(s) {
+  const p = el('div', 'pn ' + (s.cls || '')); Object.assign(p.style, { left: s.x + 'px', top: s.y + 'px', width: s.w + 'px', height: s.h + 'px' });
+  p.appendChild(el('div', 'hd', `${s.g ? `<span class="g">${s.g}</span>` : ''}<b>${s.t}</b><span class="ad">${s.a}</span><span class="age">${s.age || 'snap 8s'}</span>`));
+  const bd = el('div', 'bd');
+  if (s.draw) bd.innerHTML = `<canvas data-draw="${s.draw}" data-seed="${s.seed || 1}" ${s.opts ? `data-opts='${JSON.stringify(s.opts)}'` : ''}></canvas>`;
+  else bd.innerHTML = `<div class="fake">${s.fake || ''}</div>`;
+  if (s.col) bd.appendChild(el('span', 'col', s.col));
+  if (s.vt) bd.appendChild(el('span', 'vt', s.vt));
+  p.appendChild(bd);
+  cv.appendChild(p);
+  (s.ports || []).forEach(pt => {
+    const d = el('div', 'port'); d.id = pt.id; d.dataset.side = pt.side;
+    d.style.background = C[pt.ch];
+    const X = pt.side === 'l' ? s.x : pt.side === 'r' ? s.x + s.w : s.x + s.w * pt.f;
+    const Y = pt.side === 't' ? s.y : pt.side === 'b' ? s.y + s.h : s.y + s.h * pt.f;
+    Object.assign(d.style, { left: X + 'px', top: Y + 'px' });
+    cv.appendChild(d);
+  });
+}
+// ---------- Frame: Review 1920x1080
+const RX = 40, RY = 60;
+frame(RX, RY, 728, 413, 'Review', '1920&times;1080', 'Monitor 1 &middot; DELL U2723QE', false, true);
+const x0 = RX + 12, y0 = RY + 12;
+panel({ x: x0, y: y0, w: 90, h: 170, t: 'Outliner', a: '', fake: 'col:lidar1<br>col:frames<br>col:roads<br>col:gps<br>col:video<i></i>view:v3<br>view:v2<br>view:v4<br>ctl:v11', age: '' });
+panel({ x: x0 + 102, y: y0, w: 350, h: 170, t: 'USD', a: 'view:v3', cls: 'focus', draw: 'cloud', seed: 3, opts: { bg: '#1a1b1e', cmap: 'turbo', size: 1.1, gizmo: false, frustum: '#4fc6dd' }, col: 'col:lidar1', vt: 'viewer.usd',
+  ports: [{ id: 'usd-time', side: 'b', f: 198 / 350, ch: 'time' }, { id: 'usd-cam', side: 'b', f: 278 / 350, ch: 'cam' }, { id: 'usd-sel', side: 'b', f: 318 / 350, ch: 'sel' }] });
+panel({ x: x0 + 464, y: y0, w: 240, h: 60, t: 'Inspector', a: 'view:v3', fake: 'type viewer.usd &middot; camera persp<br>source col:lidar1', age: '' });
+panel({ x: x0 + 464, y: y0 + 72, w: 240, h: 98, t: 'JSON', a: 'view:v6', fake: '{ "id": "controls:v11",<br>&nbsp;&nbsp;"items": [ slider, toggle,<br>&nbsp;&nbsp;&nbsp;&nbsp;toggle, button ] }', col: 'ctl:v11.json', vt: 'monaco',
+  ports: [{ id: 'json-item', side: 'l', f: 0.5, ch: 'item' }] });
+const r2 = y0 + 182;
+panel({ x: x0, y: r2, w: 250, h: 110, t: 'Gallery', a: 'view:v2', g: '[~]', cls: 'mod', draw: 'camera', seed: 5, opts: { boxes: true }, col: 'col:frames', vt: 'gallery',
+  ports: [{ id: 'gal-item', side: 't', f: 120 / 250, ch: 'item' }, { id: 'gal-time', side: 't', f: 200 / 250, ch: 'time' }] });
+panel({ x: x0 + 262, y: r2, w: 190, h: 110, t: 'Map', a: 'view:v4', draw: 'map', seed: 2, opts: { theme: 'dark', block: 26, chrome: false, labelSize: 7, trackColor: '#4fc6dd' }, col: 'col:gps', vt: 'map',
+  ports: [{ id: 'map-cam', side: 't', f: 118 / 190, ch: 'cam' }, { id: 'map-sel', side: 't', f: 158 / 190, ch: 'sel' }, { id: 'map-time', side: 'r', f: 0.72, ch: 'time' }] });
+panel({ x: x0 + 464, y: r2, w: 240, h: 110, t: 'Controls', a: 'ctl:v11', g: '[+]', cls: 'add', fake: 'time offset &nbsp;&nbsp;&nbsp;&nbsp;-120 ms<i style="width:60%"></i>show boxes &nbsp;&nbsp;&nbsp;&nbsp;on<br>follow camera &nbsp;on<br>[ next run ]', age: 'new t12', vt: 'panel.controls',
+  ports: [{ id: 'ctl-time', side: 'l', f: 0.72, ch: 'time' }, { id: 'ctl-up', side: 't', f: 40 / 240, ch: 'time' }, { id: 'ctl-down', side: 'b', f: 136 / 240, ch: 'time' }, { id: 'ctl-out', side: 'r', f: 0.4, ch: 'time' }] });
+const r3 = r2 + 122;
+panel({ x: x0, y: r3, w: 704, h: 85, t: 'Video', a: 'view:v8', g: '[~]', cls: 'mod', draw: 'camera', seed: 38, col: 'col:video', vt: 'mpv &middot; timeline',
+  ports: [{ id: 'vid-time', side: 't', f: 600 / 704, ch: 'time' }, { id: 'vid-park', side: 'b', f: 320 / 704, ch: 'time' }] });
+// ---------- Frame: Debug 1280x800 -> 384x240
+const DX = 846, DY = 60;
+frame(DX, DY, 392, 248, 'Debug', '1280&times;800', 'Monitor 2 &middot; LG 27UL850');
+panel({ x: DX + 4, y: DY + 4, w: 384, h: 118, t: 'JSON', a: 'view:v12', fake: 'session.specto<br>{ "frames": 3, "widgets": 13,<br>&nbsp;&nbsp;"links": [ "time", "cam", "item", "sel" ] }', col: 'session', vt: 'monaco' });
+panel({ x: DX + 4, y: DY + 4 + 118 + 3, w: 230, h: 115, t: 'Log', a: 'view:v7', fake: '14:02:11 intake col:lidar1 ok<br>14:02:12 link time +v8<br>14:02:13 snap Review ok', vt: 'log' });
+panel({ x: DX + 4 + 230 + 3, y: DY + 4 + 118 + 3, w: 151, h: 115, t: 'Plot', a: 'view:v13', fake: 'speed_mps<br><svg width="140" height="60"><polyline fill="none" stroke="#6b8bb8" stroke-width="1.5" points="0,52 15,46 30,34 45,38 60,26 75,22 90,30 105,16 120,20 140,8"/></svg>', col: 'col:gps',
+  ports: [{ id: 'plot-time', side: 'b', f: 0.3, ch: 'time' }] });
+// ---------- Frame: Compare 2560x1440 -> 384x216
+const KX = 846, KY = 380;
+frame(KX, KY, 392, 224, 'Compare', '2560&times;1440', 'unbound &middot; desktop 2', true);
+panel({ x: KX + 4, y: KY + 4, w: 191, h: 216, t: 'Gallery A', a: 'view:v14', draw: 'camera', seed: 21, col: 'run 6', vt: 'gallery',
+  ports: [{ id: 'ga-time', side: 'l', f: 0.5, ch: 'time' }, { id: 'ga-item', side: 'r', f: 0.35, ch: 'item' }] });
+panel({ x: KX + 4 + 191 + 2, y: KY + 4, w: 191, h: 216, t: 'Gallery B', a: 'view:v15', draw: 'camera', seed: 22, opts: { dusk: true }, col: 'run 7', vt: 'swipe',
+  ports: [{ id: 'gb-item', side: 'l', f: 0.35, ch: 'item' }] });
+// ---------- Region: parked
+const PX = 40, PY = 560;
+const rg = el('div', 'region', '<span class="rl">region: run 7 parked</span>'); Object.assign(rg.style, { left: PX + 'px', top: PY + 'px', width: '560px', height: '200px' }); cv.appendChild(rg);
+panel({ x: PX + 18, y: PY + 22, w: 210, h: 128, t: 'Video', a: 'view:v9', cls: 'parked', draw: 'camera', seed: 44, opts: { dusk: true }, col: 'cam_rear', vt: 'parked', age: 'snap 14m',
+  ports: [{ id: 'v9-time', side: 't', f: 0.8, ch: 'time' }] });
+panel({ x: PX + 250, y: PY + 22, w: 160, h: 128, t: 'Gallery', a: 'view:v1', g: '[-]', cls: 'ghost', fake: 'removed by agent, turn 12<br>restore from changeset', age: '' });
+const n = el('div', 'note', 'run 7: GPS dropout at 00:31-00:36, check time offset vs lidar'); Object.assign(n.style, { left: (PX + 428) + 'px', top: (PY + 24) + 'px', width: '120px' }); cv.appendChild(n);
+const rg2 = el('div', 'region', '<span class="rl">region: calibration</span>'); Object.assign(rg2.style, { left: '650px', top: '660px', width: '360px', height: '150px' }); cv.appendChild(rg2);
+panel({ x: 668, y: 684, w: 160, h: 100, t: 'Plot', a: 'view:v5', cls: 'parked', fake: 'imu yaw rate<br><svg width="150" height="50"><polyline fill="none" stroke="#5d6f8c" stroke-width="1.5" points="0,25 12,20 24,30 36,18 48,28 60,22 72,26 84,14 96,30 108,22 120,24 150,20"/></svg>', col: 'col:imu', vt: 'parked', age: 'snap 2h' });
+panel({ x: 838, y: 684, w: 154, h: 100, t: 'JSON', a: 'view:v10', cls: 'parked', fake: 'calib/lidar_to_cam.json<br>{ "t": [0.12, 0, 1.6],<br>&nbsp;&nbsp;"rpy": [0, 1.5, 0] }', col: 'calib', vt: 'parked', age: 'snap 2h' });
+const lane = y0 + 176;
+window.WIRES = [
+  { a: '#ctl-time', b: '#map-time', color: C.time, w: 1.6, style: 'straight' },
+  { a: '#ctl-up', b: '#usd-time', color: C.time, w: 1.6, via: [[x0 + 504, lane - 2], [x0 + 300, lane - 2]] },
+  { a: '#ctl-up', b: '#gal-time', color: C.time, w: 1.6, via: [[x0 + 504, lane - 2], [x0 + 200, lane - 2]] },
+  { a: '#gal-item', b: '#json-item', color: C.item, w: 1.6, via: [[x0 + 120, lane + 3], [x0 + 458, lane + 3], [x0 + 458, y0 + 121]] },
+  { a: '#usd-cam', b: '#map-cam', color: C.cam, w: 2, style: 'straight' },
+  { a: '#usd-sel', b: '#map-sel', color: C.sel, w: 1.6, style: 'straight' },
+  { a: '#ctl-down', b: '#vid-time', color: C.time, w: 2.2, glow: true, via: [[x0 + 600, r2 + 116]] },
+  { a: '#ctl-out', b: '#plot-time', color: C.time, w: 1.6, sideB: 'b', tension: 90, label: 'time', at: 0.45 },
+  { a: '#ctl-out', b: '#ga-time', color: C.time, w: 1.6, tension: 90, label: 'time', at: 0.6 },
+  { a: '#ga-item', b: '#gb-item', color: C.item, w: 1.6, style: 'straight' },
+  { a: '#vid-park', b: '#v9-time', color: C.time, w: 1.2, dash: '3 4', opacity: 0.55, label: 'parked: idle', labelColor: '#9a9070', at: 0.5, sideA: 'b', sideB: 't', tension: 60 },
+];
+// change marker on the modified link
+const tg = el('div', '', '<span class="g">[~]</span> time offset'); Object.assign(tg.style, { position: 'absolute', zIndex: 9, left: (x0 + 612) + 'px', top: (r2 + 108) + 'px', font: '9.5px var(--mono)', color: '#ecdfff', background: '#3b3150', border: '1px solid #b98cff', padding: '0 5px', borderRadius: '2px' }); cv.appendChild(tg);
+</script>
+<script src="common.js"></script>
+</body>
+</html>

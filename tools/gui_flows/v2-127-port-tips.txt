@@ -1,0 +1,121 @@
+# v2 #127 (spec #119, Figma page 05 section 3): a port tip is a box hanging centred under
+# its port with a caret, at most 200 px wide and wrapping: a data section (what flows,
+# from or to whom) and a filter section (the link's summary), each led by its icon with
+# a hanging indent; no filter, no section. A tip at the window's edge shifts inside, its
+# caret still on the port. View names in a tip are links: the tip waits for the pointer,
+# a name underlines under it, and a click pans to that view and flashes it (the project's
+# name goes to the root node). The link dot's tip, "<from> → <to> · click to open the
+# link", links its ends too. The root node is a tile with the root identicon and no port
+# of its own, its refresh circle at its bottom centre. The #45 canvas (two link chains
+# around the file tree). Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:@file_tree
+submit tools/gui_flows/v2-45-canvas.json two link chains around the file tree
+wait 2000
+assert_found slot:"Front frames"
+hover panArea 0.9 0.9
+wait 300
+# the root node: no port of its own, the refresh circle at its bottom centre
+assert_found projectNode
+assert_missing port:project:out
+assert_found refresh:project
+shotcrop projectNode 24 3 127-01-root-node.png
+hover projectNode 0.5 0.3
+wait 600
+assert_found tip:projectNode
+assert_found tipDataIcon:projectNode
+assert_text tipWhat:projectNode all files
+shot 127-02-root-node-tip.png
+# an input with a filter: the data icon over "from fege" (a link), the funnel over the
+# summary, wrapping at 200 px with a hanging indent
+hover port:"Front frames":in
+wait 600
+assert_found tip:port:"Front frames":in
+assert_found tipCaret:port:"Front frames":in
+assert_found tipDataIcon:port:"Front frames":in
+assert_found tipFilterIcon:port:"Front frames":in
+assert_found tipLink:port:"Front frames":in:fege
+assert_found tipFilter:port:"Front frames":in
+shot 127-03-input-tip.png
+shotcrop tip:port:"Front frames":in 30 2 127-04-input-tip-close.png
+# a two-way end
+hover port:"Rear A":in:1
+wait 600
+assert_found tipLink:port:"Rear A":in:1:pola
+shotcrop tip:port:"Rear A":in:1 30 2 127-05-two-way-tip-close.png
+# a linked output: to whom; an output does not filter, so no filter section
+hover port:"Files":out
+wait 600
+assert_found tipLink:port:"Files":out:kobi
+assert_missing tipFilter:port:"Files":out
+shotcrop tip:port:"Files":out 30 2 127-06-output-tip-close.png
+# an output nothing reads
+hover port:"Front frames":out
+wait 600
+assert_text tipWhat:port:"Front frames":out picked items
+assert_missing tipFilter:port:"Front frames":out
+shotcrop tip:port:"Front frames":out 30 2 127-07-unlinked-output-tip-close.png
+# the file tree's input sits at the window's left edge: the box shifts inside, the caret
+# stays on the port
+hover port:"Files":in
+wait 600
+assert_found tip:port:"Files":in
+shotcrop tip:port:"Files":in 30 2 127-08-edge-tip-close.png
+hover panArea 0.9 0.9
+wait 600
+# a name jumps to its view: pan the file tree half out of sight (Space-drag on the empty
+# canvas under the views), then click "fege" in the gallery's input tip
+click panArea 0.5 0.98
+wait 300
+keydown space
+dragxy panArea -300 0 0.5 0.98
+keyup space
+wait 1200
+hover port:"Front frames":in
+wait 600
+hover tipLink:port:"Front frames":in:fege
+wait 600
+assert_found tip:port:"Front frames":in
+shotcrop tip:port:"Front frames":in 30 2 127-11-link-hovered-close.png
+shot 127-12-before-jump.png
+click tipLink:port:"Front frames":in:fege
+wait 250
+shot 127-13-jumped-to-file-tree.png
+wait 1200
+assert_missing tip:port:"Front frames":in
+# the project's name goes to the root node: pan the root node out of sight first
+hover panArea 0.9 0.9
+wait 600
+click panArea 0.5 0.98
+wait 300
+keydown space
+dragxy panArea -700 0 0.5 0.98
+keyup space
+wait 1200
+assert_found port:"Rear A":in
+shot 127-15-before-root-jump.png
+hover port:"Rear A":in
+wait 600
+hover tipLink:port:"Rear A":in:project
+wait 400
+click tipLink:port:"Rear A":in:project
+wait 250
+shot 127-14-jumped-to-root.png
+wait 1200
+hover panArea 0.9 0.9
+wait 600
+# the wiring layer: a link dot's tip is one line, no filter, its ends links
+key `
+wait 800
+assert_found wiringLayer
+hover wireNode:l2
+wait 600
+assert_found tip:wireNode:l2
+assert_found tipLink:wireNode:l2:fege
+assert_found tipLink:wireNode:l2:kobi
+shot 127-09-link-dot-tip.png
+shotcrop tip:wireNode:l2 40 2 127-10-link-dot-tip-close.png
+key esc
+wait 500
+assert_missing wiringLayer

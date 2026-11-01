@@ -1,0 +1,106 @@
+# v2 #126: the view header standard and the native views' footers. Every header: the
+# auto-update eye at the left end (#158), the title (name bold, label muted), then
+# refresh . lock . float . collapse . maximise . close, 22 px round buttons; every
+# control shows at rest (#158: the user's decision of 2026-10-24), one that is on in
+# accent; hovering or selecting moves nothing. Frames 1.5 px, selected 2.5 px. Every native view
+# ends in the shared 24 px footer: step < > and n / N first, then what the view needs.
+# Project: tools/gui_flows/v2-126-seed.py <folder>; canvas v2-126-canvas.json.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-126-canvas.json the #126 views
+wait 2500
+wait_while resolvingCount 20000
+hover statusBar 0.5 0.5
+wait 600
+shot v2-126-01-rest-every-control-shows.png
+# -- native views: their footers
+shotcrop view:fege 10 2 v2-126-10-file-tree.png
+click slot:kobi 0.12 0.2
+wait 800
+assert_text position:kobi 1 / 12
+hover statusBar 0.5 0.5
+wait 400
+shotcrop view:kobi 10 2 v2-126-11-gallery-picked-position-sort.png
+click sort:kobi
+wait 600
+assert_found menu:sort:kobi:name
+shotcrop view:kobi 70 2 v2-126-12-gallery-sort-menu.png
+click menu:sort:kobi:name
+wait 900
+assert_text sort:kobi name
+# the menu lay over sari's header buttons: picking a row taps nothing under it
+assert_found slot:sari
+hover statusBar 0.5 0.5
+wait 300
+shotcrop view:kobi 10 2 v2-126-13-gallery-sorted-by-name.png
+wait_until zoom:zila 10000
+assert_text position:zila 1 / 12
+shotcrop view:zila 10 2 v2-126-14-image-step-name-resolution-zoom.png
+click step:zila:next
+wait 600
+assert_text position:zila 2 / 12
+click zoom:zila
+wait 600
+assert_text zoom:zila 100%
+hover statusBar 0.5 0.5
+wait 300
+shotcrop view:zila 10 2 v2-126-15-image-one-to-one.png
+wait_until zoom:sari 10000
+assert_text pdf:sari:page p 1 / 6
+shotcrop view:sari 10 2 v2-126-16-pdf-name-page-zoom.png
+# the tree starts collapsed (#231): open the papers folder first
+expand fege:papers
+wait 400
+click treeRow:fege:papers/report.pdf
+wait 400
+shiftclick treeRow:fege:papers/slides.pdf
+wait 2000
+wait_until position:tegi 10000
+assert_text position:tegi 1 / 2
+assert_found kindIcon:tegi
+hover statusBar 0.5 0.5
+wait 600
+shotcrop view:tegi 10 2 v2-126-17-preview-kind-icon-and-the-pdf-footer.png
+# -- header states
+hover header:kobi 0.3 0.5
+wait 600
+shotcrop view:kobi 10 2 v2-126-02-hover-nothing-moves.png
+click lock:kobi
+wait 500
+click autoUpdate:kobi
+wait 900
+hover statusBar 0.5 0.5
+wait 700
+shotcrop header:kobi 12 2 v2-126-03-on-auto-update-and-lock-stay.png
+click slot:zila 0.5 0.4
+wait 300
+click header:zila 0.2 0.5
+wait 600
+hover statusBar 0.5 0.5
+wait 600
+shotcrop view:zila 10 2 v2-126-04-selected-ink-2-5-px.png
+hover header:sari 0.3 0.5
+wait 400
+click float:sari
+wait 900
+hover slot:fege 0.5 0.5
+wait 700
+shotcrop view:sari 14 2 v2-126-05-floating-float-on.png
+hover header:kobi 0.3 0.5
+wait 400
+click collapse:kobi
+wait 900
+hover slot:fege 0.5 0.5
+wait 700
+shotcrop view:kobi 14 2 v2-126-06-collapsed-expand-on.png
+hover header:zila 0.3 0.5
+wait 400
+click maximize:zila
+wait 900
+hover slot:zila 0.5 0.5
+wait 700
+shot v2-126-07-maximised-restore-on.png
+key escape
+wait 700
+print snap {"target": "canvas", "layout": true}

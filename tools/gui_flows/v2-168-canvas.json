@@ -1,0 +1,76 @@
+{
+  "schema_version": 2,
+  "project": {"label": "v2-168-proj"},
+  "window_frame": {"rect": {"x": 0, "y": 0, "w": 1600, "h": 900}},
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "recordings",
+      "layout": {"position": [80, 0], "size": [380, 820]},
+      "params": {},
+      "locked": false
+    },
+    "tora": {
+      "type": "file_tree",
+      "label": "annotations",
+      "layout": {"position": [480, 0], "size": [380, 820]},
+      "params": {},
+      "locked": false
+    },
+    "mapa": {
+      "type": "map",
+      "label": "geo",
+      "layout": {"position": [880, 0], "size": [700, 820]},
+      "params": {},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "recordings",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "fege", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["recordings"], "watch": true},
+      "summary": {"sentence": "Tree A shows the recordings of the project."}
+    },
+    "l5": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "annotations",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "tora", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["annotations"]},
+      "summary": {"sentence": "Tree B shows the annotations folder."}
+    },
+    "l9": {
+      "kind": "python",
+      "label": "recording to its annotations",
+      "source": {"view": "fege", "port": "selected_files"},
+      "target": {"view": "tora", "port": "selection"},
+      "two_way": false,
+      "python": {
+        "path": ".specto/links/clip_to_geo.py",
+        "entry": "resolve",
+        "resolves_to": "value",
+        "output": "selection"
+      },
+      "params": {},
+      "summary": {
+        "sentence": "Picking a recording in tree A selects its annotation folder in tree B."
+      }
+    },
+    "l10": {
+      "kind": "read_contents",
+      "label": "geo layers",
+      "source": {"view": "tora", "port": "selected_files"},
+      "target": {"view": "mapa", "port": "features"},
+      "two_way": false,
+      "params": {"sources": ["."]},
+      "summary": {"sentence": "The map shows the GeoJSON files tree B has selected."}
+    }
+  }
+}

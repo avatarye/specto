@@ -1,0 +1,127 @@
+# v2 #106: one preview shows whatever is double-clicked in the file tree. The project has
+# one file of each kind in look/ (tools/gui_flows/v2-106-seed.py). A double-click on the
+# frame opens a preview beside the tree; each following double-click (a pdf, a note, a
+# video, a point cloud, an html page, a json sidecar, a file no renderer shows) re-points
+# the same preview, which drops the renderer it had and shows the file in the renderer
+# of its kind; the last one is a card with the file's name and size. Never a second view.
+# Then a preview on the tree's picks (v2-106-canvas.json): picking all nine files feeds it
+# every file, and stepping (#107) goes through them across kinds: the image's own next
+# control steps into the pdf, the pdf's Right key on into the note. Last, a gallery of
+# the folder opens its preview for every tile, images too (#115; v2-106-gallery.json).
+resize 1600 900
+wait 1500
+assert_found slot:@file_tree
+assert_missing slot:@preview
+wait_until treeRow:@file_tree:look 15000
+# expand: the chevron opens the folder (unless it is open) without selecting it
+expand @file_tree:look
+wait 800
+assert_found treeRow:@file_tree:look/h-blob.bin
+shot 106-01-file-tree.png
+# the image: a new preview beside the tree
+dblclick treeRow:@file_tree:look/a-frame.jpg 0.5 0.5
+wait_until slot:@preview 15000
+# off the tree, so the row's hover thumbnail goes
+hover header:@preview 0.5 0.5
+wait 2500
+assert_painted slot:@preview 0.9
+shot 106-02-image.png
+print snap {"target": "@preview"}
+# the pdf: the same preview, the image renderer gone, QtPdf's pages instead
+dblclick treeRow:@file_tree:look/b-report.pdf 0.5 0.5
+wait 3000
+assert_missing slot:@preview#2
+assert_painted slot:@preview 0.9
+shot 106-03-pdf.png
+print snap {"target": "@preview"}
+# the note: the markdown view's page
+dblclick treeRow:@file_tree:look/c-notes.md 0.5 0.5
+wait 4000
+assert_missing slot:@preview#2
+shot 106-04-markdown.png
+print snap {"target": "@preview"}
+# the video: mpv on its first frame
+dblclick treeRow:@file_tree:look/d-cam-a.mp4 0.5 0.5
+wait 4000
+assert_missing slot:@preview#2
+assert_painted slot:@preview 0.9
+shot 106-05-video.png
+print snap {"target": "@preview"}
+# the point cloud: the 3D view's Babylon page
+dblclick treeRow:@file_tree:look/e-terrain.ply 0.5 0.5
+wait 8000
+assert_missing slot:@preview#2
+assert_painted slot:@preview 0.9
+shot 106-06-3d.png
+print snap {"target": "@preview"}
+# the html page, then the json sidecar
+dblclick treeRow:@file_tree:look/f-report.html 0.5 0.5
+wait 4000
+assert_missing slot:@preview#2
+assert_painted slot:@preview 0.9
+shot 106-07-html.png
+dblclick treeRow:@file_tree:look/g-sidecar.json 0.5 0.5
+wait 4000
+assert_missing slot:@preview#2
+shot 106-08-json.png
+print snap {"target": "@preview"}
+# a file no renderer shows: the quiet card
+dblclick treeRow:@file_tree:look/h-blob.bin 0.5 0.5
+wait 2500
+assert_missing slot:@preview#2
+assert_found preview:@preview:card
+shot 106-09-card.png
+print snap {"target": "@preview"}
+print snap {"target": "canvas", "layout": true}
+# a preview that follows the tree's picks: the frame, then Shift up to the last file
+submit tools/gui_flows/v2-106-canvas.json a preview on the picks
+wait 2500
+assert_found slot:pela
+click treeRow:fege:look/a-frame.jpg 0.5 0.5
+wait 2500
+shiftclick treeRow:fege:look/h-blob.bin 0.5 0.5
+# the nine resolve (the point cloud is prepared for 3D on the way)
+wait 9000
+hover header:pela 0.5 0.5
+wait 800
+assert_found step:pela:next
+shot 106-10-nine-picked-on-the-frame.png
+print snap {"target": "pela"}
+# the image view's next control steps the preview, into the pdf
+click step:pela:next
+wait 3000
+assert_found pdf:pela:page
+shot 106-11-image-next-into-pdf.png
+# the pdf's Right key steps on, into the note
+click slot:pela 0.5 0.4
+key right
+wait 4000
+hover header:pela 0.5 0.5
+wait 800
+shot 106-12-pdf-right-into-markdown.png
+print snap {"target": "pela"}
+# a gallery of look/ (#105 thumbnails every kind): a double-click on the pdf tile opens
+# the gallery's preview on that pdf, not an image view; Space on the note's tile looks in
+# that preview; a double-click on the frame's tile shows it in the same preview (#115)
+submit tools/gui_flows/v2-106-gallery.json a gallery of look
+wait 6000
+print snap {"target": "kobi"}
+assert_found tile:kobi:b-report
+shot 106-13-mixed-gallery.png
+dblclick tile:kobi:b-report
+wait_until slot:@preview 15000
+wait 3000
+assert_missing slot:@image
+shot 106-14-pdf-tile-opens-preview.png
+click tile:kobi:c-notes
+key space
+wait 4000
+assert_missing slot:@preview#2
+shot 106-15-space-on-note-looks-in-preview.png
+print snap {"target": "@preview"}
+dblclick tile:kobi:a-frame
+wait 2500
+assert_missing slot:@image
+assert_missing slot:@preview#2
+shot 106-16-frame-tile-opens-preview.png
+print snap {"target": "canvas", "layout": true}

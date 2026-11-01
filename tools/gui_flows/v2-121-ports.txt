@@ -1,0 +1,95 @@
+# v2 #121 (spec #119 points 6, 10, 11): the port circles sit on the line between a view's
+# header and body; a port tip is two short lines ("from <name> · <what>" over the link
+# summary, "<what> · <type>" over "→ <targets>"); the root node is the identicon "root"
+# in a ring with its refresh as a small circle on its right side, its centre on the file
+# tree's input port line; in the wiring layer and the overworld a link node is a dot on
+# its wire that names its ends on hover and opens the link view (Delete, Ask agent to
+# change). The #45 canvas (two link chains around the file tree). Project:
+# tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:@file_tree
+submit tools/gui_flows/v2-45-canvas.json two link chains around the file tree
+wait 2000
+assert_found slot:"Front frames"
+assert_found separator:"Front frames"
+assert_found port:"Front frames":in
+assert_found port:"Rear A":in:1
+assert_found refresh:project
+hover panArea 0.9 0.9
+wait 300
+shot 121-01-ports-on-the-line.png
+shotcrop header:"Front frames" 30 2 121-02-ports-on-the-line-close.png
+# an input tip: the link's filter, then the type and the upstream view
+hover port:"Front frames":in
+wait 600
+assert_found tip:port:"Front frames":in
+shot 121-03-input-port-tip.png
+# a two-way end
+hover port:"Rear A":in:1
+wait 600
+assert_found tip:port:"Rear A":in:1
+shot 121-04-two-way-port-tip.png
+# an output: its types
+hover port:"Front frames":out
+wait 600
+assert_found tip:port:"Front frames":out
+shot 121-05-output-port-tip.png
+# the root node: the identicon "root" in a ring, its refresh circle on its right side,
+# its centre on the file tree input port line (the wire between them runs straight)
+hover refresh:project
+wait 600
+assert_found tip:refresh:project
+shotcrop projectNode 24 3 121-06-root-node-refresh-close.png
+hover projectNode
+wait 600
+assert_found tip:projectNode
+shot 121-07-root-node-tip.png
+click refresh:project
+wait 800
+hover panArea 0.9 0.9
+wait 300
+# the wiring layer: a dot per link, no labels; a dot opens the link view
+key `
+wait 800
+assert_found wiringLayer
+assert_found wireNode:l2
+assert_found dot:wireNode:l5
+assert_missing linkSummary
+shot 121-08-wiring-layer-dots.png
+shotcrop wireNode:l2 60 3 121-09-wiring-dot-close.png
+# hovering a dot names its ends
+hover wireNode:l3
+wait 600
+assert_found tip:wireNode:l3
+shot 121-13-link-dot-tip.png
+click wireNode:l2
+wait 800
+assert_found linkView
+assert_found linkDelete
+assert_found linkAskAgent
+shot 121-10-link-view.png
+key esc
+wait 500
+assert_missing linkView
+key esc
+wait 500
+assert_missing wiringLayer
+# the overworld: the same dots and the same root node, no refresh circle there
+key tab
+wait 1500
+assert_found overworld
+assert_found linkNode:l2
+assert_found dot:linkNode:l4
+assert_found overProjectNode
+shot 121-11-overworld-dots.png
+click linkNode:l5
+wait 800
+assert_found linkView
+shot 121-12-overworld-link-view.png
+key esc
+wait 500
+assert_missing linkView
+key tab
+wait 1200
+assert_missing overworld

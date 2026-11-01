@@ -1,0 +1,95 @@
+# v2 #216 video sound: two video views on two copies of the run-001 cam-a video that carry
+# a beep track (tools/gui_flows/v2-216-seed.py), submitted as a canvas with player A as
+# the root view (v2-216-canvas.json), then with a real mouse and keyboard: the footer's
+# speaker and volume slider at rest (muted, 100 %), the speaker turning sound on (mpv
+# stays muted while paused, unmutes only while playing), silence through a held scrub
+# and a frame step, player B taking the sound from A (one view with sound per window),
+# the volume slider (a click, the wheel; remembered as navigation), M toggling, and the
+# agent setting muted through params (the exclusive rule holds for it too). No real
+# audio is checked: the assertions read the hosts' snapshots and mpv's properties.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-216-canvas.json two video views on beeping videos
+wait 4000
+assert_found slot:rena
+assert_found slot:siba
+assert_found video:rena:mute
+assert_found video:rena:volumeSlider
+assert_found video:siba:mute
+# at rest: muted, full volume, an audio track in each (the seed muxed one in), mpv muted
+assert_host rena has_audio true 15000
+assert_host siba has_audio true 15000
+assert_host rena muted true
+assert_host rena volume 1.0
+assert_host rena mpv_mute true
+assert_text video:rena:readout 1 / 240 @ 32.48 fps
+shot 216-01-footer-muted.png
+# the speaker turns sound on for A: the view is unmuted, mpv still muted while paused
+click video:rena:mute
+wait 400
+assert_host rena muted false
+assert_host rena mpv_mute true
+assert_meta rena params.muted false
+print snap {"target": "rena"}
+# playing: mpv unmutes (sound only during normal playback); the output is the platform's
+click video:rena:play
+wait 1200
+assert_host rena mpv_mute false
+win: assert_host rena audio_output "wasapi"
+shot 216-02-sound-on-playing.png
+# a held scrub: silent while the bar is pressed, and after release (paused)
+mousedown video:rena:track 0.4 0.5
+wait 500
+assert_host rena mpv_mute true
+mouseup
+wait 600
+assert_host rena mpv_mute true
+assert_host rena muted false
+# play again, then a frame step (Right) pauses and silences; the view keeps its sound
+click video:rena:play
+wait 1000
+assert_host rena mpv_mute false
+key right
+wait 600
+assert_host rena mpv_mute true
+assert_host rena muted false
+print snap {"target": "rena"}
+# player B's speaker takes the sound: A is muted (and remembers it), B has it
+click video:siba:mute
+wait 400
+assert_host siba muted false
+assert_host rena muted true
+assert_host rena mpv_mute true
+assert_meta rena params.muted true
+assert_meta siba params.muted false
+shot 216-03-second-view-takes-sound.png
+# B's volume: a click at the slider's middle picks 50 % (remembered), the wheel steps 5 %
+click video:siba:volumeSlider 0.5 0.5
+wait 400
+assert_host siba volume 0.5
+assert_meta siba params.volume 0.5
+wheel video:siba:volumeSlider 2
+wait 400
+assert_host siba volume 0.6
+assert_meta siba params.volume 0.6
+hover video:siba:volumeSlider 0.5 0.5
+wait 600
+assert_found tip:video:siba:volumeSlider
+shot 216-04-volume-60.png
+# M toggles the focused view's sound (B has the keyboard from its speaker click)
+key m
+wait 400
+assert_host siba muted true
+key m
+wait 400
+assert_host siba muted false
+# the agent unmutes A through params: B loses its sound to it
+params rena {"muted": false}
+wait 800
+assert_host rena muted false
+assert_host siba muted true
+assert_meta siba params.muted true
+print snap {"target": "siba"}
+# undo is untouched by any of this: the two submits (the canvas, the params) only
+print canvas.undo_info {}

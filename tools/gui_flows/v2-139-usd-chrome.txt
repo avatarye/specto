@@ -1,0 +1,68 @@
+# #139 usd view chrome on the stub USD source (the real renderer is #137): open the
+# worlds folder, pick a .usda in the file tree; the picture says the start phase, then
+# shows the stub's frames (the moving test pattern) between the VIEW panel (camera speed,
+# World origin, the renderer) and the PRIMS outliner (the stub's fake tree, lazy and
+# paged), over the footer (frame all, the stage's name, time and cost readouts). A second
+# pick shows that stage and the footer steps back; both panels collapse to their strips
+# and come back from the params; the outliner searches.
+# Project: tools/gui_flows/v2-139-seed.py makes it. The suite sets
+# SPECTO_USD_STUB_PHASE_MS=700 so the start phases stay up long enough to see.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-139-canvas.json usd view of the picked stages
+wait 2000
+assert_found slot:kobi
+# the tree opens with its folders expanded; nothing is picked yet
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/depot_world.usda 15000
+assert_text phaseText:kobi no stage
+click treeRow:fege:worlds/depot_world.usda
+wait 700
+assert_found cover:kobi
+shot 139-01-start-phase.png
+wait 4000
+assert_text stage:kobi depot_world.usda
+assert_painted viewport:kobi 0.75
+hover viewport:kobi 0.5 0.5
+wait 400
+assert_text statusHint W A S D Q E fly
+shot 139-02-stub-frames.png
+print snap {"target": "kobi"}
+click toggle:kobi:/World/Vehicles
+wait 1000
+assert_found prim:kobi:/World/Vehicles/Van_000
+shot 139-03-prims-open.png
+click speed:kobi 0.85 0.5
+wait 400
+click origin:kobi
+wait 600
+shot 139-04-view-panel.png
+ctrlclick treeRow:fege:worlds/second_world.usda
+wait 4000
+assert_text stage:kobi second_world.usda
+assert_text position:kobi 2 / 2
+click step:kobi:prev
+wait 4000
+assert_text stage:kobi depot_world.usda
+assert_painted viewport:kobi 0.75
+shot 139-05-two-picks-stepped-back.png
+click panel:kobi:prims:toggle
+wait 400
+click panel:kobi:view:toggle
+wait 1500
+assert_painted viewport:kobi 0.75
+shot 139-06-panels-collapsed.png
+print snap {"target": "kobi"}
+click panel:kobi:view:expand
+wait 400
+click panel:kobi:prims:expand
+wait 800
+click primsFilter:kobi
+type block
+wait 1500
+assert_found prim:kobi:/World/Blocks/Block_02
+shot 139-07-prims-search.png
+print snap {"target": "kobi"}

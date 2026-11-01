@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "project": {"label": "v2-97 narrow tree"},
+  "window_frame": {"rect": {"x": 0, "y": 0, "w": 1576, "h": 804}},
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {"position": [80, 0], "size": [240, 780]},
+      "params": {},
+      "locked": false
+    },
+    "kobi": {
+      "type": "gallery",
+      "label": "Front left",
+      "layout": {"position": [340, 0], "size": [640, 400]},
+      "params": {"tile": 160},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "fege", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["."], "watch": true},
+      "summary": {"sentence": "The file tree shows every file in the project folder."}
+    },
+    "l2": {
+      "kind": "intaker",
+      "label": "front left frames",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "kobi", "port": "data"},
+      "scope": "pinned",
+      "two_way": false,
+      "params": {
+        "sources": ["runs/run-001/2026-10-18/session_04/cam-a-wide"],
+        "screener": ["@images"],
+        "keys": "(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "group_by": ["frame"],
+        "sort": "natural"
+      },
+      "summary": {"sentence": "The gallery shows the cam-a left frames."}
+    }
+  }
+}

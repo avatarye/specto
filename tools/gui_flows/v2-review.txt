@@ -1,0 +1,74 @@
+# v2 code review 1 fixes, one combined scripted human flow (spec #35 stories 15, 17, 24,
+# 28, 32, 34, 64, 72, 74, 75). Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-44-agent-script.json
+# The scripted agent composes cam-a and cam-b galleries linked on frame (one prompt turn,
+# one undo step); the strip's Diff shows the turn's changes on request; the header lock
+# is a user gesture the agent's submit must respect; a submit naming an unknown file is
+# refused with a fix-it; the header maximises one view and Esc returns; hovering an
+# image row in the file tree shows its thumbnail; a pan moves the window frame with
+# the window (no undo step, no guide drawn since #120; the snap layout prints it); snap
+# renders an image through the six-tool snap.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+hover agentIcon
+wait 1200
+click promptInput
+type add cam-a and cam-b galleries, linked on frame
+key enter
+wait 5500
+assert_found slot:kobi
+assert_found slot:tamu
+assert_found replyUndo
+assert_found replyDiff
+click replyDiff
+wait 700
+assert_found replyDiffText
+shot review-01-diff-on-request.png
+print canvas.history {"last": 1, "patch": true}
+click replyDiff
+wait 400
+# the user locks the cam-a gallery: the agent's move is refused with the unlock fix-it
+click lock:kobi
+wait 800
+shot review-02-locked.png
+print snap {"target": "kobi"}
+submit_refused tools/gui_flows/v2-review-moved.json move the locked gallery
+# a document naming a folder that is not there is refused too (story 24)
+submit_refused tools/gui_flows/v2-review-unknown.json gallery of a folder that does not exist
+# maximise fills the window with the cam-b gallery; Esc returns to the layout
+dblclick header:tamu 0.3 0.5
+wait 900
+assert_missing slot:fege
+shot review-03-maximised.png
+print snap {"target": "canvas", "layout": true}
+key esc
+wait 900
+assert_found slot:fege
+shot review-04-restored.png
+# hover thumbnails in the file tree
+expand fege:runs/run-001/cam-a
+wait 600
+hover treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+wait 1200
+assert_found fileTreeThumb:fege
+shot review-05-hover-thumbnail.png
+# pan from the gap between the galleries: the window frame follows the window
+# (navigation, not an undo step)
+dragxy panArea -600 0 0.6 0.5
+wait 1000
+shot review-06-panned-frame-follows.png
+print snap {"target": "canvas", "layout": true}
+key home
+wait 1000
+# snap with an image through the app's snap (the six-tool snap over MCP does the same)
+print snap {"target": "kobi", "image": true}
+# unlock; then Ctrl+Z twice reverts unlock and lock, the turn's step stays
+click lock:kobi
+wait 800
+key ctrl+z
+wait 500
+key ctrl+z
+wait 900
+shot review-07-undone-to-the-turn.png
+print canvas.history {"last": 5}

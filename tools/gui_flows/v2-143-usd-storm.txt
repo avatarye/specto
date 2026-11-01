@@ -1,0 +1,48 @@
+# #143 the usd view rendering with Hydra Storm (the OpenUSD imaging build) through
+# specto-usd-source, params.renderer storm: pick the depot world in the file tree;
+# the first look is Storm's frame from the 3d view's origin look, grey (its materials are
+# MDL, which Storm cannot draw) under a camera headlight, and the VIEW panel's renderer
+# readout says so; snap reports it and its middle is not the clear colour (no sky: the
+# clear covers most of the overview, so "painted" allows 90 %); an Alt-drag orbits the
+# point under the press (#151: a plain drag turns the camera off the stage, and with no
+# sky that leaves only the clear colour),
+# RMB + W flies, F frames all (nothing selected).
+# Project: tools/gui_flows/v2-137-seed.py makes it (needs the user's depot world).
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-143-canvas.json usd view of the picked stages, rendered with Storm
+wait 2000
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/depot_world.usda 15000
+click treeRow:fege:worlds/depot_world.usda
+wait_while cover:kobi 60000
+wait 1500
+shot 143-01-storm-first-look.png
+assert_text stage:kobi depot_world.usda
+assert_text rendererNote:kobi MDL materials show grey
+assert_painted viewport:kobi 0.9
+assert_pixel viewport:kobi 0.5 0.5 not #292a2b
+print snap {"target": "kobi", "image": true}
+dragxy viewport:kobi 260 40 0.5 0.6 alt
+wait 1500
+assert_painted viewport:kobi 0.9
+shot 143-02-storm-orbit.png
+click viewport:kobi 0.5 0.5
+print snap {"target": "kobi"}
+# RMB held flies (#151)
+mousedown viewport:kobi 0.5 0.5 button=right
+keydown w
+wait 2000
+keyup w
+mouseup button=right
+wait 1000
+shot 143-03-storm-flown.png
+key f
+wait 1500
+assert_painted viewport:kobi 0.9
+shot 143-04-storm-frame-all.png
+print snap {"target": "kobi", "image": true}

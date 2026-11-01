@@ -1,0 +1,99 @@
+{
+  "schema_version": 2,
+  "project": {
+    "label": "v2-171-proj"
+  },
+  "window_frame": {
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1600,
+      "h": 900
+    }
+  },
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {
+        "position": [
+          80,
+          0
+        ],
+        "size": [
+          300,
+          860
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "dena": {
+      "type": "image",
+      "label": "Pictures",
+      "layout": {
+        "position": [
+          400,
+          0
+        ],
+        "size": [
+          900,
+          640
+        ]
+      },
+      "params": {},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "fege",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "."
+        ],
+        "watch": false
+      },
+      "summary": {
+        "sentence": "The file tree shows every file in the project folder."
+      }
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "the pictures",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "dena",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "images"
+        ],
+        "screener": [
+          "@images"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The image view shows the pictures, one channel layout each."
+      }
+    }
+  }
+}

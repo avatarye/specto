@@ -1,0 +1,35 @@
+{
+ "delay_ms": 40,
+ "turns": [
+  [
+   {
+    "wait_ms": 3500
+   },
+   {
+    "text": "Added **kobi** and **tamu**, the cam-a and cam-b galleries, linked on `frame`."
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-canvas.json",
+     "label": "cam-a and cam-b, linked on frame"
+    }
+   }
+  ],
+  [
+   {
+    "wait_ms": 1200
+   },
+   {
+    "text": "Put **pola**, the cam-b frames, far to the right of the canvas."
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-191-far-canvas.json",
+     "label": "a far gallery"
+    }
+   }
+  ]
+ ]
+}

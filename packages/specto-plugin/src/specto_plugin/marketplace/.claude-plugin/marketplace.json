@@ -1,0 +1,14 @@
+{
+  "name": "specto-app",
+  "description": "The Claude Code plugin shipped with this Specto install.",
+  "owner": {
+    "name": "Yongqing Ye"
+  },
+  "plugins": [
+    {
+      "name": "specto",
+      "source": "./specto",
+      "description": "Find running Specto windows, read their canvas and message their agent."
+    }
+  ]
+}

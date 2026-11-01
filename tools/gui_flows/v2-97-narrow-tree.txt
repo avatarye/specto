@@ -1,0 +1,34 @@
+# v2 #97: a deep tree in a narrow (240 px) file tree. The size and modified columns take
+# the width of their widest text (Mar 2024) and stay on every row, lined up; the deep rows
+# give up indent and cut the name short on the right, keeping a few characters; hovering
+# a cut name shows it in full. Project: tools/gui_flows/v2-97-seed.py <folder>.
+resize 1600 900
+wait 1500
+submit tools/gui_flows/v2-97-canvas.json narrow tree
+wait 2500
+assert_found slot:fege
+# the details are off by default since #115 and no longer columns: the tree footer's
+# toggle shows a details line (time by age, size) under every name
+# the tree starts collapsed (#231): open the way down to the deep folder first
+wait_until treeRow:fege:runs 20000
+expand fege:runs/run-001/2026-10-18/session_04/cam-a-wide
+expand fege:notes
+wait 400
+click treeDetailsButton:fege
+wait 600
+assert_found treeDetailSize:fege:runs/run-001/2026-10-18/session_04/cam-a-wide/cam_a_wide_exposure_report_final_v3.md
+assert_found treeStamp:fege:runs/run-001/2026-10-18/session_04/cam-a-wide/cam_a_wide_exposure_report_final_v3.md
+assert_found treeStamp:fege:notes/readme.md
+assert_found treeName:fege:runs/run-001/2026-10-18/session_04/cam-a-wide/cam_a_wide_exposure_report_final_v3.md
+shot v2-97-narrow-deep-tree.png
+# with the details line every row is taller and the deep row sits below the list's
+# visible part: scroll it into view before the hover
+scroll fileTreeList:fege -4
+wait 800
+scroll fileTreeList:fege -4
+wait 800
+# the last row's top is what the list leaves in view at its bottom stop: hover there
+hover treeName:fege:runs/run-001/2026-10-18/session_04/cam-a-wide/cam_a_wide_exposure_report_final_v3.md 0.5 0.2
+wait 600
+assert_found treeTip:fege:runs/run-001/2026-10-18/session_04/cam-a-wide/cam_a_wide_exposure_report_final_v3.md
+shot v2-97-narrow-deep-tree-tip.png

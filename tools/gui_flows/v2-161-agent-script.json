@@ -1,0 +1,39 @@
+{
+ "delay_ms": 60,
+ "turns": [
+  [
+   {
+    "tool": "save_skill",
+    "args": {
+     "name": "front-run",
+     "description": "Lay out a cam-a run: the gallery left of the image view.",
+     "body": "# Cam-a run\n\nWhen the user asks for a cam-a run:\n\n- put a **gallery** of the cam-a frames on the left;\n- feed an **image** view from the gallery's selection, on its right;\n- label them `cam-a frames` and `cam-a frame`.\n"
+    }
+   },
+   {
+    "text": "Saved that layout as a skill."
+   }
+  ],
+  [
+   {
+    "skill": "specto:front-run"
+   },
+   {
+    "text": "Following specto:front-run: gallery left, image right."
+   }
+  ],
+  [
+   {
+    "tool": "save_skill",
+    "args": {
+     "name": "front-run",
+     "description": "Lay out a cam-a run: the gallery right of the image view.",
+     "body": "# Cam-a run\n\nPut the **gallery** on the right of the image view.\n"
+    }
+   },
+   {
+    "text": "Updated the skill."
+   }
+  ]
+ ]
+}

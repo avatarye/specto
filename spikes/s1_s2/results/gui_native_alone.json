@@ -1,0 +1,56 @@
+{
+  "args": {
+    "seconds": 10.0,
+    "warmup": 5.0,
+    "mode": 0,
+    "web": "none",
+    "backend": "opengl",
+    "triangles": 200000,
+    "tex_size": "",
+    "render_loop": "",
+    "out": "results/gui_native_alone.json",
+    "stay": false,
+    "screen": 1,
+    "swap_interval": -1,
+    "static": false,
+    "drive": "gui",
+    "no_timer_period": false
+  },
+  "pyside6": "6.12.0",
+  "graphics_api": "OpenGL",
+  "screen": {
+    "name": "Cintiq 16",
+    "refreshHz": 60.0,
+    "dpr": 1.0,
+    "size": "1920x1080",
+    "window": "1920x1080"
+  },
+  "swapped_frames": 600,
+  "gui_cpu_busy_pct": 0.78,
+  "timer_latency_ms": {
+    "samples": 1335,
+    "p50": 0.027,
+    "p95": 11.406,
+    "p99": 11.941,
+    "max": 12.579,
+    "mean": 4.434
+  },
+  "tex": {
+    "renderFps": 60.001,
+    "renderCpuMs": 0.087,
+    "renderGpuMs": 0.297,
+    "uploadCpuMs": 0.0,
+    "uploadGpuMs": 0.001,
+    "syncMs": 0.001,
+    "renderFpsMin": 59.96,
+    "frames": 592,
+    "glRenderer": "NVIDIA GeForce RTX 4070 Ti/PCIe/SSE2",
+    "glVersion": "4.6.0 NVIDIA 596.49",
+    "uploadBytes": 0
+  },
+  "web": {},
+  "pyframe": {},
+  "served": [],
+  "gui_idle_pct": 99.22,
+  "swapped_fps": 60.0
+}

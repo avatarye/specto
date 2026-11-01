@@ -1,0 +1,17 @@
+# #66: a v4 (NGSP) .spz splat loads offline through the vendored SPZ WASM decoder (Babylon's
+# fallback refused it with "SPZ V4+ files ... are not supported"). The project folder holds
+# scans/<file>.spz (any v4 .spz does); the canvas is v2-47-canvas.json (file tree feeding a 3D view).
+resize 1600 900
+wait 1200
+assert_found treeRow:fege:scans
+submit tools/gui_flows/v2-47-canvas.json 3D view of the picked scans
+wait 2500
+assert_found slot:kobi
+click treeRow:fege:scans
+wait 45000
+print snap {"target": "kobi"}
+shot 66-01-spz-v4-loaded.png
+dragxy slot:kobi 260 80
+wait 1500
+shot 66-02-spz-v4-orbited.png
+print snap {"target": "kobi"}

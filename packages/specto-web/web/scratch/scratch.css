@@ -1,0 +1,4 @@
+/* Scratch pad page (#184): the markdown view's look (markdown.css) with the source
+   editor taking the note's place while it shows. */
+#editor { flex: 1; min-width: 0; min-height: 0; }
+.footer-name { color: var(--color-text-muted); }

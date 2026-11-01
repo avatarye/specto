@@ -1,0 +1,14 @@
+{
+ "delay_ms": 60,
+ "turns": [
+  [
+   {
+    "tool": "scratch_append",
+    "args": {"markdown": "## Exposure\nThe cam-a frames look **overexposed** after 00004."}
+   },
+   {"tool": "scratch_append", "args": {"image": "pics/red.png", "label": "red swatch"}},
+   {"tool": "scratch_append", "args": {"markdown": "The overview notes:", "file": "notes/run-001-overview.md"}},
+   {"text": "Kept the note, the swatch and the overview notes on the scratch pad."}
+  ]
+ ]
+}

@@ -1,0 +1,12 @@
+{
+ "delay_ms": 40,
+ "turns": [
+  [
+   {"tool": "state"},
+   {"tool": "describe", "args": {"target": "link:intaker"}},
+   {"tool": "submit_canvas", "args": {"document_file": "v2-fix-select-canvas.json", "label": "gallery of the picked images, cam-a video pinned"}},
+   {"tool": "snap", "args": {"target": "kobi"}},
+   {"text": "Added a gallery that shows the images you pick in the file tree, and the cam-a video of run run-001 beside it."}
+  ]
+ ]
+}

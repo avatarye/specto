@@ -1,0 +1,78 @@
+# v2 #208 the tile floor's cues follow the rect a view is SHOWN at: a cam-a gallery, its
+# image view and a cam-b gallery beside the file tree (the #112 canvas). Selecting the
+# image view lights its footprint; Float keeps the footprint under the card, and a
+# Space-drag pan of 600 px moves the canvas views over a floor whose footprint stays put
+# under the floater; dragging the floater's header hides the footprint and the drop
+# brings it back under the new place; Unfloat drops the view on the canvas under it and
+# the footprint follows the pan again. Collapsing the cam-b gallery shrinks its footprint
+# to the title bar; expanding restores it. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+assert_found tileFloor
+submit tools/gui_flows/v2-112-canvas.json cam-a gallery, its image view, cam-b gallery
+wait 1500
+assert_found slot:@gallery
+assert_found slot:@image
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+click tile:@gallery:00005
+wait 1200
+# the selection footprint under the image view, on the canvas
+click header:@image 0.5 0.5
+wait 500
+shot 208-01-footprint-docked.png
+# Float: the card stays where it is and so does the footprint
+click float:@image
+wait 800
+shot 208-02-footprint-floated.png
+print snap {"target": "canvas", "layout": true}
+# pan 600 px right with Space held: the canvas views move, the floater and its footprint
+# stay put (a click on the empty canvas first drops the focus; Shift keeps the selection)
+shiftclick panArea 0.3 0.8
+wait 300
+keydown space
+dragxy panArea -600 0 0.5 0.6
+keyup space
+wait 1200
+assert_found slot:@image
+shot 208-03-panned-footprint-stays.png
+# the floater's header drag: the footprint hides and comes back under the drop
+dragxy header:@image -200 120 0.3 0.5 shot=208-04-floater-drag-hides-footprint.png
+wait 800
+shot 208-05-footprint-after-floater-drop.png
+print snap {"target": "canvas", "layout": true}
+# Unfloat: the view lands on the canvas under it, its footprint with it; panning back
+# carries both along
+click float:@image
+wait 800
+shot 208-06-footprint-unfloated.png
+shiftclick panArea 0.3 0.8
+wait 300
+keydown space
+dragxy panArea 600 0 0.5 0.6
+keyup space
+wait 1200
+shot 208-07-panned-back-footprint-moves.png
+# collapse the cam-b gallery: its footprint is the title bar; expand restores it. The cam-b
+# gallery sits at canvas x 1500..2060, mostly past the 1600 px window: pan 500 px left
+# first so its header and collapse button are on screen
+shiftclick panArea 0.3 0.8
+wait 300
+keydown space
+dragxy panArea -500 0 0.5 0.6
+keyup space
+wait 1200
+click header:@gallery#2 0.5 0.5
+wait 500
+shot 208-08-rear-footprint-open.png
+click collapse:@gallery#2
+wait 800
+shot 208-09-rear-footprint-collapsed.png
+print snap {"target": "canvas", "layout": true}
+click collapse:@gallery#2
+wait 800
+shot 208-10-rear-footprint-expanded.png

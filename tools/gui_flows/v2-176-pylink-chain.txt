@@ -1,0 +1,65 @@
+# v2 #176 a two-hop chain of per-pick Python links: a project seeded by
+# tools/gui_flows/v2-176-seed.py (recordings under recordings/s01/<clip>, their
+# mirrors under annotations/s01/<clip> with geo and frames, and one
+# link file .specto/links/chain.py with three entries). v2-176-canvas.json: tree A
+# (fege) shows USD, tree B (tora) source, a map (mapa) and a gallery (gala). Hop one:
+# the recording picked in tree A selects its geo folder in tree B. Hop two, off tree
+# B's picks: the map shows the folder's GeoJSONs (its readme stays out) and the gallery
+# shows the clip's frames as a collection the script builds. Until the user
+# approves the file nothing runs; one Approve covers all three links (one file, one
+# hash). A pick follows live through both hops; a burst lands only the last; the
+# user's own pick in tree B drives hop two alone.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-176-canvas.json a two-hop chain of per-pick python links
+wait 2500
+# the tree starts collapsed (#231): open the way down to the clips first
+wait_until treeRow:fege:recordings 20000
+expand fege:recordings/s01
+wait_until treeRow:fege:recordings/s01/clip1 20000
+wait_until treeRow:tora:annotations/s01 20000
+assert_found approve:tora
+assert_missing approve:fege
+shot 176-01-the-chain-needs-approval.png
+click treeName:fege:recordings/s01/clip1
+wait 1000
+assert_missing treeRow:tora:annotations/s01/clip1/geo
+assert_missing tile:gala:clip1/frame1
+shot 176-02-unapproved-pick-goes-nowhere.png
+click approve:tora
+wait 2500
+assert_missing approve:tora
+wait_until treeRow:tora:annotations/s01/clip1/geo 10000
+wait_until tile:gala:clip1/frame2 10000
+assert_missing approve:mapa
+assert_missing approve:gala
+shot 176-03-one-approval-runs-both-hops.png
+print snap {"target": "tora"}
+print snap {"target": "mapa"}
+print snap {"target": "gala"}
+click treeName:fege:recordings/s01/clip2
+wait 1500
+wait_until treeRow:tora:annotations/s01/clip2/geo 10000
+wait_until tile:gala:clip2/frame3 10000
+assert_missing tile:gala:clip1/frame1
+shot 176-04-the-pick-follows-through-both-hops.png
+print snap {"target": "mapa"}
+print snap {"target": "gala"}
+click treeName:fege:recordings/s01/clip1
+click treeName:fege:recordings/s01/clip2
+click treeName:fege:recordings/s01/clip3
+wait 1500
+wait_until tile:gala:clip3/frame1 10000
+assert_missing tile:gala:clip2/frame1
+shot 176-05-a-burst-lands-the-last-pick.png
+print snap {"target": "tora"}
+print snap {"target": "mapa"}
+click treeName:tora:annotations/s01/clip2
+wait 1500
+wait_until tile:gala:clip2/frame1 10000
+assert_missing tile:gala:clip3/frame1
+shot 176-06-own-pick-in-tree-b-drives-hop-two.png
+print snap {"target": "mapa"}
+print snap {"target": "gala"}
+print canvas.state {}

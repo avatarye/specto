@@ -1,0 +1,58 @@
+# #140 selection in the usd view with RTX on the depot world: a json view beside
+# it follows the usd view's content port. Open the prim's parent in the outliner and double-click
+# a property: it is selected (outlined, its row marked) and framed, and the json view shows
+# its properties. A click on a building in the picture picks it: the outline moves to the
+# picked mesh, the outliner opens down to its row, and the json view shows the mesh's
+# properties. Ctrl-click adds a second prim; a click on the sky clears the selection.
+# Project: tools/gui_flows/v2-137-seed.py makes it (needs the rtx extra and the file).
+# SPECTO_P4_PRIM names any pickable prim of the user's own world and SPECTO_P4_PRIM_PARENT
+# its parent, the outliner row to open (the flow never names a real one): e.g.
+# /World/Buildings/Block_02 under /World/Buildings
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-140-canvas.json usd view and the selected prim's properties
+wait 2000
+assert_found slot:kobi
+assert_found slot:tamu
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/depot_world.usda 15000
+click treeRow:fege:worlds/depot_world.usda
+wait 1500
+wait_while cover:kobi 400000
+wait 4000
+assert_painted viewport:kobi 0.5
+shot 140-01-first-look.png
+# the outliner: open the parent, double-click the prim to select and frame it
+wait_until toggle:kobi:{env:SPECTO_P4_PRIM_PARENT} 15000
+click toggle:kobi:{env:SPECTO_P4_PRIM_PARENT}
+wait_until prim:kobi:{env:SPECTO_P4_PRIM} 15000
+dblclick prim:kobi:{env:SPECTO_P4_PRIM} 0.6 0.5
+wait 5000
+assert_painted viewport:kobi 0.5
+shot 140-02-property-framed.png
+print snap {"target": "tamu"}
+# the picture: a click on the block picks the mesh under it
+click viewport:kobi 0.5 0.5
+wait 4000
+shot 140-03-block-picked.png
+print snap {"target": "kobi"}
+print snap {"target": "tamu"}
+# Ctrl adds a second prim, lower in the picture
+ctrlclick viewport:kobi 0.3 0.8
+wait 4000
+shot 140-04-ctrl-added.png
+print snap {"target": "kobi"}
+# the sky: nothing under the click, the selection clears (back to the first look first:
+# F would frame the selection, #151); World origin is in the VIEW panel, which the
+# canvas collapses to its strip, so open it first
+click panel:kobi:view:expand
+wait 1500
+click origin:kobi
+wait 3000
+click viewport:kobi 0.5 0.04
+wait 3000
+shot 140-05-cleared.png
+print snap {"target": "kobi"}

@@ -1,0 +1,44 @@
+# v2 #39 first dataflow: open a folder (the file tree appears, fed by the project
+# intaker), submit a canvas document that adds a gallery fed by an intaker off the file
+# tree's selected files, pick files in the tree with a real mouse (click, Shift-click),
+# the gallery follows after each resolve; close the gallery from its header and undo.
+# Project: a folder of run-001 frames under runs/run-001/{cam-a,cam-b} plus notes/
+# (tools/gui_flows/v2-39-seed.py makes it). The canvas document is v2-39-canvas.json.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+# the tree starts collapsed (#231): open the way down to the cam-a folder first
+wait_until treeRow:fege:runs 20000
+expand fege:runs/run-001
+assert_found treeRow:fege:runs/run-001/cam-a
+shot 39-01-file-tree.png
+print snap {"target": "canvas", "layout": true}
+submit tools/gui_flows/v2-39-canvas.json cam-a gallery of the picked frames
+wait 1500
+assert_found slot:kobi
+shot 39-02-gallery-empty.png
+# expand: the chevron opens the folder (unless it is open) without selecting it
+expand fege:runs/run-001/cam-a
+wait 600
+assert_found treeRow:fege:runs/run-001/cam-a/00000_1700000000000000000.jpg
+shot 39-02b-front-expanded.png
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+wait 1500
+shot 39-03-gallery-one-frame.png
+print snap {"target": "kobi"}
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2000
+shot 39-04-gallery-eight-frames.png
+print snap {"target": "kobi"}
+click treeRow:fege:runs/run-001/cam-b
+wait 1500
+shot 39-05-rear-folder-no-match.png
+print snap {"target": "kobi"}
+click close:kobi
+wait 800
+shot 39-06-closed.png
+click undoButton
+wait 1500
+assert_found slot:kobi
+shot 39-07-undone.png
+print snap {"target": "canvas", "layout": true}

@@ -1,0 +1,23 @@
+# v2 #49 reopening a project (spec #35 stories 4, 5, 7): the app was relaunched with no
+# project and the folder picked from the welcome card's recent list (gui_session
+# --welcome --welcome-recent, screenshots 49-08-*). The galleries, their links and
+# layout, the cam-a gallery's selection and the undo history are as v2-49-open.txt left
+# them; the undo button reverts the last prompt turn from the earlier run and redo
+# brings it back.
+resize 1600 900
+wait 2500
+assert_found slot:fege
+assert_found slot:kobi
+assert_found slot:tamu
+shot 49-09-reopened.png
+print canvas.state {}
+print snap {"target": "kobi"}
+print snap {"target": "tamu", "layout": true}
+click undoButton
+wait 1200
+shot 49-10-undone-from-the-earlier-run.png
+print snap {"target": "tamu", "layout": true}
+click redoButton
+wait 1200
+shot 49-11-redone.png
+print canvas.history {"last": 3}

@@ -1,0 +1,50 @@
+# #129 3D view chrome: no in-body bar; a VIEW panel on the left (camera speed, world
+# origin), an ITEMS panel on the right (All / None, the file size under each name), both
+# collapsible, and the footer (item count, frame all on the target button). Same project
+# and canvas as #47: open the folder, submit the 3D view, pick the scans folder, then use
+# the panels and the footer with a real mouse; the navigation keys are in the status bar
+# while the view is hovered.
+# Project: tools/gui_flows/v2-47-seed.py makes it.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-47-canvas.json 3D view of the picked scans
+wait 2500
+assert_found slot:kobi
+click treeRow:fege:scans
+wait 9000
+hover slot:kobi 0.5 0.5
+wait 400
+assert_text statusHint W A S D Q E fly
+shot 129-01-3d-panels-and-footer.png
+print snap {"target": "kobi"}
+webclick kobi panels.items.none
+wait 900
+shot 129-02-items-none.png
+webclick kobi panels.items.all
+wait 900
+webclick kobi buttons.speed 0.85 0.5
+wait 600
+shot 129-03-camera-speed.png
+keydown w
+wait 700
+keyup w
+wait 700
+webclick kobi buttons.origin
+wait 900
+shot 129-04-world-origin.png
+webclick kobi panels.items.toggle
+wait 600
+webclick kobi panels.view.toggle
+wait 900
+shot 129-05-both-panels-collapsed.png
+print snap {"target": "kobi"}
+webclick kobi buttons.frameAll
+wait 900
+shot 129-06-frame-all.png
+webclick kobi panels.view.toggle
+wait 600
+webclick kobi panels.items.toggle
+wait 900
+shot 129-07-panels-back.png
+print snap {"target": "kobi"}

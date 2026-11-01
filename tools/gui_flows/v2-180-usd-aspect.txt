@@ -1,0 +1,32 @@
+# #180 the usd view's picture keeps the viewport's aspect from the first frame: the view
+# opens from a saved document with the VIEW panel restored wide (260) and the PRIMS
+# outliner collapsed, so the viewport settles between them while the source is still
+# starting. The stub's test pattern (its band and frame) must fill the viewport unstretched
+# on the first look, with no panel toggled; snap's source width / height must match the
+# viewport's rect times the device pixel ratio. Then the panel toggles once and back, and
+# the picture is the same.
+# Project: tools/gui_flows/v2-139-seed.py makes it. The suite sets
+# SPECTO_USD_STUB_PHASE_MS=700 so the start phases outlast the viewport's first resize.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-180-canvas.json usd view, VIEW panel restored wide
+wait 2000
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/depot_world.usda 15000
+click treeRow:fege:worlds/depot_world.usda
+wait 4000
+assert_text stage:kobi depot_world.usda
+assert_painted viewport:kobi 0.75
+shot 180-01-first-look-panels-restored.png
+print snap {"target": "kobi"}
+print shell.locate {"name": "viewport:kobi"}
+click panel:kobi:view:toggle
+wait 800
+click panel:kobi:view:expand
+wait 1500
+shot 180-02-after-a-toggle.png
+print snap {"target": "kobi"}

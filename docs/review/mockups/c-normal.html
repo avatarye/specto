@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Specto mockup - C Patch/Perform - perform view</title>
+<style>
+:root{
+  --bg:#07080a; --panel:#0e1013; --text:#c4c8ce; --dim:#6c727b; --faint:#3d424a;
+  --time:#ffd23f; --cam:#22d3ee; --item:#4ade80; --sel:#f472d0; --data:#9aa3ad;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace; --ui:"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1600px;height:1000px;overflow:hidden}
+body{background:#050608;font:12px/1.35 var(--mono);color:var(--text)}
+.win{position:absolute;left:14px;top:12px;width:1572px;height:976px;background:var(--bg);border-radius:8px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.07);display:flex;flex-direction:column}
+.title{height:28px;flex:none;background:#0b0c0e;display:flex;align-items:center;padding-left:12px;color:#6c727b;font:12px var(--ui)}
+.title .caps{margin-left:auto;display:flex;height:100%}
+.title .caps span{width:46px;display:flex;align-items:center;justify-content:center;color:#777}
+.stage{flex:1;display:flex;flex-direction:column;gap:2px;background:#000;min-height:0;position:relative}
+.row{display:flex;gap:2px;min-height:0}
+.p{background:var(--panel);position:relative;overflow:visible;min-width:0}
+.p>.clip{position:absolute;inset:0;overflow:hidden}
+canvas{display:block;width:100%;height:100%}
+.id{position:absolute;left:8px;bottom:6px;font:10px var(--mono);color:rgba(200,205,212,.35);z-index:3}
+.notch{position:absolute;z-index:6;border-radius:1px}
+.notch.v{width:4px;height:22px}
+.notch.h{height:4px;width:22px}
+.notch.new{background-image:repeating-linear-gradient(45deg,rgba(0,0,0,.55) 0 3px,transparent 3px 6px)}
+.hover{position:absolute;left:0;right:0;top:0;height:30px;background:linear-gradient(rgba(10,12,15,.92),rgba(10,12,15,.75));border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:12px;padding:0 10px;z-index:5;font-size:11.5px}
+.hover b{color:#f1f3f5}
+.hover .d{color:var(--dim)}
+.hover .r{margin-left:auto;display:flex;gap:6px}
+.hover .k{border:1px solid #3a3f47;border-radius:3px;padding:1px 6px;color:#aab0b8;font-size:10.5px}
+.lk{display:inline-flex;align-items:center;gap:4px;color:#9aa1aa}
+.lk i{width:8px;height:3px;display:inline-block}
+.newbox{position:absolute;inset:0;outline:1.5px dashed #f5f5f5;outline-offset:-3px;z-index:7;pointer-events:none;box-shadow:inset 0 0 0 3px rgba(255,255,255,.04),inset 0 0 30px rgba(255,255,255,.06)}
+.newtag{position:absolute;right:8px;bottom:8px;z-index:8;background:#f5f5f5;color:#000;font:700 10.5px var(--mono);padding:2px 7px;letter-spacing:.04em}
+.ctl{position:absolute;inset:0;padding:22px 26px;display:flex;flex-direction:column;gap:20px}
+.crow{display:flex;align-items:center;gap:16px}
+.crow .lb{width:120px;color:#9aa1aa;font-size:12px}
+.slider{flex:1;height:2px;background:#2a2e35;position:relative}
+.slider .fill{position:absolute;top:0;bottom:0;background:var(--time)}
+.slider .kn{position:absolute;top:-7px;width:4px;height:16px;background:var(--time);box-shadow:0 0 10px rgba(255,210,63,.6)}
+.val{color:var(--time);width:70px;text-align:right}
+.tog{width:30px;height:14px;border:1px solid #4a5059;position:relative}
+.tog.on{border-color:#d7dbe0}
+.tog:after{content:"";position:absolute;top:2px;left:2px;width:8px;height:8px;background:#5a606a}
+.tog.on:after{left:18px;background:#f1f3f5}
+.bt{border:1px solid #d7dbe0;color:#f1f3f5;padding:5px 14px}
+.code{font:12px/19px var(--mono);color:#c9d1d9;padding:12px 0;height:100%;background:#0b0d10}
+.cl{display:flex;white-space:pre}
+.cl .ln{width:34px;text-align:right;color:#3d424a;padding-right:8px}
+.cl .gm{width:2px;margin-right:10px}
+.cl.add .gm{background:#f5f5f5}.cl.add{background:rgba(255,255,255,.035)}
+.cl.mod .gm{background:repeating-linear-gradient(#f5f5f5 0 2px,transparent 2px 4px)}
+.tk{color:#79c0ff}.ts{color:#a5d6ff}.tn{color:#ffa657}.tb{color:#ff7b72}
+.gal{position:absolute;inset:0;display:grid;grid-template-columns:repeat(5,1fr);grid-auto-rows:1fr;gap:2px;background:#000}
+.th{position:relative;overflow:hidden}
+.th.sel:after{content:"";position:absolute;inset:0;box-shadow:inset 0 0 0 2px var(--item)}
+.strip{position:absolute;left:0;right:0;top:0;height:110px;display:flex;gap:2px}
+.strip .th{flex:1}
+.scrub{position:absolute;left:0;right:0;bottom:0;height:42px;background:#0b0d10;border-top:1px solid #1a1d22}
+.scrub .bar{position:absolute;left:150px;right:330px;top:20px;height:2px;background:#2a2e35}
+.scrub .done{position:absolute;left:0;top:0;bottom:0;width:51.5%;background:var(--time)}
+.scrub .ph{position:absolute;left:51.5%;top:-9px;width:2px;height:20px;background:var(--time);box-shadow:0 0 10px var(--time)}
+.scrub .tc{position:absolute;left:16px;top:12px;color:var(--time);font-size:13px}
+.scrub .r{position:absolute;right:16px;top:12px;color:var(--dim);font-size:11px}
+.foot{height:24px;flex:none;background:#0b0c0e;border-top:1px solid #15171a;display:flex;align-items:center;gap:16px;padding:0 12px;font-size:11px;color:#6c727b}
+.foot b{color:#0b0c0e;background:#f1f3f5;padding:1px 7px;letter-spacing:.12em;font-size:10.5px}
+.foot .ag{color:#f5f5f5}
+.tagc{position:absolute;font:10.5px var(--mono);padding:2px 6px;background:rgba(8,9,11,.85);z-index:6}
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="title">Specto &middot; robotA &middot; Review<div class="caps"><span>&#8212;</span><span>&#9744;</span><span>&#10005;</span></div></div>
+  <div class="stage">
+    <div class="row" style="height:528px">
+      <div class="p" style="width:968px">
+        <div class="clip"><canvas data-draw="cloud" data-seed="3" data-opts='{"bg":"#07080a","bg2":"#0f1216","cmap":"neon","grid":"rgba(120,200,255,0.05)","ego":"#f1f3f5","frustum":"#22d3ee","path":"#ffd23f","size":1.25,"by":"mixed","eye":[-20,-12,11],"fov":58}'></canvas></div>
+        <div class="hover"><b>USD v3</b><span class="d">viewer.usd</span><span class="d">&larr; col:lidar1</span><span class="lk"><i style="background:var(--time)"></i>time</span><span class="lk"><i style="background:var(--cam)"></i>cam &harr;</span><span class="lk"><i style="background:var(--sel)"></i>sel &harr;</span><div class="r"><span class="k">F1 patch</span><span class="k">&#10530;</span><span class="k">&middot;&middot;&middot;</span></div></div>
+        <div class="notch v" style="right:-3px;top:180px;background:var(--cam)"></div>
+        <div class="notch v" style="right:-3px;top:214px;background:var(--sel)"></div>
+        <div class="notch h" style="left:420px;bottom:-3px;background:var(--time)"></div>
+        <span class="id">v3</span>
+      </div>
+      <div class="p" style="flex:1">
+        <div class="clip"><canvas data-draw="map" data-seed="5" data-opts='{"theme":"night","block":56,"labelSize":10,"trackColor":"#22d3ee","trackHalo":"rgba(0,0,0,0.9)","posColor":"#22d3ee","trackFuture":"rgba(90,100,115,0.9)","progress":0.6,"polys":[{"pts":[[-3.6,-1.6],[-0.4,-1.9],[-0.2,0.6],[-3.2,0.9]],"fill":"rgba(255,210,63,0.08)","stroke":"#ffd23f","label":"loading zone","lw":1.5},{"pts":[[1.2,-2.7],[3.6,-2.6],[3.8,-0.6],[1.4,-0.8]],"fill":"rgba(244,114,208,0.10)","stroke":"#f472d0","dash":[6,4],"label":"geofence B","lw":1.5}]}'></canvas></div>
+        <div class="notch v" style="left:-3px;top:180px;background:var(--cam)"></div>
+        <div class="notch v" style="left:-3px;top:214px;background:var(--sel)"></div>
+        <div class="notch h" style="left:300px;bottom:-3px;background:var(--time)"></div>
+        <span class="id">v4</span>
+      </div>
+    </div>
+    <div class="row" style="height:236px">
+      <div class="p" style="width:620px">
+        <div class="clip gal">
+          <div class="th"><canvas data-draw="camera" data-seed="1"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="2"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="3"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="4"></canvas></div>
+          <div class="th sel"><canvas data-draw="camera" data-seed="5" data-opts='{"boxes":true,"boxColor":"#4ade80"}'></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="6"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="7"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="8"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="9"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="10"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="12"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="13"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="14"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="15"></canvas></div>
+          <div class="th"><canvas data-draw="camera" data-seed="16"></canvas></div>
+        </div>
+        <div class="notch v" style="right:-3px;top:60px;background:var(--item)"></div>
+        <div class="notch h" style="left:140px;top:-3px;background:var(--time)"></div>
+        <span class="id">v2</span>
+      </div>
+      <div class="p" style="width:440px">
+        <div class="clip"><div class="code" data-code="controls"></div></div>
+        <div class="notch v" style="left:-3px;top:60px;background:var(--item)"></div>
+        <span class="id">v6</span>
+      </div>
+      <div class="p" style="flex:1">
+        <div class="ctl">
+          <div class="crow"><span class="lb">time offset</span><div class="slider"><div class="fill" style="left:38%;right:50%"></div><div class="kn" style="left:38%"></div></div><span class="val">-120 ms</span></div>
+          <div class="crow"><span class="lb">show boxes</span><div class="tog on"></div><span style="color:var(--dim);font-size:11px">&rarr; v2.overlay</span></div>
+          <div class="crow"><span class="lb">follow camera</span><div class="tog on"></div><span style="color:var(--dim);font-size:11px">&rarr; cam</span></div>
+          <div class="crow"><span class="lb">run 7 / 12</span><span class="bt">next run &rarr;</span></div>
+        </div>
+        <div class="newbox"></div><span class="newtag">NEW &middot; t12</span>
+        <div class="notch h new" style="left:140px;bottom:-3px;background-color:var(--time)"></div>
+        <div class="notch v new" style="left:-3px;top:150px;background-color:var(--cam)"></div>
+        <span class="id">ctl:v11</span>
+      </div>
+    </div>
+    <div class="p" style="flex:1">
+      <div class="clip">
+        <div class="strip" id="strip"></div>
+        <div class="scrub"><span class="tc">00:41.200</span><div class="bar"><div class="done"></div><div style="position:absolute;left:31%;width:6%;top:-4px;height:10px;background:rgba(255,210,63,.18)"></div><div class="ph"></div></div><span class="r">1.0x &nbsp; frame 1236 &nbsp; offset <span style="color:#f5f5f5">-120 ms</span></span></div>
+      </div>
+      <div class="notch h new" style="left:1196px;top:-3px;background-color:var(--time)"></div>
+      <div class="notch h" style="left:700px;top:-3px;background:var(--time)"></div>
+      <div class="tagc" style="right:8px;top:8px;color:#f5f5f5;border:1px dashed #f5f5f5">+ wire time.offset &larr; ctl:v11</div>
+      <span class="id" style="bottom:48px">v8</span>
+    </div>
+  </div>
+  <div class="foot"><b>PERFORM</b><span style="color:#c4c8ce">Review</span><span>1920&times;1080 &middot; Monitor 1</span><span>F1: patch</span><span>no chrome &middot; header on hover</span><span style="margin-left:auto" class="ag">turn 12 unreviewed: +1 node +2 wires</span><span>60 fps</span></div>
+</div>
+<script>
+  const s = document.getElementById('strip');
+  for (let i = 0; i < 12; i++) {
+    const d = document.createElement('div'); d.className = 'th' + (i === 6 ? ' sel' : '');
+    d.innerHTML = `<canvas data-draw="camera" data-seed="${30 + i}"></canvas>`;
+    s.appendChild(d);
+  }
+</script>
+<script src="common.js"></script>
+</body>
+</html>

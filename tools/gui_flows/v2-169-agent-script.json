@@ -1,0 +1,129 @@
+{
+ "delay_ms": 60,
+ "turns": [
+  [
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "edits": {
+      "views": {
+       "new1": {
+        "type": "gallery",
+        "label": "first",
+        "layout": {
+         "position": [
+          400,
+          0
+         ],
+         "size": [
+          600,
+          400
+         ]
+        }
+       }
+      },
+      "links": {
+       "new2": {
+        "kind": "intaker",
+        "scope": "pinned",
+        "source": {
+         "view": "project",
+         "port": "all_files"
+        },
+        "target": {
+         "view": "new1",
+         "port": "data"
+        },
+        "params": {
+         "sources": [
+          "."
+         ],
+         "screener": [
+          "@images"
+         ]
+        },
+        "summary": {
+         "sentence": "Always shows the project images."
+        }
+       }
+      }
+     },
+     "label": "add a gallery"
+    }
+   }
+  ],
+  [
+   {
+    "wait_ms": 6000
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "edits": {
+      "views": {
+       "new1": {
+        "type": "gallery",
+        "label": "second",
+        "layout": {
+         "position": [
+          400,
+          0
+         ],
+         "size": [
+          600,
+          400
+         ]
+        }
+       }
+      },
+      "links": {
+       "new2": {
+        "kind": "intaker",
+        "scope": "pinned",
+        "source": {
+         "view": "project",
+         "port": "all_files"
+        },
+        "target": {
+         "view": "new1",
+         "port": "data"
+        },
+        "params": {
+         "sources": [
+          "."
+         ],
+         "screener": [
+          "@images"
+         ]
+        },
+        "summary": {
+         "sentence": "Always shows the project images."
+        }
+       }
+      }
+     },
+     "label": "add another gallery"
+    }
+   }
+  ],
+  [
+   {
+    "wait_ms": 300
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "edits": {
+      "views": {
+       "rano": null
+      }
+     },
+     "label": "remove rano"
+    }
+   },
+   {
+    "text": "rano is already gone."
+   }
+  ]
+ ]
+}

@@ -1,0 +1,82 @@
+# v2 #191 the canvas tile floor (#197; v3 #201, design "08c Tile floor v3"): square
+# bg-tint tiles fixed to the screen, 8 px cells (a 3 px tile at rest, 6 px lit, a 2 px gap
+# between lit tiles), rendered at full resolution. A request in the agent panel: while the
+# scripted agent thinks (3.5 s) agent-coloured bands leave the S icon every 1.2 s and reach
+# 584 px; its turn adds kobi and tamu on screen, so two chain-coloured bands leave each
+# view's outline, and the turn ends with nothing waiting, so one green done band crosses
+# the window. Selecting a view lights its footprint (the covered tiles solid in the chain
+# colour, falling off over 20 px; the frame stays 1.5 px); dragging the header hides the
+# footprint and the drop brings it back. The second turn adds pola ~5.3k px to the right,
+# beyond the maximum pulse distance: three pulses at the right window edge and the far
+# chip (name, distance, arrow); clicking the chip pans there. The wiring layer (`) dims
+# the tiles to 30 %. A middle-drag pan moves the views over a floor that stays still
+# (#197). The overworld (Tab) has the same screen-fixed floor at any zoom.
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-191-agent-script.json
+resize 1600 900
+wait 1500
+assert_found tileFloor
+shot 191-01-floor-at-rest.png
+shotcrop agentIcon 60 4 191-02-tiles-close-up.png
+hover agentIcon
+wait 600
+click promptInput
+type add cam-a and cam-b galleries, linked on frame
+key enter
+wait 300
+key escape
+wait 900
+shot 191-03-thinking-bands.png
+wait 900
+shot 191-04-thinking-later.png
+wait_until slot:kobi 20000
+wait 350
+shot 191-05-new-view-bands.png
+wait_until agentDone 20000
+shot 191-06-done-band.png
+wait 2500
+shot 191-07-rest-again.png
+click header:kobi 0.5 0.5
+wait 400
+shot 191-08-selection-footprint.png
+dragxy header:kobi 120 60 0.5 0.5 shot=191-09-drag-hides-footprint.png
+wait 500
+shot 191-10-footprint-after-drop.png
+key ctrl+z
+wait 500
+hover agentIcon
+wait 600
+click promptInput
+type put the cam-b frames far to the right
+key enter
+wait 300
+key escape
+wait_until floorChip 20000
+wait 200
+shot 191-11-far-pulses-and-chip.png
+click floorChip
+wait 900
+assert_found slot:pola
+shot 191-12-chip-panned.png
+key home
+wait 600
+key `
+wait 400
+shot 191-13-wiring-dims-tiles.png
+key `
+wait 300
+dragxy panHand -150 -60 0.6 0.7 button=middle shot=191-14-pan-held.png
+wait 300
+shot 191-15-after-pan.png
+key tab
+wait 900
+assert_found overTileFloor
+shot 191-16-overworld-floor.png
+wheel overPanArea -3 0.5 0.5
+wait 400
+shot 191-17-overworld-zoomed-out.png
+wheel overPanArea 6 0.5 0.5
+wait 400
+shot 191-18-overworld-zoomed-in.png
+key tab
+wait 600

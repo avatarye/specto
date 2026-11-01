@@ -1,0 +1,87 @@
+# #175 HDRI environments in the 3D view. scans/ holds five PBR spheres (chrome, gold,
+# white, red, blue) over a checkered point cloud (tools/gui_flows/v2-175-3d-hdri-seed.py).
+# The footer's environment pill is always in sight (#158) and says No HDRI at rest (the
+# two lights); its menu offers None and the five bundled Poly Haven HDRIs. Picking one
+# lights the spheres by it (the lights off, the pill in accent), kept in
+# params.environment; the VIEW panel's Show as background draws it behind the scene;
+# rotation turns it; wireframe hides the background; None brings the lights back. The
+# agent's params switch it too. Check the shots: the chrome and gold spheres mirror each
+# HDRI, the points keep their checker colours, the backgrounds read as studio, sunny
+# hillside, indoor room, overcast meadow, city square.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-47-canvas.json 3D view of the picked scans
+wait 2500
+assert_found slot:kobi
+click treeRow:fege:scans
+wait 6000
+assert_web kobi items.spheres.loaded true 20000
+assert_web kobi environment.name "none"
+assert_web kobi environment.lights true
+hover slot:fege 0.5 0.5
+wait 400
+shot 175-01-no-hdri-at-rest.png
+hover slot:kobi 0.5 0.55
+webclick kobi buttons.environment
+wait 500
+assert_web kobi environments ["studio","overcast","sunny","indoor","urban"]
+shot 175-02-menu.png
+webclick kobi envs.studio
+assert_web kobi environment.ready true
+assert_web kobi environment.lights false
+wait 800
+shot 175-03-studio.png
+print snap {"target": "kobi"}
+webclick kobi buttons.envBackground
+assert_web kobi environment.background true
+wait 800
+shot 175-04-studio-background.png
+webclick kobi buttons.environment
+wait 400
+webclick kobi envs.sunny
+assert_web kobi environment.ready true
+wait 800
+shot 175-05-sunny.png
+webclick kobi buttons.envRotation 0.5 0.5
+wait 800
+shot 175-06-sunny-turned.png
+webclick kobi buttons.environment
+wait 400
+webclick kobi envs.indoor
+assert_web kobi environment.ready true
+wait 800
+shot 175-07-indoor.png
+webclick kobi buttons.envIntensity 0.12 0.5
+wait 800
+shot 175-08-indoor-dim.png
+webclick kobi buttons.viewMode
+wait 400
+webclick kobi modes.wireframe
+assert_web kobi environment.background false
+wait 800
+shot 175-09-wireframe-no-background.png
+webclick kobi buttons.viewMode
+wait 400
+webclick kobi modes.lit
+wait 400
+params kobi {"environment": "overcast", "environment_intensity": 1.0, "environment_rotation": 0}
+assert_web kobi environment.name "overcast"
+assert_web kobi environment.ready true
+wait 800
+shot 175-10-agent-overcast.png
+params kobi {"environment": "urban"}
+assert_web kobi environment.ready true
+wait 800
+shot 175-11-agent-urban.png
+webclick kobi buttons.environment
+wait 400
+webclick kobi envs.none
+assert_web kobi environment.name "none"
+assert_web kobi environment.lights true
+assert_web kobi environment.background false
+wait 800
+hover slot:fege 0.5 0.5
+wait 400
+shot 175-12-back-to-none.png
+print snap {"target": "kobi"}

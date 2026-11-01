@@ -1,0 +1,97 @@
+# v2 #186: launchers. Project: tools/gui_flows/v2-186-seed.py <folder> (scenes/*.blend,
+# shots/*.jpg, tools/setup.exe and run.ps1, notes/a.md; the machine's launchers.toml in
+# .specto/gui-user names two fake launchers: Python writing its argv to
+# .specto/launched/argv-<pid>.json, so no real program starts). App flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-186-agent-script.json
+# A right-click on a .blend row offers "Open with Fake Blender" first and the "Open with"
+# submenu beside it (the matching launchers, System default, Show in Explorer, Edit
+# launchers... and Edit project launchers..., #204); three jpgs go to the each=false Fake Viewer in one process; a program's
+# row has no top entry and a disabled System default ("would run it"); a typo saved in
+# launchers.toml shows a notice naming its line, and the fixed file loads again; the
+# agent launches Fake Blender and its thread shows "launched Fake Blender on a.blend", and
+# is refused the system default for setup.exe (a launch row with the reason, #192).
+# Show in Explorer and the two Edit launchers... rows are not clicked: they would open
+# Explorer and an editor on the desktop.
+resize 1600 900
+wait 1500
+wait_until treeRow:fege:scenes 20000
+expand fege:scenes
+expand fege:shots
+expand fege:tools
+wait 600
+# a .blend: its default launcher first, the submenu on hover
+rclick treeRow:fege:scenes/a.blend 0.6 0.5
+wait 600
+assert_found menu:launch.default
+assert_text menuText:launch.default Open with Fake Blender
+hover menu:launch.open_with
+wait 600
+assert_found menu:launch.open_with/launcher:fake-blender
+assert_found menu:launch.open_with/system
+assert_found menu:launch.open_with/explorer
+assert_found menu:launch.open_with/edit
+# #204: the project's own file next to the machine's (not clicked either: an editor)
+assert_found menu:launch.open_with/edit_project
+assert_text menuDetail:launch.open_with/edit_project .specto/launchers.toml
+shot v2-186-01-open-with-submenu.png
+click menu:launch.open_with/launcher:fake-blender
+wait 400
+assert_missing menu:launch.open_with
+assert_files {project}/.specto/launched/argv-*.json 1
+# three jpgs at once: one Fake Viewer process with all three
+click treeRow:fege:shots/1.jpg 0.6 0.5
+ctrlclick treeRow:fege:shots/2.jpg 0.6 0.5
+ctrlclick treeRow:fege:shots/3.jpg 0.6 0.5
+wait 400
+rclick treeRow:fege:shots/2.jpg 0.6 0.5
+wait 600
+assert_text menuText:launch.default Open with system default
+hover menu:launch.open_with
+wait 600
+assert_found menu:launch.open_with/launcher:fake-viewer
+shot v2-186-02-jpgs-open-with.png
+click menu:launch.open_with/launcher:fake-viewer
+wait 400
+assert_files {project}/.specto/launched/argv-*.json 2
+# a program: no top entry, System default disabled
+rclick treeRow:fege:tools/setup.exe 0.6 0.5
+wait 600
+assert_missing menu:launch.default
+hover menu:launch.open_with
+wait 600
+assert_found menu:launch.open_with/system
+assert_text menuDetail:launch.open_with/system would run it
+shot v2-186-03-program-refused.png
+key escape
+wait 300
+key escape
+wait 300
+# a typo saved in launchers.toml: a notice names the line, above it the empty canvas hint
+# (never under the notices, #192); the fixed file loads again and its warning goes
+spawn uv run python tools/gui_flows/v2-186-seed.py {project} --config bad
+wait 2500
+assert_found notice:warn
+assert_found emptyCanvasHintCard
+shot v2-186-04-config-typo-notice.png
+spawn uv run python tools/gui_flows/v2-186-seed.py {project} --config good
+wait 2500
+assert_missing notice:warn
+shot v2-186-05-config-reloaded.png
+# the agent: launches Fake Blender, a row in the thread; refused the system default
+hover agentIcon
+wait 1200
+click promptInput
+type open a.blend in blender
+key enter
+wait 3000
+assert_found replyLaunch
+assert_text replyLaunchNote launched Fake Blender on a.blend
+assert_files {project}/.specto/launched/argv-*.json 3
+shot v2-186-06-agent-launch-row.png
+click promptInput
+type and run tools/setup.exe
+key enter
+wait 3000
+# the refusal is a launch row too, in the error tone, with the reason (#192)
+assert_text replyLaunchNote refused System default on setup.exe
+shot v2-186-07-agent-refused.png

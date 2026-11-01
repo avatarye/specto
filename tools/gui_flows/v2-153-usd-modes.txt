@@ -1,0 +1,58 @@
+# #153 the usd view's view modes with RTX: pick worlds/modes.usda (the seed,
+# tools/gui_flows/v2-153-seed.py: a red box, a green UsdPreviewSurface ball, a blue
+# collider wall and a convex-hull rock, under the Kit sky). The footer's mode pill is
+# always shown (#158); its menu switches to unlit (base colour, black behind), wireframe
+# (1 px wires over black) and collision (only the two colliders, tinted, the note says
+# how many), the pill in the accent; a click in collision names a collider; lit again
+# brings the sky back.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-153-canvas.json usd view of the picked stage, view modes
+wait 2000
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/modes.usda 15000
+click treeRow:fege:worlds/modes.usda
+wait_while cover:kobi 400000
+wait 3000
+shot 153-01-lit-pill.png
+assert_found viewMode:kobi
+assert_text viewMode:kobi Lit
+click viewMode:kobi
+wait 600
+assert_found menu:mode-collision
+shot 153-03-mode-menu.png
+click menu:mode-unlit
+wait 2500
+assert_text viewMode:kobi Unlit
+shot 153-04-unlit.png
+print snap {"target": "kobi", "image": true}
+click viewMode:kobi
+wait 600
+click menu:mode-wireframe
+wait 2500
+assert_found viewMode:kobi
+assert_text viewMode:kobi Wireframe
+shot 153-05-wireframe.png
+click viewMode:kobi
+wait 600
+click menu:mode-collision
+wait 4000
+assert_text viewMode:kobi Collision
+assert_text viewModeNote:kobi 2 colliders
+shot 153-06-collision.png
+print snap {"target": "kobi", "image": true}
+click viewport:kobi 0.35 0.55
+wait 1500
+print snap {"target": "kobi"}
+shot 153-07-collision-pick.png
+click viewMode:kobi
+wait 600
+click menu:mode-lit
+wait 3000
+assert_painted viewport:kobi 0.5
+shot 153-08-lit-again.png
+print snap {"target": "kobi"}

@@ -1,0 +1,21 @@
+{
+  "name": "specto",
+  "version": "0.2.0",
+  "description": "Specto, the desktop viewer for agent-produced data: find its running instances, read their canvas, message their agent.",
+  "author": {
+    "name": "Yongqing Ye"
+  },
+  "license": "MIT",
+  "keywords": [
+    "specto",
+    "viewer",
+    "canvas",
+    "nimitz"
+  ],
+  "mcpServers": {
+    "specto": {
+      "command": "specto-mcp",
+      "args": []
+    }
+  }
+}

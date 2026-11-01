@@ -1,0 +1,6 @@
+build/
+qml/
+web/vendor/
+web/blob.bin
+results/*.log
+results/matrix.out

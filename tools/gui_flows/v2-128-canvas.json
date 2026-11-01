@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "project": {"label": "v2-128-proj"},
+  "window_frame": {"rect": {"x": 0, "y": 0, "w": 1600, "h": 900}},
+  "root_view": "rena",
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {"position": [80, 0], "size": [280, 560]},
+      "params": {},
+      "locked": false
+    },
+    "rena": {
+      "type": "video",
+      "label": "Cam A",
+      "layout": {"position": [380, 0], "size": [640, 520]},
+      "params": {"speed": 1.0, "loop": null, "hwdec": false},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "fege", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["."], "watch": true},
+      "summary": {"sentence": "The file tree shows every file in the project folder."}
+    },
+    "l4": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-a videos",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "rena", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["runs/run-001/video"], "screener": ["@video"], "sort": "natural"},
+      "summary": {"sentence": "The player shows the three copies of the cam-a video of run run-001."}
+    }
+  }
+}

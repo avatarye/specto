@@ -1,0 +1,73 @@
+# v2 #130: the web views' chrome after the UX pass (Figma 05 section 4). The seed
+# (tools/gui_flows/v2-130-seed.py) is the #46 project plus a two-page html report; the
+# canvas (v2-130-canvas.json) has a gallery, the JSON sidecar view, an html view on the
+# report, the notes in a markdown view and the GeoJSON on a map. No view has a page bar:
+# viewers have a footer (step < >, position, name; their tools on the right), the map a
+# LAYERS side panel and a footer with the basemap switcher and frame all, the markdown an
+# OUTLINE side panel. With a real mouse: the map's None, All and collapse; a wikilink in
+# the notes (back appears in the footer) and an outline heading; the JSON fold-all
+# toggle; the html view steps to its second page.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-130-canvas.json the web views after the UX pass
+wait 6000
+assert_found slot:pola
+assert_found slot:mobe
+click tile:kobi:00002
+wait 2500
+hover slot:rena 0.3 0.5
+wait 600
+shot 130-01-web-views.png
+print snap {"target": "pola"}
+print snap {"target": "rena"}
+# the map: None hides every layer, All brings them back, the panel collapses to a strip
+webclick pola panel.none
+wait 1000
+shot 130-02-map-layers-none.png
+webclick pola panel.all
+wait 1000
+webclick pola panel.toggle
+wait 1000
+shot 130-03-map-layers-collapsed.png
+print snap {"target": "pola"}
+webclick pola panel.toggle
+wait 800
+# the notes: a wikilink opens its note and the footer offers back; back returns; a
+# heading in the outline scrolls to it. The notes come by name and the first
+# (colour-ramps) has no wikilinks: step to run-log, the fourth, first (the
+# page's own footer steps)
+webclick rena step.next
+wait 600
+webclick rena step.next
+wait 600
+webclick rena step.next
+wait 600
+assert_web rena note "run-log"
+# the wikilinks are the note's last line: scroll to the bottom before the click
+scroll slot:rena -10
+wait 800
+webclick rena wikilinks.0
+wait 2000
+hover slot:rena 0.3 0.5
+wait 400
+shot 130-04-markdown-wikilink-back.png
+print snap {"target": "rena"}
+webclick rena buttons.back
+wait 1500
+webclick rena outlineRows.1
+wait 1200
+shot 130-05-markdown-outline-heading.png
+# the JSON view: the footer's fold-all toggle
+webclick tamu buttons.fold
+wait 1000
+hover slot:tamu 0.5 0.5
+wait 400
+shot 130-06-json-folded.png
+# the html view: the footer's next shows the report's second page
+hover slot:mobe 0.5 0.5
+wait 400
+webclick mobe step.next
+wait 2000
+shot 130-07-html-second-page.png
+print snap {"target": "mobe"}

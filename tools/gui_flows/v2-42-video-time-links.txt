@@ -1,0 +1,65 @@
+# v2 #42 video root view and time links: open a folder of run-001 frames plus the cam-a
+# video (tools/gui_flows/v2-42-seed.py), submit a canvas document with the video as the root
+# view and two galleries time-mapped to it (v2-42-canvas.json; the cam-a one
+# two-way), then with a real mouse: play and pause the video (the galleries' highlights
+# follow its time at their own frame rate), step frames, scrub the bar, click a tile in
+# the cam-a gallery (the video seeks to that frame's time). The cam-b camera is ~43 ms
+# behind the cam-a one, so the two galleries never highlight the same index. The agent
+# turns the player's sound on first (params.muted, #216): the audio output is open while
+# the links run and nothing about them changes (mpv is muted again on every pause, scrub
+# and received time).
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-42-canvas.json a video root view with time-mapped galleries
+wait 4000
+assert_found slot:rena
+assert_found video:rena:play
+assert_found tile:kobi:cam-a/00000
+shot 42-01-video-root-view.png
+print snap {"target": "rena"}
+params rena {"muted": false}
+wait 600
+assert_host rena muted false
+assert_host rena mpv_mute true
+click video:rena:play
+wait 1500
+shot 42-02-playing-galleries-follow.png
+click video:rena:play
+wait 700
+shot 42-03-paused.png
+assert_host rena mpv_mute true
+print snap {"target": "rena"}
+print snap {"target": "kobi"}
+print snap {"target": "tamu"}
+# two frames forward by keys (the footer's play button gave the view the keyboard)
+key right
+wait 300
+key right
+wait 600
+print snap {"target": "rena"}
+print snap {"target": "kobi"}
+# a click on the track scrubs there (press and release at one point)
+click video:rena:track 0.3 0.5
+wait 900
+shot 42-04-scrubbed.png
+print snap {"target": "rena"}
+print snap {"target": "kobi"}
+print snap {"target": "tamu"}
+# back near the start so the first rows of the cam-a gallery are on screen, then a
+# tile click seeks the video to that frame's time (the two-way time map)
+click video:rena:track 0.04 0.5
+wait 900
+scroll slot:kobi 12
+wait 600
+click tile:kobi:cam-a/00004
+wait 900
+shot 42-05-tile-click-seeks-video.png
+print snap {"target": "rena"}
+print snap {"target": "tamu"}
+click video:rena:speed
+wait 400
+click video:rena:speed:2
+wait 300
+print snap {"target": "rena"}
+print snap {"target": "canvas", "layout": true}

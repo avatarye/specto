@@ -1,0 +1,44 @@
+# v2 #181: the map frames its data on every reload; over 200 inputs it loads a batch and
+# its footer shows loaded / total with Load more. The seed (v2-181-seed.py) writes 450
+# one-point GeoJSON files under big/; the canvas (v2-181-canvas.json) puts the map pola
+# on them (basemap none: no network needed).
+# At rest: 200 layers drawn and framed, the footer's meter at 200 / 450 with Load more,
+# visible without hovering. Load more twice: 400 / 450, then 450 / 450 with Load more
+# disabled; the camera the user zoomed stays put. Then the files move a degree east and
+# south on disk and the links refresh: a reload, the map frames the new place.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-181-canvas.json a map on 450 GeoJSON files
+wait 8000
+assert_found slot:pola
+assert_web pola meter {"loaded":200,"total":450,"shown":true} 30000
+hover statusBar 0.5 0.5
+wait 800
+shotcrop view:pola 10 1 v2-181-01-first-batch-framed-meter-200-of-450.png
+print snap {"target": "pola"}
+# the user zooms in; Load more keeps that camera
+wheel slot:pola 3 0.5 0.5
+wait 1500
+webclick pola buttons.loadMore
+assert_web pola meter {"loaded":400,"total":450,"shown":true} 30000
+wait 1500
+hover statusBar 0.5 0.5
+wait 400
+shotcrop view:pola 10 1 v2-181-02-load-more-400-of-450-camera-kept.png
+print snap {"target": "pola"}
+webclick pola buttons.loadMore
+assert_web pola meter {"loaded":450,"total":450,"shown":true} 30000
+wait 1500
+hover statusBar 0.5 0.5
+wait 400
+shotcrop view:pola 10 1 v2-181-03-all-450-loaded-load-more-disabled.png
+# a reload: the same files with new contents, the links refreshed; the map frames them
+spawn uv run python tools/gui_flows/v2-181-seed.py {project} --shift
+wait 4000
+call links.refresh {}
+wait 6000
+hover statusBar 0.5 0.5
+wait 400
+shotcrop view:pola 10 1 v2-181-04-reload-framed-on-the-moved-data.png
+print snap {"target": "pola"}

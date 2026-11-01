@@ -1,0 +1,36 @@
+# v2 #95: views stay painted after the overworld round trip. One canvas with a view of
+# every type (pdf, html, markdown, json, 3d, gallery, image, video), each fed by a
+# pinned intaker (tools/gui_flows/v2-95-seed.py, v2-95-canvas.json). Every view is
+# painted; Tab opens the overworld (every host paused), Tab again returns: every view
+# must show its content again, not a blank slot.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-95-canvas.json a view of every type
+wait 9000
+assert_found pdf:kobi:page
+shot 95-01-before-overworld.png
+assert_painted slot:kobi 0.99
+assert_painted slot:tamu 0.99
+assert_painted slot:rena 0.99
+assert_painted slot:pola 0.99
+assert_painted slot:mihu 0.99
+assert_painted slot:sola 0.99
+assert_painted slot:dena 0.99
+assert_painted slot:naru 0.99
+key tab
+wait 2000
+assert_found overworld
+shot 95-02-overworld.png
+key tab
+wait 2500
+assert_missing overworld
+shot 95-03-after-overworld.png
+assert_painted slot:kobi 0.99
+assert_painted slot:tamu 0.99
+assert_painted slot:rena 0.99
+assert_painted slot:pola 0.99
+assert_painted slot:mihu 0.99
+assert_painted slot:sola 0.99
+assert_painted slot:dena 0.99
+assert_painted slot:naru 0.99

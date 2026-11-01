@@ -1,0 +1,171 @@
+{
+ "schema_version": 2,
+ "project": {
+  "label": "v2-44-proj"
+ },
+ "window_frame": {
+  "rect": {
+   "x": 0,
+   "y": 0,
+   "w": 1600,
+   "h": 900
+  }
+ },
+ "root_view": null,
+ "views": {
+  "fege": {
+   "type": "file_tree",
+   "label": "Files",
+   "layout": {
+    "position": [80,
+     0
+    ],
+    "size": [
+     300,
+     820
+    ]
+   },
+   "params": {},
+   "locked": false
+  },
+  "kobi": {
+   "type": "gallery",
+   "label": "Cam A",
+   "layout": {
+    "position": [400,
+     0
+    ],
+    "size": [
+     560,
+     820
+    ]
+   },
+   "params": {
+    "tile": 132
+   },
+   "locked": false
+  },
+  "tamu": {
+   "type": "gallery",
+   "label": "Cam B",
+   "layout": {
+    "position": [980,
+     0
+    ],
+    "size": [
+     700,
+     880
+    ]
+   },
+   "params": {
+    "tile": 132
+   },
+   "locked": false
+  }
+ },
+ "links": {
+  "l1": {
+   "kind": "intaker",
+   "label": "project files",
+   "source": {
+    "view": "project",
+    "port": "all_files"
+   },
+   "target": {
+    "view": "fege",
+    "port": "data"
+   },
+   "two_way": false,
+   "params": {
+    "sources": [
+     "."
+    ],
+    "watch": true
+   },
+   "summary": {
+    "sentence": "The file tree shows every file in the project folder."
+   }
+  },
+  "l2": {
+   "kind": "intaker",
+   "scope": "pinned",
+   "label": "cam-a frames",
+   "source": {
+    "view": "project",
+    "port": "all_files"
+   },
+   "target": {
+    "view": "kobi",
+    "port": "data"
+   },
+   "two_way": false,
+   "params": {
+    "sources": [
+     "runs/run-001"
+    ],
+    "screener": [
+     "@images"
+    ],
+    "keys": "(?P<cam>cam-a)/(?P<frame>\\d{5})_\\d+\\.jpg$",
+    "group_by": [
+     "cam",
+     "frame"
+    ],
+    "sort": "natural"
+   },
+   "summary": {
+    "sentence": "The cam-a gallery shows the cam-a frames of run run-001, keyed by series and frame."
+   }
+  },
+  "l3": {
+   "kind": "intaker",
+   "scope": "pinned",
+   "label": "cam-b frames",
+   "source": {
+    "view": "project",
+    "port": "all_files"
+   },
+   "target": {
+    "view": "tamu",
+    "port": "data"
+   },
+   "two_way": false,
+   "params": {
+    "sources": [
+     "runs/run-001"
+    ],
+    "screener": [
+     "@images"
+    ],
+    "keys": "(?P<cam>cam-b)/(?P<frame>\\d{5})_\\d+\\.jpg$",
+    "group_by": [
+     "cam",
+     "frame"
+    ],
+    "sort": "natural"
+   },
+   "summary": {
+    "sentence": "The cam-b gallery shows the cam-b frames of run run-001, keyed by series and frame."
+   }
+  },
+  "l7": {
+   "kind": "follow",
+   "label": "linked on frame",
+   "source": {
+    "view": "kobi",
+    "port": "selection"
+   },
+   "target": {
+    "view": "tamu",
+    "port": "selection"
+   },
+   "two_way": true,
+   "params": {
+    "match": "frame"
+   },
+   "summary": {
+    "sentence": "Selecting a frame in one gallery selects the same frame in the other."
+   }
+  }
+ }
+}

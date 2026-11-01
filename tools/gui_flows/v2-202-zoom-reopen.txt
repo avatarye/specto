@@ -1,0 +1,12 @@
+# v2 #202 relaunch: the project reopened from the welcome card's recent list; the
+# markdown note rena shows the reading zoom v2-189-web-zoom.txt left it at (params.zoom
+# 1.65, the snap's `zoom`) and the OUTLINE text keeps the theme's size. Compare the note
+# text with 202-01 (2.0) and 189-01 (1.0).
+resize 1600 900
+wait 2500
+assert_found slot:rena
+assert_web rena zoom 1.65 20000
+hover slot:rena 0.3 0.5
+wait 400
+shot 202-03-reopened-zoom.png
+print snap {"target": "rena"}

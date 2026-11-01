@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">
+  <!-- Eyes closed (blink key pose). Animate as a scale-y of the open eyes (1 -> 0.15 -> 1) or swap to these lines. Colour: theme "agent". -->
+  <g id="mark" transform="translate(6.24 6.24) scale(0.3952)">
+    <path id="eye-left" d="M 41.5 40 L 54.5 40" fill="none" stroke="#B86A2B" stroke-width="4" stroke-linecap="round"/>
+    <path id="eye-right" d="M 57.5 40 L 70.5 40" fill="none" stroke="#B86A2B" stroke-width="4" stroke-linecap="round"/>
+  </g>
+</svg>

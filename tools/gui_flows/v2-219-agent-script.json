@@ -1,0 +1,70 @@
+{
+ "delay_ms": 60,
+ "turns": [
+  [
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-canvas.json",
+     "label": "added cam-a and cam-b galleries, linked on frame"
+    }
+   },
+   {
+    "text": "Added a cam-a gallery and a cam-b gallery next to the file tree, linked on frame."
+   }
+  ],
+  [
+   {
+    "tool": "save_skill",
+    "args": {
+     "name": "layouts",
+     "description": "Remember a layout of views and links by name, or bring one back: 'remember this layout as X', 'bring back the X layout', /layout X.",
+     "body": "# Layouts\n\nA layout is the canvas's views and links, kept by name as `.specto/layouts/<name>.json`.\n\n- **Save** (\"remember this layout as X\"): take `views` and `links` from the document in the context (ids included) and `data_write` them to `layouts/X.json` with `name`, `saved_at` and a one-line `description`.\n- **Restore** (\"bring back the X layout\", `/layout X`): `data_read` `layouts/X.json`, then one `submit_canvas` with `edits` = its `views` and `links`, label `restored layout X`. One undo step; never approve link code.\n- **List**: `data_list` `layouts`.\n"
+    }
+   },
+   {
+    "tool": "save_command",
+    "args": {
+     "name": "layout",
+     "description": "Bring back a saved layout by name (or save the current one: /layout save <name>).",
+     "body": "Invoke the specto:layouts skill. Call state first (this command carries no canvas context), then do this with the layouts: $ARGUMENTS\n",
+     "argument_hint": "<name> | save <name>"
+    }
+   },
+   {
+    "tool": "data_write",
+    "args": {
+     "path": "layouts/review.json",
+     "text_file": "v2-219-review.json"
+    }
+   },
+   {
+    "text": "Saved this layout as review; /layout review brings it back."
+   }
+  ],
+  [
+   {
+    "skill": "specto:layouts"
+   },
+   {
+    "tool": "data_read",
+    "args": {
+     "path": "layouts/review.json"
+    }
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "edits": {
+      "views": {
+       "fege": {"layout": {"position": [80, 0], "size": [300, 820]}},
+       "kobi": {"layout": {"position": [400, 0], "size": [620, 820]}},
+       "tamu": {"layout": {"position": [1040, 0], "size": [620, 820]}}
+      }
+     },
+     "label": "restored layout review"
+    }
+   }
+  ]
+ ]
+}

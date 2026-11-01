@@ -1,0 +1,72 @@
+# v2 #120 shell chrome (design #123 section 1): no top bar and no window-frame guide;
+# undo, redo and the one global "..." menu float over the canvas's top-right corner in
+# one pill; the menu holds open folder, new project, the recent projects (a submenu),
+# snap, details and quit; the bottom bar is its own surface and counts what resolves; a
+# selected view is an ink outline with a soft halo beside a chain-coloured neighbour; the
+# overworld has no guide either and keeps the controls.
+# Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+assert_missing topBar
+assert_missing windowFrameGuide
+assert_found undoButton
+assert_found redoButton
+assert_found moreButton
+assert_found statusSurface
+submit tools/gui_flows/v2-45-canvas.json two link chains around the file tree
+wait 2000
+assert_found slot:kobi
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+wait_while resolvingCount 15000
+hover panArea 0.98 0.9
+wait 400
+shot 120-01-normal-view.png
+# the one global menu
+click moreButton
+wait 500
+assert_found menu:openFolder
+assert_found menu:recent
+assert_found menu:quit
+# #218: no snap or details rows
+assert_missing menu:snapCanvas
+assert_missing menu:details
+# #217: no new project row (Open folder... makes a project of a plain folder)
+assert_missing menu:newProject
+hover menu:recent
+wait 500
+assert_found menu:recent:v49-chrome
+shot 120-02-global-menu-open.png
+hover menu:openFolder
+wait 300
+assert_missing menu:recent:v49-chrome
+key escape
+wait 300
+# details sits behind the status bar's info button (#218), above the bar
+click detailsButton
+wait 500
+assert_found statusEndpoint
+shot 120-03-details-above-the-status-bar.png
+key escape
+wait 300
+# a selected view next to a chained one: the ink outline and halo, not a chain colour
+click header:kobi 0.5 0.5
+wait 400
+assert_found halo:kobi
+assert_missing halo:tamu
+shot 120-04-selected-highlight-beside-a-chain.png
+shotcrop frame:kobi 24 1 120-05-selected-highlight-close-up.png
+# the overworld: no guide, the controls still float top-right
+key tab
+wait 1500
+assert_found overworld
+assert_missing overWindowFrame
+assert_found undoButton
+shot 120-06-overworld-no-guide.png
+key tab
+wait 1000
+assert_found slot:kobi

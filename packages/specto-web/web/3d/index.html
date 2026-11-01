@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3D</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="scene3d.css">
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="/bridge.js"></script>
+  <script src="/wheel.js"></script>
+  <script src="/zoom.js"></script>
+  <script src="/icons.js"></script>
+  <script src="/sidepanel.js"></script>
+  <script src="/footer.js"></script>
+  <script src="/viewnav.js"></script>
+  <script src="/vendor/babylon/fflate.js"></script>
+  <script src="/vendor/babylon/babylon.js"></script>
+  <script src="/vendor/babylon/babylonjs.loaders.min.js"></script>
+</head>
+<body>
+  <!-- no in-body bar (#129): the view's header is the canvas frame's; the VIEW and ITEMS
+       side panels join this row either side of the stage, the footer goes under it -->
+  <div class="body" id="row">
+    <div class="stage">
+      <canvas id="c" tabindex="0"></canvas>
+      <div class="overlay hidden" id="loading">loading</div>
+    </div>
+  </div>
+  <div id="footer"></div>
+  <script src="main.js"></script>
+</body>
+</html>

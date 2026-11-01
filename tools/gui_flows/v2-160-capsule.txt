@@ -1,0 +1,57 @@
+# v2 #160 port capsule: the #84 canvas (the file tree feeds the cam-a gallery, l2). The
+# cam-a gallery's input circle and the tree's output circle both show the tree's
+# identicon. Dragging the gallery up level with the tree (24 px apart) joins them in a
+# solid capsule in the chain's colour with the identicon at its midpoint; hovering it shows
+# the link's tip; pulled 20 px away (44 px) it holds, 20 px more (64 px) it splits; joined
+# again, the wiring layer shows the capsule instead of the link's curve and dot, and a
+# click on it opens the link view. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-84-canvas.json the file tree feeding two galleries
+wait 2000
+assert_found slot:kobi
+assert_found port:kobi:in
+assert_missing capsuleIcon:l2
+shot 160-01-apart.png
+# up 40 px, level with the tree: the circles join (shot while held: the capsule grows)
+dragxy header:kobi 0 -40 0.3 0.5 shot=160-02-joining-held.png
+wait 600
+assert_found capsuleIcon:l2
+shot 160-03-joined.png
+hover capsuleIcon:l2
+wait 800
+assert_found tip:capsule:l2
+shot 160-04-capsule-tip.png
+# 20 px right: past the join distance, inside the break distance, it holds
+dragxy header:kobi 20 0 0.3 0.5 shot=160-05-holding-held.png
+wait 600
+assert_found capsuleIcon:l2
+shot 160-06-held.png
+# 20 px more: past the break distance, it splits back into the two circles
+dragxy header:kobi 20 0 0.3 0.5 shot=160-07-splitting-held.png
+wait 600
+assert_missing capsuleIcon:l2
+assert_found port:kobi:in
+shot 160-08-split.png
+# back level with the tree: joined again; the wiring layer shows it in place of the wire
+dragxy header:kobi -40 0 0.3 0.5
+wait 600
+assert_found capsuleIcon:l2
+key `
+wait 800
+assert_found wiringLayer
+assert_missing wire:l2
+assert_missing wireNode:l2
+assert_found wire:l3
+shot 160-09-wiring-layer.png
+click capsuleIcon:l2
+wait 600
+assert_found linkView
+shot 160-10-link-view.png
+key esc
+wait 500
+key esc
+wait 500
+assert_missing wiringLayer
+print snap {"target": "kobi", "layout": true}

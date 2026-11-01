@@ -1,0 +1,90 @@
+# v2 #187 sections 1-3: the window's instance name and peer requests from the fleet. The
+# name (5 letters) is the status bar's first item in the agent colour, right of the S icon,
+# and the agent panel's header reads "Specto agent · <name>" (the window title too, outside
+# this flow). A fleet agent's message (`call message`, as `specto message <name> <text>`
+# sends it, with the member's nimitz labels) shows as a peer row "from FLEET/SQUAD/SHIP"
+# and runs as a turn whose row names the sender, with Undo. #190: the next message carries no
+# labels, so its row reads 'says it is "FLEET/SQUAD/SHIP", unverified'; with "Peer requests:
+# ask" (the panel's peers chip) it waits with Run and Dismiss; Run starts the turn; with
+# "off" (#204) the message is refused and the thread keeps a refused row. The details
+# popover shows the instance, project and endpoint with Copy, and edits the fleet
+# recipients (#204: add, a bad path refused, remove). Ends with the setting back on auto
+# and the recipients empty.
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-187-agent-script.json
+resize 1600 900
+wait 1500
+assert_found statusInstance
+shot 187-01-status-name.png
+hover agentIcon
+wait 600
+assert_found panelTitle
+assert_text panelTitle Specto agent ·
+shot 187-02-panel-header.png
+call message {"from": "FLEET/SQUAD/SHIP", "text": "Put the **cam-a** and **cam-b** galleries side by side", "reply_to": "m1", "labels": {"NIMITZ_ID": "FLEET/SQUAD/SHIP", "NIMITZ_ROLE": "ship"}}
+wait_until agentDone 20000
+wait 600
+assert_found slot:kobi
+assert_found replyUndo
+shot 187-03-peer-turn.png
+click peerChip
+wait 300
+click menu:peers-ask
+wait 300
+assert_text peerChip ask
+call message {"from": "FLEET/SQUAD/SHIP", "text": "Which frames have no cam-b image?"}
+wait_until peerRun 5000
+assert_found peerDismiss
+shot 187-04-peer-asked.png
+click peerRun
+wait 300
+wait_until agentDone 20000
+wait 600
+assert_missing peerRun
+shot 187-05-peer-run.png
+# #204: with Peer requests off, a message is refused (the sender gets the error) and the
+# thread keeps a refused row: the sender, the request's first line, why, in the error tone
+click peerChip
+wait 300
+click menu:peers-off
+wait 300
+assert_text peerChip off
+call_refused message {"from": "FLEET/SQUAD/SHIP", "text": "Rebuild the galleries\nand a second line", "labels": {"NIMITZ_ID": "FLEET/SQUAD/SHIP", "NIMITZ_ROLE": "ship"}} does not take peer requests
+wait 800
+assert_found peerRefused
+assert_text peerRefused refused: Peer requests is off
+shot 204-02-peer-refused.png
+click peerChip
+wait 300
+click menu:peers-auto
+wait 300
+assert_text peerChip auto
+click detailsButton
+wait 400
+assert_found detailsInstance
+# #204: the allowed recipients (fleet_send's), edited next to the instance name; left
+# empty again at the end (the setting is the user's, shared by every project)
+assert_text detailsRecipients every fleet nimitz reports
+click recipientInput
+wait 200
+type FLEET/SQUAD
+click recipientAdd
+wait 400
+assert_text recipientRow:0 FLEET/SQUAD
+assert_text detailsRecipients 1 allowed
+shot 204-01-details-recipients.png
+click recipientInput
+wait 200
+type //...
+click recipientAdd
+wait 400
+assert_found recipientRefused
+assert_missing recipientRow:1
+click recipientRemove:0
+wait 400
+assert_missing recipientRow:0
+assert_text detailsRecipients every fleet nimitz reports
+shot 187-06-details.png
+click detailsCopy
+wait 200
+key escape

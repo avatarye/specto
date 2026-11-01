@@ -1,0 +1,98 @@
+# v2 #128 video player footer: open three copies of the run-001 cam-a video
+# (tools/gui_flows/v2-128-seed.py), submit a canvas with the video as the root view
+# (v2-128-canvas.json), then with a real mouse and keyboard: the footer at rest
+# ("1 / 240 @ 32.48 fps", "1 / 3 take-1.mp4 640x480"), eleven frame steps
+# ("12 / 240"), the progress bar's hover tip (clip time, SMPTE timecode), the speed
+# button's vertical slider (pick 2x, then drag down to 0.5x), play / pause, and the
+# viewer row's next chevron ("2 / 3"). The speaker and volume slider (#216) sit at rest:
+# muted, 100 % (the sound flow, v2-216-audio.txt, works them).
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-128-canvas.json a video root view with three videos
+wait 4000
+assert_found slot:rena
+assert_found video:rena:play
+wait 1500
+assert_text video:rena:readout 1 / 240 @ 32.48 fps
+assert_text position:rena 1 / 3
+assert_text video:rena:caption take-1.mp4
+assert_text resolution:rena 640
+assert_found video:rena:mute
+assert_found video:rena:volumeSlider
+assert_host rena muted true
+assert_host rena volume 1.0
+shot 128-01-footer-at-rest.png
+# a press near the bar's start scrubs there and gives the view the keyboard (the bar's
+# very edge is the frame's resize border; Home is the canvas's); Left steps back to
+# frame 1 and stops there
+click video:rena:track 0.03 0.5
+wait 500
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+key left
+wait 800
+assert_text video:rena:readout 1 / 240
+key right
+key right
+key right
+key right
+key right
+key right
+key right
+key right
+key right
+key right
+key right
+wait 800
+assert_text video:rena:readout 12 / 240 @ 32.48 fps
+print snap {"target": "rena"}
+shot 128-02-stepped-to-12.png
+# the hover tip: clip time and SMPTE timecode of the frame under the pointer
+hover video:rena:track 0.25 0.5
+wait 600
+assert_found video:rena:tip
+shot 128-03-progress-hover-tip.png
+assert_text video:rena:readout 12 / 240
+# the speed button opens a vertical slider; a click on a stop picks it
+click video:rena:speed
+wait 500
+assert_found video:rena:speedSlider
+shot 128-04-speed-popover.png
+click video:rena:speed:2
+wait 400
+shot 128-05-speed-2x.png
+print snap {"target": "rena"}
+# a drag down the slider snaps to the stop under the pointer
+dragxy video:rena:speedThumb 0 58
+wait 400
+print snap {"target": "rena"}
+key escape
+wait 400
+assert_missing video:rena:speedSlider
+shot 128-06-speed-half.png
+click video:rena:play
+wait 1500
+shot 128-07-playing.png
+click video:rena:play
+wait 600
+print snap {"target": "rena"}
+click step:rena:next
+wait 1500
+assert_text position:rena 2 / 3
+assert_text video:rena:caption take-2.mp4
+shot 128-08-next-video.png
+print snap {"target": "rena"}

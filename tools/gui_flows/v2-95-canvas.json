@@ -1,0 +1,384 @@
+{
+  "schema_version": 2,
+  "project": {
+    "label": "v2-95-proj"
+  },
+  "window_frame": {
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1600,
+      "h": 900
+    }
+  },
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {
+        "position": [80,
+          0
+        ],
+        "size": [
+          220,
+          820
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "kobi": {
+      "type": "pdf",
+      "label": "Report pdf",
+      "layout": {
+        "position": [320,
+          0
+        ],
+        "size": [
+          330,
+          400
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "tamu": {
+      "type": "html",
+      "label": "Html page",
+      "layout": {
+        "position": [660,
+          0
+        ],
+        "size": [
+          330,
+          400
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "rena": {
+      "type": "markdown",
+      "label": "Notes",
+      "layout": {
+        "position": [1000,
+          0
+        ],
+        "size": [
+          330,
+          400
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "pola": {
+      "type": "json",
+      "label": "Sidecars",
+      "layout": {
+        "position": [1340,
+          0
+        ],
+        "size": [
+          330,
+          400
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "mihu": {
+      "type": "3d",
+      "label": "Scan",
+      "layout": {
+        "position": [320,
+          420
+        ],
+        "size": [
+          330,
+          400
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "sola": {
+      "type": "gallery",
+      "label": "Front frames",
+      "layout": {
+        "position": [660,
+          420
+        ],
+        "size": [
+          330,
+          400
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "dena": {
+      "type": "image",
+      "label": "Front image",
+      "layout": {
+        "position": [1000,
+          420
+        ],
+        "size": [
+          330,
+          400
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "naru": {
+      "type": "video",
+      "label": "Cam-a video",
+      "layout": {
+        "position": [1340,
+          420
+        ],
+        "size": [
+          330,
+          400
+        ]
+      },
+      "params": {},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "fege",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "."
+        ],
+        "watch": false
+      },
+      "summary": {
+        "sentence": "The file tree shows every file in the project folder."
+      }
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "report pdf",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "kobi",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "papers"
+        ],
+        "screener": [
+          "@pdf"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The pdf view shows papers."
+      }
+    },
+    "l3": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "html page",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "tamu",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "pages"
+        ],
+        "screener": [
+          "@html"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The html view shows pages."
+      }
+    },
+    "l4": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "notes",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "rena",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "notes"
+        ],
+        "screener": [
+          "@markdown"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The markdown view shows notes."
+      }
+    },
+    "l5": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "sidecars",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "pola",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "runs/run-001/cam-a"
+        ],
+        "screener": [
+          "@json"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The json view shows runs/run-001/cam-a."
+      }
+    },
+    "l6": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "scan",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "mihu",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "scans"
+        ],
+        "screener": [
+          "@3d"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The 3d view shows scans."
+      }
+    },
+    "l7": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-a frames",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "sola",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "runs/run-001/cam-a"
+        ],
+        "screener": [
+          "@images"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The gallery view shows runs/run-001/cam-a."
+      }
+    },
+    "l8": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "front image",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "dena",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "runs/run-001/cam-a"
+        ],
+        "screener": [
+          "@images"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The image view shows runs/run-001/cam-a."
+      }
+    },
+    "l9": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-a video",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "naru",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "runs/run-001/video"
+        ],
+        "screener": [
+          "@video"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The video view shows runs/run-001/video."
+      }
+    }
+  }
+}

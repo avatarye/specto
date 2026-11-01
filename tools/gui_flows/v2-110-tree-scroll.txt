@@ -1,0 +1,33 @@
+# v2 #110: opening a folder far down a scrolled file tree keeps the tree where it was:
+# the list does not jump back to the top and the folder's row stays under the mouse;
+# a folder inside it opens in place too, and closing keeps the place. Project:
+# tools/gui_flows/v2-110-seed.py <folder>. The folder is one well inside the list: the wheel
+# leaves the top row half under the card's header, where a click lands on the header (#167).
+resize 1600 900
+wait 1500
+wait_until treeRow:@file_tree:vault/area_00 20000
+scroll fileTreeList:@file_tree -12
+wait 600
+assert_found treeRow:@file_tree:vault/area_40
+assert_missing treeRow:@file_tree:vault/area_00
+shot v2-110-tree-scrolled.png
+mark treeRow:@file_tree:vault/area_50
+click treeIcon:@file_tree:vault/area_50 0 0.5 -10 0
+wait 600
+assert_found treeRow:@file_tree:vault/area_50/topic_b
+assert_unmoved treeRow:@file_tree:vault/area_50
+assert_missing treeRow:@file_tree:vault/area_00
+shot v2-110-tree-opened-in-place.png
+mark treeRow:@file_tree:vault/area_50/topic_b
+dblclick treeName:@file_tree:vault/area_50/topic_b
+wait 600
+assert_found treeRow:@file_tree:vault/area_50/topic_b/note_1.md
+assert_unmoved treeRow:@file_tree:vault/area_50/topic_b
+assert_unmoved treeRow:@file_tree:vault/area_50
+shot v2-110-tree-nested-opened-in-place.png
+click treeIcon:@file_tree:vault/area_50 0 0.5 -10 0
+wait 600
+assert_missing treeRow:@file_tree:vault/area_50/topic_b
+assert_unmoved treeRow:@file_tree:vault/area_50
+assert_found treeRow:@file_tree:vault/area_51
+shot v2-110-tree-closed-in-place.png

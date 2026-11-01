@@ -1,0 +1,45 @@
+# v2 #169 the user removes a view while the agent works: the (scripted) agent added
+# gallery rano last turn; on the next request it "thinks" for 6 s while the user closes
+# rano; its edit, which only adds a gallery, goes through (the new one is mope, never a
+# second rano), and a third turn's removal of rano is a no-op reply, no refusal.
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-169-agent-script.json
+resize 1600 900
+wait 1500
+hover agentIcon
+wait 1200
+click promptInput
+type add a gallery of the images
+key enter
+wait 3000
+assert_found slot:rano
+assert_found replyUndo
+shot 169-01-first-gallery.png
+key escape
+wait 400
+hover agentIcon
+wait 1200
+click promptInput
+key ctrl+a
+type add another gallery
+key enter
+key escape
+wait 800
+click close:rano
+wait 7000
+assert_missing slot:rano
+assert_found slot:mope
+hover agentIcon
+wait 1200
+assert_found replyUndo
+shot 169-02-added-after-the-user-closed-one.png
+hover agentIcon
+wait 1200
+click promptInput
+key ctrl+a
+type and remove rano
+key enter
+wait 2500
+assert_missing slot:rano
+assert_found slot:mope
+shot 169-03-removing-it-again-is-a-no-op.png

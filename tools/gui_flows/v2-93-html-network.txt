@@ -1,0 +1,24 @@
+# v2 #93: the html view reaches the network by default. A double-click on a
+# page with remote frames opens it in a preview (#106), maximised; its remote map frames
+# load. The agent sets network: false: the frame reloads
+# offline, the embeds are refused ([WARN] lines in the app log) and the badge loses
+# "net". network: true brings them back.
+# Seed: tools/gui_flows/v2-93-seed.py <project> (the double-click names the view: the
+# flow finds it as @preview, #101)
+resize 1600 900
+wait 3000
+assert_found treeRow:@file_tree:pages/remote-frames.html
+dblclick treeRow:@file_tree:pages/remote-frames.html 0.5 0.5
+wait_until slot:@preview 30000
+dblclick header:@preview 0.3 0.5
+wait 15000
+shot v2-93-01-page-online.png
+params @preview {"network": false}
+wait 8000
+shot v2-93-02-page-offline.png
+params @preview {"network": true}
+wait 15000
+shot v2-93-03-page-online-again.png
+print snap {"target": "@preview"}
+key esc
+wait 800

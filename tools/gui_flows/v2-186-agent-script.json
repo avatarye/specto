@@ -1,0 +1,14 @@
+{
+ "delay_ms": 40,
+ "turns": [
+  [
+   {"tool": "launchers", "args": {"paths": ["scenes/a.blend"]}},
+   {"tool": "launch", "args": {"launcher": "fake-blender", "paths": ["scenes/a.blend"]}},
+   {"text": "Opened a.blend in Fake Blender."}
+  ],
+  [
+   {"tool": "launch", "args": {"launcher": "system", "paths": ["tools/setup.exe"]}},
+   {"text": "I can't open setup.exe with the system default: it would run the program."}
+  ]
+ ]
+}

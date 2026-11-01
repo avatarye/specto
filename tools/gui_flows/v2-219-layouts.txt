@@ -1,0 +1,66 @@
+# v2 #219 agent-made skills and commands: asked to remember a layout as "review", the
+# agent (here the scripted one, tools/gui_flows/v2-219-agent-script.json, calling the real
+# tools) writes a layouts skill (.specto/skills/layouts/SKILL.md), a /layout command
+# (.claude/commands/layout.md) and the layout itself (.specto/layouts/review.json): the
+# thread shows a skill, a command and a data row, each with Open and Undo, and Open
+# renders the command and the data file; the user drags the cam-a gallery away; /layout
+# review (a project slash command the prompt bar lets through) brings the layout back as
+# one turn with Undo; that Undo puts the dragged gallery back.
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-219-agent-script.json
+resize 1600 900
+wait 1500
+hover agentIcon
+wait 1200
+click promptInput
+type add cam-a and cam-b galleries
+key enter
+wait 4500
+assert_found slot:kobi
+assert_found slot:tamu
+hover agentIcon
+wait 1200
+click promptInput
+key ctrl+a
+type remember this layout as review
+key enter
+wait 3500
+assert_found replySkill
+assert_found replyCommand
+assert_found replyCommandUndo
+assert_found replyData
+assert_found replyDataUndo
+shot 219-01-skill-command-data-rows.png
+click replyCommandOpen
+wait 800
+assert_found skillMarkdown
+shot 219-02-open-command.png
+key escape
+wait 500
+hover agentIcon
+wait 1200
+click replyDataOpen
+wait 800
+assert_found skillMarkdown
+shot 219-03-open-layout-file.png
+key escape
+wait 800
+dragxy header:kobi 60 220 0.3 0.5
+wait 800
+print snap {"target": "kobi"}
+shot 219-04-dragged-away.png
+hover agentIcon
+wait 1200
+click promptInput
+key ctrl+a
+type /layout review
+key enter
+wait 3500
+assert_found replyUndo
+print snap {"target": "kobi"}
+shot 219-05-layout-restored.png
+click replyUndo
+wait 800
+assert_missing replyUndo
+print snap {"target": "kobi"}
+shot 219-06-restore-undone.png

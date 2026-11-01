@@ -1,0 +1,54 @@
+# v2 #47 3D view: open a folder (the file tree appears), submit a canvas document that adds
+# a 3D view fed by an intaker off the file tree's selected files, pick the scans folder
+# with a real mouse (a 1 M-point PLY cloud, a quad-mesh PLY torus and a .splat load into
+# one Babylon scene), click a point (the kd-tree pick becomes the selection) and the
+# splat cloud (a bounding-box pick), fly with
+# RMB+W, frame with F, orbit with an Alt+drag (#152), hide one item from the list, then narrow the tree
+# selection to the cloud alone.
+# Project: tools/gui_flows/v2-47-seed.py makes it. The canvas document is v2-47-canvas.json.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+assert_found treeRow:fege:scans
+shot 47-01-file-tree.png
+submit tools/gui_flows/v2-47-canvas.json 3D view of the picked scans
+wait 2500
+assert_found slot:kobi
+shot 47-02-3d-empty.png
+print snap {"target": "kobi"}
+click treeRow:fege:scans
+wait 9000
+shot 47-03-3d-scene.png
+print snap {"target": "kobi"}
+webclick kobi canvas 0.7 0.5
+wait 1500
+shot 47-04-picked-point.png
+print snap {"target": "kobi"}
+webclick kobi canvas 0.3 0.62
+wait 1500
+shot 47-04b-picked-splat.png
+print snap {"target": "kobi"}
+mousedown slot:kobi 0.5 0.55 button=right
+keydown w
+wait 700
+keyup w
+mouseup button=right
+wait 700
+shot 47-05-flew-forward.png
+print snap {"target": "kobi"}
+key f
+wait 900
+shot 47-06-framed.png
+dragxy slot:kobi 220 70 mod=alt
+wait 900
+shot 47-07-orbited.png
+print snap {"target": "kobi"}
+webclick kobi items.torus.checkbox
+wait 900
+shot 47-08-torus-hidden.png
+expand fege:scans
+wait 600
+click treeRow:fege:scans/terrain.ply
+wait 5000
+shot 47-09-only-terrain.png
+print snap {"target": "kobi"}

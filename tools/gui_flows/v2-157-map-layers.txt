@@ -1,0 +1,56 @@
+# v2 #157 and #158: the map's footer switches the basemap (None, OSM, Satellite) and
+# toggles the LAYERS panel, and every view control shows at rest. The seed and canvas are
+# #130's (v2-130-seed.py, v2-130-canvas.json): the map pola shows the sites GeoJSON.
+# At rest, nothing hovered or selected: every header control shows, the eye first; the
+# map's footer carries the basemap switcher (OSM lit), frame all and the layers toggle
+# (lit while the panel shows). With a real mouse: Satellite shows Esri imagery with place
+# labels and its credit, None the plain background, OSM the streets again; the footer's
+# layers toggle collapses the panel to its strip and brings it back; the panel's own
+# collapse unlights the footer toggle. Needs the network (the tile hosts).
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-130-canvas.json the web views after the UX pass
+wait 6000
+assert_found slot:pola
+assert_found autoUpdate:kobi
+hover statusBar 0.5 0.5
+wait 800
+shot v2-157-01-rest-every-control-shows.png
+shotcrop view:pola 10 2 v2-157-02-map-footer-layers-toggle-lit.png
+print snap {"target": "pola"}
+# the basemap switcher: Satellite (imagery, labels, the Esri credit), None, OSM
+webclick pola basemaps.satellite
+wait 4000
+hover statusBar 0.5 0.5
+wait 400
+shotcrop view:pola 10 2 v2-157-06-satellite-imagery-labels-credit.png
+print snap {"target": "pola"}
+webclick pola basemaps.none
+wait 1500
+shotcrop view:pola 10 2 v2-157-07-basemap-none.png
+webclick pola basemaps.osm
+wait 3000
+shotcrop view:pola 10 2 v2-157-08-basemap-osm-again.png
+# the footer's layers toggle: the panel collapses to its strip, the toggle unlit
+webclick pola buttons.layers
+wait 1000
+hover statusBar 0.5 0.5
+wait 400
+shotcrop view:pola 10 2 v2-157-03-layers-collapsed-from-the-footer.png
+print snap {"target": "pola"}
+# and back
+webclick pola buttons.layers
+wait 1000
+hover statusBar 0.5 0.5
+wait 400
+shotcrop view:pola 10 2 v2-157-04-layers-back-toggle-lit.png
+# the panel's own collapse does the same, and unlights the footer toggle
+webclick pola panel.toggle
+wait 1000
+hover statusBar 0.5 0.5
+wait 400
+shotcrop view:pola 10 2 v2-157-05-panel-collapse-unlights-the-footer-toggle.png
+webclick pola panel.toggle
+wait 800
+print snap {"target": "pola"}

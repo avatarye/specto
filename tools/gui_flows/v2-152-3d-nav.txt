@@ -1,0 +1,77 @@
+# #152 the 3D view's Unreal Editor viewport controls (web/viewnav.js; the table is in its
+# header). Same project and canvas as #47: open the folder, submit the 3D view, pick the
+# scans folder, then with a real mouse and keyboard: the status bar names the scheme; a
+# click picks a point and F frames it (the selection); LMB drags turn and walk; RMB looks,
+# RMB+W flies and RMB+wheel raises the camera speed (the VIEW panel's slider follows and
+# keeps it on release); MMB and LMB+RMB pan; the wheel dollies; Alt+LMB orbits the picked
+# point, Alt+RMB dollies, Alt+MMB pans; a click on empty sky clears the pick and F frames
+# everything. Check each shot against the gesture's caption; the snaps carry the camera.
+# Watch for: Alt released after an Alt+drag must not leave the window's system menu armed
+# (the next key would go to it).
+# Project: tools/gui_flows/v2-47-seed.py makes it.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-47-canvas.json 3D view of the picked scans
+wait 2500
+assert_found slot:kobi
+click treeRow:fege:scans
+wait 9000
+hover slot:kobi 0.5 0.55
+wait 400
+assert_text statusHint Alt+drag orbits
+shot 152-01-loaded-hint.png
+print snap {"target": "kobi"}
+webclick kobi canvas 0.7 0.5
+wait 1500
+key f
+wait 900
+shot 152-02-picked-point-framed.png
+print snap {"target": "kobi"}
+dragxy slot:kobi 160 0 0.5 0.55
+wait 600
+shot 152-03-lmb-yaw-right.png
+dragxy slot:kobi 0 -90 0.5 0.55
+wait 600
+shot 152-04-lmb-walk-forward.png
+print snap {"target": "kobi"}
+dragxy slot:kobi 120 60 0.5 0.55 button=right
+wait 600
+shot 152-05-rmb-look-right-down.png
+mousedown slot:kobi 0.5 0.55 button=right
+keydown w
+wait 700
+keyup w
+wait 200
+wheel slot:kobi 4 0.5 0.55
+wait 300
+mouseup button=right
+wait 600
+shot 152-06-rmb-fly-and-speed-up.png
+print snap {"target": "kobi"}
+dragxy slot:kobi 120 0 0.5 0.55 button=middle
+wait 600
+shot 152-07-mmb-pan-right.png
+dragxy slot:kobi -120 0 0.5 0.55 button=both
+wait 600
+shot 152-08-lmb-rmb-pan-back.png
+wheel slot:kobi 3 0.5 0.55
+wait 600
+shot 152-09-wheel-dolly-in.png
+print snap {"target": "kobi"}
+dragxy slot:kobi 200 40 0.5 0.55 mod=alt
+wait 600
+shot 152-10-alt-lmb-orbit.png
+dragxy slot:kobi 0 -80 0.5 0.55 button=right mod=alt
+wait 600
+shot 152-11-alt-rmb-dolly.png
+dragxy slot:kobi 80 0 0.5 0.55 button=middle mod=alt
+wait 600
+shot 152-12-alt-mmb-pan.png
+print snap {"target": "kobi"}
+webclick kobi canvas 0.5 0.05
+wait 1500
+key f
+wait 900
+shot 152-13-nothing-picked-frame-all.png
+print snap {"target": "kobi"}

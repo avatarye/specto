@@ -1,0 +1,19 @@
+# v2 #47 acceptance scene: a 20 M-point PLY cloud and a 2 M-splat .splat in one view
+# (tools/gui_flows/v2-47-seed.py <folder> --points 20000000 --splats 2000000). Resolve
+# decodes the cloud and builds its kd-tree inline, then the page uploads 320 MB of
+# buffers; the fps pill reads the frames rendered during the orbit drag.
+resize 1600 900
+wait 1200
+submit tools/gui_flows/v2-47-canvas.json 3D heavy scene
+wait 2500
+click treeRow:fege:scans
+wait 50000
+print snap {"target": "kobi"}
+dragxy slot:kobi 260 80
+wait 1200
+shot 47-10-heavy-20m-points-2m-splats.png
+print snap {"target": "kobi"}
+webclick kobi canvas 0.45 0.42
+wait 2500
+shot 47-11-heavy-picked.png
+print snap {"target": "kobi"}

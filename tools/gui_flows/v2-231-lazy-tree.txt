@@ -1,0 +1,51 @@
+# v2 #231: the file tree lists folders on demand and never walks the project. The
+# project holds one big folder (400 subfolders of 25 files) next to a small one: on
+# open only the root is listed and both folders are closed; opening the big folder
+# lists its own level (its 400 folders and one file) and nothing under them (the host's
+# snapshot knows one file more, not ten thousand); opening one subfolder lists that
+# one; the footer counts rows until the tree is complete, which it never asks to be.
+# Project: tools/gui_flows/v2-231-seed.py <folder>.
+resize 1600 900
+wait 1500
+wait_until treeRow:@file_tree:big 20000
+assert_found treeRow:@file_tree:notes
+assert_missing treeRow:@file_tree:big/index.txt
+assert_missing treeRow:@file_tree:notes/readme.md
+# the root alone is listed: no file is known yet, the tree is not complete
+assert_host @file_tree loaded [""]
+assert_host @file_tree expanded []
+assert_host @file_tree files 0
+assert_host @file_tree complete false
+assert_host @file_tree rows 2
+assert_text fileTreeCaption:@file_tree 2 rows
+shot v2-231-01-root-listed-folders-closed.png
+# opening the big folder lists its level only: one file known, 400 folders shown
+expand @file_tree:big
+wait_until treeRow:@file_tree:big/item_0000 5000
+assert_found treeRow:@file_tree:big/item_0003
+assert_host @file_tree loaded ["","big"]
+assert_host @file_tree expanded ["big"]
+assert_host @file_tree files 1
+assert_host @file_tree rows 403
+assert_host @file_tree complete false
+assert_text fileTreeCaption:@file_tree 403 rows
+assert_missing treeRow:@file_tree:big/item_0000/file_00.txt
+shot v2-231-02-big-folder-listed-one-level.png
+# one subfolder: its 25 files, and still nothing else under big/
+expand @file_tree:big/item_0001
+wait_until treeRow:@file_tree:big/item_0001/file_00.txt 5000
+assert_found treeRow:@file_tree:big/item_0001/file_03.txt
+assert_host @file_tree loaded ["","big","big/item_0001"]
+assert_host @file_tree files 26
+assert_host @file_tree rows 428
+assert_host @file_tree complete false
+assert_text fileTreeCaption:@file_tree 428 rows
+assert_missing treeRow:@file_tree:big/item_0000/file_00.txt
+shot v2-231-03-one-subfolder-listed.png
+# closing the big folder keeps what was listed; nothing more is asked for
+collapse @file_tree:big
+wait 400
+assert_missing treeRow:@file_tree:big/item_0001
+assert_host @file_tree loaded ["","big","big/item_0001"]
+assert_host @file_tree rows 2
+shot v2-231-04-closed-again.png

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Specto mockup - C Patch/Perform - patch view</title>
+<style>
+:root{
+  --time:#ffd23f; --cam:#22d3ee; --item:#4ade80; --sel:#f472d0; --data:#8a929c;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace; --ui:"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1600px;height:1000px;overflow:hidden}
+body{background:#050608;font:12px/1.35 var(--mono);color:#c4c8ce}
+.win{position:absolute;left:14px;top:12px;width:1572px;height:976px;background:#0b0d10;border-radius:8px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.7),0 0 0 1px rgba(255,255,255,.07);display:flex;flex-direction:column}
+.title{height:28px;flex:none;background:#0b0c0e;display:flex;align-items:center;padding-left:12px;color:#6c727b;font:12px var(--ui)}
+.title .caps{margin-left:auto;display:flex;height:100%}
+.title .caps span{width:46px;display:flex;align-items:center;justify-content:center;color:#777}
+.top{height:30px;flex:none;background:#111317;border-bottom:1px solid #1d2026;display:flex;align-items:center;gap:14px;padding:0 12px;font-size:11.5px}
+.top b.m{color:#0b0c0e;background:#f1f3f5;padding:1px 8px;letter-spacing:.12em;font-size:10.5px}
+.paused{color:#ffb347;border:1px solid #6a4a1c;padding:1px 8px;background:#1d160b}
+.cnt{color:#f1f3f5}
+.cnt span{padding:1px 6px;border:1px dashed #f1f3f5;margin-left:4px}
+.btn{border:1px solid #3a3f47;padding:1px 9px;color:#d7dbe0}
+.btn.w{background:#f1f3f5;color:#000;border-color:#f1f3f5}
+.cv{flex:1;position:relative;overflow:hidden;background-color:#0c0e11;background-image:radial-gradient(rgba(140,150,165,.16) 1px,transparent 1.2px);background-size:16px 16px}
+.cv:before{content:"";position:absolute;inset:0;background:linear-gradient(rgba(255,170,60,.025),rgba(255,170,60,.025));pointer-events:none}
+.wire-layer{position:absolute;left:0;top:0;pointer-events:none;z-index:2}
+.wire-label{font:10.5px var(--mono)}
+.wire-label-bg{fill:#0c0e11}
+.fr{position:absolute;border:1px solid #4b525d;z-index:1}
+.fr .lb{position:absolute;left:-1px;top:-21px;height:20px;background:#1a1d22;border:1px solid #4b525d;border-bottom:none;padding:0 10px;display:flex;align-items:center;gap:10px;white-space:nowrap;font-size:11px}
+.fr .lb b{color:#f1f3f5}
+.fr .lb .d{color:#7d848e}
+.nd{position:absolute;background:#15181d;border:1px solid #2e333b;z-index:3;display:flex;flex-direction:column}
+.nd .hd{height:22px;flex:none;background:#1e2228;border-bottom:1px solid #2e333b;display:flex;align-items:center;padding:0 8px;gap:8px;white-space:nowrap}
+.nd .hd b{color:#f1f3f5;font-size:11.5px}
+.nd .hd .t{color:#6c727b;font-size:10.5px;margin-left:auto}
+.nd .bd{flex:1;position:relative;overflow:hidden}
+.nd .bd canvas{display:block;width:100%;height:100%;filter:saturate(.35) brightness(.55)}
+.nd .age{position:absolute;right:6px;bottom:4px;font-size:9.5px;color:#a3793a}
+.nd.src{background:#121519;border-color:#3a3f47}
+.nd.src .hd{background:transparent;border:none;height:100%}
+.nd.new{border:1.5px dashed #f5f5f5;box-shadow:0 0 0 3px rgba(255,255,255,.06),0 0 26px rgba(255,255,255,.18)}
+.nd.new .hd{background:#2a2d33}
+.nd.parked{opacity:.5}
+.nd.sub{border-color:#5b6472;box-shadow:4px 4px 0 -1px #15181d,4px 4px 0 0 #3a3f47}
+.port{position:absolute;width:7px;height:14px;z-index:5;transform:translate(-50%,-50%)}
+.port.t,.port.b{width:14px;height:7px}
+.pl{position:absolute;z-index:4;font-size:9.5px;padding:0 4px;background:rgba(14,16,19,.85);white-space:nowrap;transform:translateY(-50%)}
+.tag{position:absolute;z-index:6;background:#f5f5f5;color:#000;font:700 10px var(--mono);padding:1px 6px;letter-spacing:.04em}
+.legend{position:absolute;z-index:6;background:#121418;border:1px solid #2e333b;padding:10px 12px;display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:center;font-size:11px}
+.legend i{display:block;width:34px;height:3px}
+.foot{height:24px;flex:none;background:#0b0c0e;border-top:1px solid #15171a;display:flex;align-items:center;gap:16px;padding:0 12px;font-size:11px;color:#6c727b}
+.foot .r{margin-left:auto;display:flex;gap:16px}
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="title">Specto &middot; robotA &middot; Patch<div class="caps"><span>&#8212;</span><span>&#9744;</span><span>&#10005;</span></div></div>
+  <div class="top">
+    <b class="m">PATCH</b><span style="color:#f1f3f5">robotA</span>
+    <span class="paused">&#10074;&#10074; paused &middot; cooking off &middot; snapshots 0:06</span>
+    <span style="margin-left:auto" class="cnt">turn 12<span>+1 node</span><span>+2 wires</span></span>
+    <span class="btn w">Review</span><span class="btn">Revert turn</span><span class="btn">F1 perform</span>
+  </div>
+  <div class="cv" id="cv" data-wire-root><svg class="wire-layer"></svg></div>
+  <div class="foot"><span>3 frames &middot; 11 nodes &middot; 13 wires</span><span>select: none</span><div class="r"><span>drag port&rarr;port: link &middot; X: cut wire &middot; Ctrl+G: subgraph</span><span style="color:#f1f3f5">new items stay outlined until reviewed</span></div></div>
+</div>
+<script>
+const C = { time: '#ffd23f', cam: '#22d3ee', item: '#4ade80', sel: '#f472d0', data: '#8a929c' };
+const cv = document.getElementById('cv');
+function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+function place(e, x, y, w, h) { Object.assign(e.style, { left: x + 'px', top: y + 'px' }); if (w != null) e.style.width = w + 'px'; if (h != null) e.style.height = h + 'px'; cv.appendChild(e); return e; }
+function frame(x, y, w, h, name, size, mon) { place(el('div', 'fr', `<div class="lb"><b>${name}</b><span class="d">${size}</span><span>&rarr; ${mon}</span></div>`), x, y, w, h); }
+function node(s) {
+  const n = place(el('div', 'nd ' + (s.cls || '')), s.x, s.y, s.w, s.h);
+  n.appendChild(el('div', 'hd', `<b>${s.t}</b><span class="t">${s.ty || ''}</span>`));
+  if (s.h > 50) {
+    const bd = el('div', 'bd');
+    if (s.draw) bd.innerHTML = `<canvas data-draw="${s.draw}" data-seed="${s.seed || 1}" ${s.opts ? `data-opts='${JSON.stringify(s.opts)}'` : ''}></canvas>`;
+    else bd.innerHTML = `<div style="padding:8px 10px;color:#7d848e;font-size:10.5px;line-height:1.6">${s.fake || ''}</div>`;
+    if (s.age !== false) bd.appendChild(el('span', 'age', s.age || 'snap 6s'));
+    n.appendChild(bd);
+  }
+  (s.ports || []).forEach(pt => {
+    const X = pt.side === 'l' ? s.x : pt.side === 'r' ? s.x + s.w : s.x + s.w * pt.f;
+    const Y = pt.side === 't' ? s.y : pt.side === 'b' ? s.y + s.h : s.y + s.h * pt.f;
+    const d = place(el('div', 'port ' + pt.side), X, Y); d.id = pt.id; d.dataset.side = pt.side; d.style.background = C[pt.ch];
+    if (pt.label) {
+      const l = el('div', 'pl', pt.label); l.style.color = C[pt.ch];
+      if (pt.side === 'l') place(l, X + 7, Y); else if (pt.side === 'r') { place(l, 0, Y); l.style.left = 'auto'; l.style.right = (cv.clientWidth - X + 7) + 'px'; }
+      else place(l, X + 10, Y + (pt.side === 't' ? 10 : -10));
+    }
+  });
+  if (s.tag) place(el('div', 'tag', s.tag), s.x + s.w - 64, s.y - 9);
+  return n;
+}
+// frames
+frame(214, 46, 1050, 646, 'Review', '1920&times;1080', 'Monitor 1');
+frame(1300, 46, 250, 400, 'Debug', '1280&times;800', 'Monitor 2');
+// sources (collections)
+const SW = 150;
+node({ x: 24, y: 70, w: SW, h: 34, t: 'col:roads', ty: 'geojson', cls: 'src', ports: [{ id: 's-roads', side: 'r', f: 0.5, ch: 'data' }] });
+node({ x: 24, y: 116, w: SW, h: 34, t: 'col:gps', ty: 'nmea', cls: 'src', ports: [{ id: 's-gps', side: 'r', f: 0.5, ch: 'data' }] });
+node({ x: 24, y: 196, w: SW, h: 34, t: 'col:lidar1', ty: 'pcd', cls: 'src', ports: [{ id: 's-lidar', side: 'r', f: 0.5, ch: 'data' }] });
+node({ x: 24, y: 380, w: SW, h: 34, t: 'col:frames', ty: 'jpg', cls: 'src', ports: [{ id: 's-frames', side: 'r', f: 0.5, ch: 'data' }] });
+node({ x: 24, y: 700, w: SW, h: 34, t: 'col:video', ty: 'mp4', cls: 'src', ports: [{ id: 's-video', side: 'r', f: 0.5, ch: 'data' }] });
+// view nodes in Review
+node({ x: 250, y: 430, w: 210, h: 130, t: 'Controls v11', ty: 'panel.controls', cls: 'new', tag: 'NEW t12', age: false, fake: 'slider time offset<br>toggle show boxes<br>toggle follow cam<br>button next run',
+  ports: [{ id: 'ctl-off', side: 'r', f: 0.38, ch: 'time', label: 'offset&gt;' }, { id: 'ctl-cam', side: 'r', f: 0.66, ch: 'cam', label: 'follow&gt;' }] });
+node({ x: 530, y: 480, w: 210, h: 150, t: 'Video v8', ty: 'mpv', draw: 'camera', seed: 38,
+  ports: [{ id: 'vid-data', side: 'l', f: 0.3, ch: 'data', label: 'data' }, { id: 'vid-off', side: 'l', f: 0.52, ch: 'time', label: '&lt;offset' }, { id: 'vid-time', side: 'r', f: 0.3, ch: 'time', label: 'time&gt;' }] });
+node({ x: 800, y: 86, w: 210, h: 160, t: 'USD v3', ty: 'viewer.usd', draw: 'cloud', seed: 3, opts: { bg: '#0c0e11', cmap: 'neon', size: 1.0, gizmo: false, by: 'mixed', frustum: '#22d3ee' },
+  ports: [{ id: 'usd-data', side: 'l', f: 0.25, ch: 'data', label: 'data' }, { id: 'usd-time', side: 'l', f: 0.47, ch: 'time', label: '&lt;time' }, { id: 'usd-cam-in', side: 'l', f: 0.69, ch: 'cam', label: '&lt;cam' },
+    { id: 'usd-cam', side: 'r', f: 0.3, ch: 'cam', label: 'cam&harr;' }, { id: 'usd-sel', side: 'r', f: 0.52, ch: 'sel', label: 'sel&harr;' }] });
+node({ x: 800, y: 330, w: 210, h: 140, t: 'Gallery v2', ty: 'gallery', draw: 'camera', seed: 5, opts: { boxes: true, boxColor: '#4ade80' },
+  ports: [{ id: 'gal-data', side: 'l', f: 0.3, ch: 'data', label: 'data' }, { id: 'gal-time', side: 'l', f: 0.55, ch: 'time', label: '&lt;time' }, { id: 'gal-item', side: 'r', f: 0.32, ch: 'item', label: 'item&gt;' }] });
+node({ x: 1040, y: 86, w: 210, h: 160, t: 'Map v4', ty: 'map', draw: 'map', seed: 5, opts: { theme: 'night', block: 28, chrome: false, labelSize: 7, trackColor: '#22d3ee', trackHalo: 'rgba(0,0,0,0.9)', posColor: '#22d3ee' },
+  ports: [{ id: 'map-cam', side: 'l', f: 0.3, ch: 'cam' }, { id: 'map-sel', side: 'l', f: 0.52, ch: 'sel' }, { id: 'map-time', side: 'l', f: 0.8, ch: 'time', label: '&lt;time' },
+    { id: 'map-roads', side: 't', f: 0.3, ch: 'data' }, { id: 'map-gps', side: 't', f: 0.55, ch: 'data' }, { id: 'map-out', side: 'r', f: 0.4, ch: 'cam' }] });
+node({ x: 1040, y: 330, w: 210, h: 140, t: 'JSON v6', ty: 'monaco', fake: '{ "id": "controls:v11",<br>&nbsp;&nbsp;"items": [ ... 4 ] }<br><span style="color:#4ade80">&larr; follows item</span>',
+  ports: [{ id: 'json-item', side: 'l', f: 0.32, ch: 'item' }] });
+// debug frame
+node({ x: 1320, y: 86, w: 210, h: 140, t: 'JSON v12', ty: 'cam pose', fake: '{ "eye": [-22, -14, 13],<br>&nbsp;&nbsp;"target": [14, 2, 0],<br>&nbsp;&nbsp;"fov": 55 }',
+  ports: [{ id: 'dbg-cam', side: 'l', f: 0.4, ch: 'cam' }] });
+node({ x: 1320, y: 260, w: 210, h: 160, t: 'Log v7', ty: 'log', fake: '14:02:11 cook USD v3 4.1ms<br>14:02:12 wire +time.offset<br>14:02:12 wire +cam.follow<br>14:02:13 node +ctl:v11' });
+// parked + subgraph
+node({ x: 530, y: 740, w: 210, h: 110, t: 'Video v9', ty: 'parked', cls: 'parked', draw: 'camera', seed: 44, opts: { dusk: true }, age: 'snap 14m' });
+node({ x: 800, y: 740, w: 240, h: 76, t: 'compare A/B &#9656;', ty: 'subgraph', cls: 'sub', age: false, fake: '3 nodes &middot; 4 wires<br>recipe:ab-swipe@2' });
+place(el('div', '', 'parked'), 530, 718).setAttribute('style', 'position:absolute;left:530px;top:718px;color:#6c727b;font-size:11px');
+// legend
+place(el('div', 'legend', `<i style="background:${C.time}"></i><span>time &middot; follow &rarr;</span><i style="background:${C.cam}"></i><span>cam &middot; two-way &harr;</span><i style="background:${C.item}"></i><span>item</span><i style="background:${C.sel}"></i><span>sel &middot; two-way</span><i style="height:5px;border:1.5px solid #8a929c;background:transparent"></i><span>data (collection)</span><i style="height:3px;background:repeating-linear-gradient(90deg,#f5f5f5 0 5px,transparent 5px 9px)"></i><span style="color:#f1f3f5">new this turn</span>`), 1300, 480);
+const DATA = { color: '#0c0e11', casing: '#8a929c', w: 2.4 };
+window.WIRES = [
+  Object.assign({ a: '#s-roads', b: '#map-roads', sideB: 't', tension: 160 }, DATA),
+  Object.assign({ a: '#s-gps', b: '#map-gps', sideB: 't', tension: 140 }, DATA),
+  Object.assign({ a: '#s-lidar', b: '#usd-data' }, DATA),
+  Object.assign({ a: '#s-frames', b: '#gal-data' }, DATA),
+  Object.assign({ a: '#s-video', b: '#vid-data' }, DATA),
+  { a: '#vid-time', b: '#usd-time', color: C.time, w: 3, arrow: true, arrowSize: 11 },
+  { a: '#vid-time', b: '#gal-time', color: C.time, w: 3, arrow: true, arrowSize: 11 },
+  { a: '#vid-time', b: '#map-time', color: C.time, w: 3, arrow: true, arrowSize: 11, label: 'time', at: 0.62 },
+  { a: '#usd-cam', b: '#map-cam', color: C.cam, w: 3, tension: 10 },
+  { a: '#usd-sel', b: '#map-sel', color: C.sel, w: 3, tension: 10 },
+  { a: '#gal-item', b: '#json-item', color: C.item, w: 3, arrow: true, arrowSize: 10, tension: 10 },
+  { a: '#map-out', b: '#dbg-cam', color: C.cam, w: 3, arrow: true, arrowSize: 10, tension: 30 },
+  { a: '#ctl-off', b: '#vid-off', color: C.time, w: 3, dash: '7 5', glow: true, arrow: true, arrowSize: 11, label: 'NEW', labelColor: '#000', labelBg: '#f5f5f5', labelRadius: 0, at: 0.5 },
+  { a: '#ctl-cam', b: '#usd-cam-in', color: C.cam, w: 3, dash: '7 5', glow: true, arrow: true, arrowSize: 11, label: 'NEW', labelColor: '#000', labelBg: '#f5f5f5', labelRadius: 0, at: 0.35 },
+];
+</script>
+<script src="common.js"></script>
+</body>
+</html>

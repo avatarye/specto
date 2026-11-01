@@ -1,0 +1,52 @@
+# #155 and #156 on the stub USD source. #156: picking a .usda covers the picture with the
+# loading label (the file's name and the phase) until the stage's first complete frame;
+# stepping to another stage covers the previous stage's picture at once. #155: the first
+# stub crashes 3 s after its stage is up, like a large depot world under RTX (exit
+# 0xC0000005, a device-lost log): the view says why, with the last error lines, and
+# Retry brings it back (Open with Storm stays hidden: the suite disables Storm here).
+# Project: tools/gui_flows/v2-139-seed.py makes it. The suite sets
+# SPECTO_USD_STUB_PHASE_MS=700 (the phases stay up long enough to see) and
+# SPECTO_USD_STUB_CRASH_MS=3000.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-139-canvas.json usd view of the picked stages
+wait 2000
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/depot_world.usda 15000
+click treeRow:fege:worlds/depot_world.usda
+wait 500
+assert_found cover:kobi
+assert_text coverFile:kobi depot_world.usda
+shot 156-01-loading-label.png
+wait_while cover:kobi 15000
+assert_painted viewport:kobi 0.75
+shot 156-02-first-complete-frame.png
+# the crash, 3 s after the stage is up
+wait_until failure:kobi 15000
+win: assert_text failureReason:kobi the renderer crashed (access violation, 0xC0000005)
+posix: assert_text failureReason:kobi the renderer crashed (segmentation fault, SIGSEGV)
+assert_found retry:kobi
+assert_missing storm:kobi
+shot 155-01-renderer-crashed.png
+print snap {"target": "kobi"}
+click retry:kobi
+wait 300
+assert_found cover:kobi
+shot 156-03-retry-loading.png
+wait_while cover:kobi 15000
+assert_missing failure:kobi
+assert_painted viewport:kobi 0.75
+shot 155-02-after-retry.png
+# a second pick: its label covers the first stage's picture at once
+ctrlclick treeRow:fege:worlds/second_world.usda
+wait 300
+assert_text coverFile:kobi second_world.usda
+shot 156-04-step-covers-previous.png
+wait_while cover:kobi 15000
+assert_text stage:kobi second_world.usda
+assert_painted viewport:kobi 0.75
+shot 156-05-second-stage.png

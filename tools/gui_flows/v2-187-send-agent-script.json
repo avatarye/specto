@@ -1,0 +1,11 @@
+{
+ "delay_ms": 60,
+ "turns": [
+  [
+   {"tool": "fleet_status", "args": {}},
+   {"tool": "fleet_send", "args": {"to": "FLEET/SQUAD/SHIP", "text": "The cam-a frames are on the canvas in kobi."}},
+   {"tool": "fleet_send", "args": {"to": "MAIN/ELSE", "text": "This one is not allowed."}},
+   {"text": "Told FLEET/SQUAD/SHIP; MAIN/ELSE is not among your allowed recipients."}
+  ]
+ ]
+}

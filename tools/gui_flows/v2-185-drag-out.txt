@@ -1,0 +1,83 @@
+# v2 #185: drags out of views. Project: tools/gui_flows/v2-46-seed.py <folder> (run-001 cam-a
+# frames, notes/, geo/) with v2-46-canvas.json (file tree fege, gallery kobi, json tamu,
+# markdown rena). A drop probe window (gui_flows/drop_probe.py, outside the app at the
+# screen's right edge) takes each drop and records its mime data: a tree row drags its
+# file (Specto's payload, the file URL, the path); a row inside a selection drags the
+# whole selection; a gallery tile drags its image without picking it; the image view's
+# Ctrl+drag drags the image and a Shift-marked crop drags as a PNG; a text selection in
+# the markdown and json views drags its text. Clicks still pick, between the drags.
+resize 1600 900
+wait 1500
+submit tools/gui_flows/v2-46-canvas.json gallery, sidecar json, notes and a map of the project
+wait 6000
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:notes 20000
+expand fege:notes
+wait_until treeRow:fege:notes/run-log.md 20000
+assert_found tile:kobi:00002
+spawn uv run python tools/gui_flows/drop_probe.py {project}/../drop-probe.json 180
+# dragout waits until the probe says it is ready (shown, a drop target, placed: #195)
+# a tree row: its file, as the drag contract's mime data
+dragout treeRow:fege:notes/run-log.md {project}/../drop-probe.json 0.6 0.5
+assert_dropped {project}/../drop-probe.json 1 "path": "notes/run-log.md"
+assert_dropped {project}/../drop-probe.json 1 application/x-specto-item+json
+assert_dropped {project}/../drop-probe.json 1 text/uri-list
+shot v2-185-01-tree-row-dropped.png
+# a click still picks; a drag from a row inside the selection drags the selection
+click treeRow:fege:notes/run-001-overview.md 0.6 0.5
+ctrlclick treeRow:fege:notes/run-log.md 0.6 0.5
+wait 600
+dragout treeRow:fege:notes/run-log.md {project}/../drop-probe.json 0.6 0.5
+assert_dropped {project}/../drop-probe.json 2 "key": "notes/run-001-overview.md"
+assert_dropped {project}/../drop-probe.json 2 "key": "notes/run-log.md"
+# a gallery tile: its image file, no pick (tile 00002 stays unpicked)
+dragout tile:kobi:00003 {project}/../drop-probe.json
+assert_dropped {project}/../drop-probe.json 3 "kind": "image"
+assert_dropped {project}/../drop-probe.json 3 "key": "00003"
+shot v2-185-02-tile-dropped.png
+# the gallery still scrolls with the wheel and picks with a click
+click tile:kobi:00002
+wait 400
+wheel tile:kobi:00002 -2
+wait 600
+# the image view (Open image from the tile's menu): Ctrl+drag drags the image
+rclick tile:kobi:00002
+wait 600
+click menu:gallery.open_image
+wait 3000
+assert_found slot:@image
+dragout slot:@image {project}/../drop-probe.json 0.5 0.4 mod=ctrl
+assert_dropped {project}/../drop-probe.json 4 "type": "image"
+assert_dropped {project}/../drop-probe.json 4 "kind": "image"
+# Shift+drag marks a crop; a drag from inside it drags the crop as a PNG
+dragxy slot:@image 160 100 0.3 0.25 mod=shift
+wait 400
+assert_found crop:@image
+shot v2-185-03-image-crop.png
+dragout crop:@image {project}/../drop-probe.json
+assert_dropped {project}/../drop-probe.json 5 "crop":
+assert_dropped {project}/../drop-probe.json 5 image/png
+# a plain drag still pans; Esc clears the crop
+click slot:@image 0.5 0.4
+key escape
+wait 400
+assert_missing crop:@image
+# the markdown view: select its text, drag it out
+click slot:rena 0.45 0.35
+key ctrl+a
+wait 300
+dragout slot:rena {project}/../drop-probe.json 0.45 0.35
+assert_dropped {project}/../drop-probe.json 6 "kind": "text"
+assert_dropped {project}/../drop-probe.json 6 "type": "markdown"
+# the json view (Monaco): select all, drag from inside the selection
+click tile:kobi:00002
+wait 1500
+click slot:tamu 0.4 0.3
+key ctrl+a
+wait 300
+dragout slot:tamu {project}/../drop-probe.json 0.4 0.3
+assert_dropped {project}/../drop-probe.json 7 "kind": "text"
+assert_dropped {project}/../drop-probe.json 7 "type": "json"
+shot v2-185-04-text-dropped.png
+# the probe window goes with the run (gui_drive also closes it on any exit, #195)
+close_probe {project}/../drop-probe.json

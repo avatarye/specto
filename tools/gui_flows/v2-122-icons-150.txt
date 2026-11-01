@@ -1,0 +1,14 @@
+# v2 #122 at 150 % (QT_SCALE_FACTOR=1.5): the file tree's icons stay crisp at 16 px.
+# The close-ups frame rows inside the window (the 900 px tree runs past its bottom edge).
+# Project: tools/gui_flows/v2-122-seed.py <folder>.
+resize 1200 800
+wait 1500
+# the tree starts collapsed (#231): open the folders the close-ups frame
+wait_until treeRow:@file_tree:scenes 20000
+expand @file_tree:scenes
+expand @file_tree:images
+expand @file_tree:scripts
+wait_until treeIcon:@file_tree:scenes/room.splat 20000
+wait 800
+shotcrop treeRow:@file_tree:images/00000.jpg 100 2 v2-122-08-icons-closeup-150.png
+shotcrop treeRow:@file_tree:scripts/convert.py 100 2 v2-122-09-icons-closeup-150-more.png

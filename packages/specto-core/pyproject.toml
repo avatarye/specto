@@ -1,0 +1,14 @@
+[project]
+name = "specto-core"
+version = "0.2.0"
+description = "Specto core: canvas document, addresses, commands, transactions, channels. No Qt."
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+dependencies = ["pydantic>=2.9", "numpy>=2.0", "platformdirs>=4.2"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/specto_core"]

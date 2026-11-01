@@ -1,0 +1,47 @@
+# v2 #116: the image view follows the file tree's picks and leaves "loading" when they
+# grow. One frame picked (00002), then a Shift-click to 00009: the picks grow from the
+# shown frame, so the image view keeps showing 00002 (the same image, already decoded)
+# and says ok, not "loading 00002" with "1 resolving" in the top bar. A Ctrl-click adds
+# 00000 before it: the view stays on 00002 (it keeps the frame it shows, not its place).
+# Then the image view is collapsed and floated, and its title bar dragged down near the
+# window's bottom edge: it stays where it is dropped (placed by its bar, not by its
+# stored 600 px height, which used to pull it up on drop).
+# Project: tools/gui_flows/v2-39-seed.py; the canvas document is v2-116-canvas.json.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-116-canvas.json image view on the picked frames
+wait 1500
+assert_found slot:@image
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+wait 1500
+wait_while resolvingCount 15000
+assert_text image:dena:caption 00002
+shot 116-01-one-frame-picked.png
+print snap {"target": "@image"}
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2000
+wait_while resolvingCount 15000
+assert_text image:dena:caption 00002
+assert_text position:dena 1 / 8
+shot 116-02-picks-grown-to-eight-not-loading.png
+print snap {"target": "@image"}
+ctrlclick treeRow:fege:runs/run-001/cam-a/00000_1700000000000000000.jpg
+wait 2000
+wait_while resolvingCount 15000
+assert_text image:dena:caption 00002
+assert_text position:dena 2 / 9
+shot 116-03-a-pick-before-it-still-the-same-frame.png
+print snap {"target": "@image"}
+click collapse:dena
+wait 800
+click float:dena
+wait 800
+mark header:dena
+dragxy header:dena 0 730 0.3 0.5 shot=116-04-collapsed-floater-held-near-bottom.png
+wait 800
+assert_moved header:dena 0 730 3
+shot 116-05-collapsed-floater-dropped-stays.png
+print snap {"target": "canvas", "layout": true}

@@ -1,0 +1,63 @@
+# v2 #82 wiring layer (ADR 0018): the #45 canvas (two link chains around the file tree). The
+# normal view draws no curves; the backtick key toggles the wiring layer over it: the views
+# dim, the port circles stay clear, every link is a curve in its chain's colour from the
+# source's output circle to the input circle it occupies, with a link node that opens the
+# link summary (Delete, Ask agent to change, Advanced). A header drag under the layer moves
+# the view and its curves with it; Esc closes the summary, then leaves the layer; the key
+# again toggles it; the status bar line (#80) is the layer's while it shows. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-45-canvas.json two link chains around the file tree
+wait 2000
+assert_found slot:kobi
+assert_found port:rena:in:1
+assert_missing wire:l2
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+click tile:rena:00003
+wait 800
+assert_found statusHint
+shot 82-01-layer-off.png
+# the backtick: the layer comes over the dimmed views, one curve and node per link
+key `
+wait 800
+assert_found wiringLayer
+assert_found wire:l2
+assert_found wire:l5
+assert_found wireNode:l2
+assert_found port:kobi:in
+shot 82-02-layer-on.png
+# a link node opens the summary of that link (the cam-a intaker)
+click wireNode:l2
+wait 600
+assert_found linkView
+shot 82-03-link-view.png
+# Esc closes the link view first; the layer stays
+key esc
+wait 500
+assert_missing linkView
+assert_found wire:l2
+# the view moves under the layer and its curves follow (shot while held)
+dragxy header:kobi 120 60 0.3 0.5 shot=82-04-dragging-under-the-layer.png
+wait 800
+shot 82-05-moved.png
+print snap {"target": "kobi", "layout": true}
+# Esc leaves the layer; the key brings it back; the key again leaves it
+key esc
+wait 500
+assert_missing wire:l2
+assert_missing wiringLayer
+shot 82-06-layer-off-again.png
+key `
+wait 500
+assert_found wire:l2
+key `
+wait 500
+assert_missing wire:l2
+click undoButton
+wait 800
+print snap {"target": "kobi", "layout": true}

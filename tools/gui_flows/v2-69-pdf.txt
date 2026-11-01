@@ -1,0 +1,55 @@
+# kobi #69 pdf view: open a folder (the file tree appears), submit a canvas document that
+# adds a pdf view fed by an intaker off the file tree's selected files (screened on
+# @pdf), pick report.pdf with a real mouse (six pages render in QtPdf, the footer counts
+# them), scroll through the pages with the wheel, step with the footer's > button and
+# End, fit the whole page with P, zoom in with Ctrl+wheel and back to fit width with F.
+# (A double-click on a file opens a preview since #106: v2-106-preview.txt.)
+# Project: tools/gui_flows/v2-69-seed.py makes it. The canvas document is v2-69-canvas.json.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+assert_found treeRow:fege:papers
+shot 69-01-file-tree.png
+submit tools/gui_flows/v2-69-canvas.json pdf view of the picked paper
+wait 2000
+assert_found slot:kobi
+shot 69-02-pdf-empty.png
+print snap {"target": "kobi"}
+# expand: the chevron opens the folder (unless it is open) without selecting it
+expand fege:papers
+wait 600
+assert_found treeRow:fege:papers/report.pdf
+click treeRow:fege:papers/report.pdf
+wait 2500
+assert_found pdf:kobi:page
+shot 69-03-report-page-1.png
+print snap {"target": "kobi"}
+# the wheel scrolls through the pages; the counter follows
+wheel slot:kobi -12 0.5 0.4
+wait 1200
+shot 69-04-scrolled.png
+print snap {"target": "kobi"}
+# PageDown turns a page (the footer's step buttons walk the collection's pdfs, #107,
+# and show only with two or more); End jumps to the last
+click slot:kobi 0.5 0.4
+key pagedown
+wait 1000
+print snap {"target": "kobi"}
+click slot:kobi 0.5 0.4
+key end
+wait 1200
+shot 69-05-last-page.png
+print snap {"target": "kobi"}
+# P fits the whole page, Ctrl+wheel zooms in, F fits the width again
+key p
+wait 1000
+shot 69-06-fit-page.png
+print snap {"target": "kobi"}
+wheel slot:kobi 4 0.5 0.4 ctrl
+wait 1000
+shot 69-07-zoomed.png
+print snap {"target": "kobi"}
+key f
+wait 1000
+print snap {"target": "kobi"}
+print snap {"target": "canvas", "layout": true}

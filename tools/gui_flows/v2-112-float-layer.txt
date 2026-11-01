@@ -1,0 +1,89 @@
+# v2 #112 float layer: a cam-a gallery, its image view and a cam-b gallery beside the file
+# tree. The image view's Float puts it on the float layer where it is; a Space-drag pans
+# the canvas 600 px under it (the floater stays put, the canvas views move); the wiring
+# layer's curve from the cam-a gallery to the floater crosses the two layers; a narrower
+# window keeps the floater at its top-right corner offset; the cam-b gallery floats too and
+# the image view's header drag snaps to it (not to canvas views) and stays in the window;
+# the overworld shows both in its "floating" strip, a chip goes back; Unfloat drops the
+# image view on the canvas under it, so panning back carries it away with the canvas.
+# Each gesture is one undo step. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-112-canvas.json cam-a gallery, its image view, cam-b gallery
+wait 1500
+assert_found slot:@gallery
+assert_found slot:@image
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+click tile:@gallery:00005
+wait 1200
+shot 112-01-canvas.png
+# Float: the image view stays where it is, now on the float layer (button filled)
+click float:@image
+wait 800
+hover header:@image 0.3 0.5
+wait 400
+shot 112-02-floated.png
+print snap {"target": "canvas", "layout": true}
+# pan 600 px right with Space held: the canvas moves under the floater (a click on the
+# empty canvas first, so no view has the focus: a focused gallery takes Space as quick look)
+click panArea 0.3 0.8
+wait 300
+keydown space
+dragxy panArea -600 0 0.5 0.6
+keyup space
+wait 1200
+assert_found slot:@image
+shot 112-03-panned-floater-stays.png
+print snap {"target": "canvas", "layout": true}
+# the wiring layer: the curve from the cam-a gallery to the floater crosses the layers
+key `
+wait 800
+shot 112-04-wiring-crosses-layers.png
+key `
+wait 400
+# a narrower window: the floater keeps its offset from the top-right corner
+resize 1300 750
+wait 1500
+shot 112-05-window-narrowed.png
+print snap {"target": "canvas", "layout": true}
+resize 1600 900
+wait 1500
+# the cam-b gallery floats too; the image view's header drag snaps to its left edge and
+# its top (6 and 5 px away), never to a canvas view
+click float:@gallery#2
+wait 800
+dragxy header:@image -134 55 0.3 0.5 shot=112-06-floater-drag-snapping.png
+wait 800
+shot 112-07-floaters-snapped.png
+print snap {"target": "canvas", "layout": true}
+# dragged far past the window's bottom-left, it stays inside the window
+dragxy header:@image -1400 900 0.3 0.5
+wait 800
+shot 112-08-kept-in-window.png
+click undoButton
+wait 800
+# the overworld: both floaters in the strip along the top, outlines where they float
+key tab
+wait 1500
+shot 112-09-overworld-floating-strip.png
+click overFloat:@image
+wait 1200
+shot 112-10-back-from-strip.png
+# Unfloat: the image view lands on the canvas under it; panning back carries it along
+click float:@image
+wait 800
+shot 112-11-unfloated.png
+print snap {"target": "canvas", "layout": true}
+click panArea 0.3 0.8
+wait 300
+keydown space
+dragxy panArea 600 0 0.5 0.6
+keyup space
+wait 1200
+shot 112-12-panned-back-unfloated-moves.png
+print snap {"target": "canvas", "layout": true}

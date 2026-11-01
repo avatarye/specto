@@ -1,0 +1,58 @@
+# v2 #111: port tips (filter summary and data type, #81) have their own tinted background
+# and read apart from the ordinary tips (header buttons, the project node, file tree
+# names), which keep theirs. With the wiring layer on (#82), the ordinary tips show as
+# usual: the layer takes no hover from the views under it; a link node's tip is its
+# link's summary sentence, gone once the node's summary opens. The #45 canvas (two link
+# chains around the file tree). Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-45-canvas.json two link chains around the file tree
+wait 2000
+assert_found slot:@gallery
+expand fege:runs/run-001/cam-a
+wait 600
+# a port tip, then an ordinary tip on the same view's header
+hover port:@gallery:in
+wait 600
+assert_found tip:port:@gallery:in
+shot 111-01-port-tip.png
+shotcrop header:@gallery 80 1 111-01-port-tip-close.png
+hover close:@gallery
+wait 600
+assert_found tip:close:@gallery
+assert_missing tip:port:@gallery:in
+shot 111-02-ordinary-tip.png
+shotcrop header:@gallery 80 1 111-02-ordinary-tip-close.png
+hover panArea 0.9 0.9
+wait 300
+# the wiring layer: the ordinary tips still show over the dimmed views
+key `
+wait 800
+assert_found wiringLayer
+assert_found wire:l2
+hover close:@gallery
+wait 600
+assert_found tip:close:@gallery
+shot 111-03-layer-header-tip.png
+hover projectNode
+wait 600
+assert_found tip:projectNode
+# a name cut short (the json sidecar; the jpg names fit) shows in full in a tip
+hover treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.json 0.3 0.5
+wait 900
+assert_found treeTip:fege:runs/run-001/cam-a/00002_1700000000062500000.json
+shot 111-04-layer-tree-name-tip.png
+hover port:@gallery:in
+wait 600
+assert_found tip:port:@gallery:in
+shot 111-05-layer-port-tip.png
+# #121: the link node is a dot with no tip of its own; it opens the link view
+click wireNode:l2
+wait 600
+assert_found linkView
+key esc
+wait 400
+key `
+wait 500
+assert_missing wiringLayer

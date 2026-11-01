@@ -1,0 +1,69 @@
+/* 3D view: the VIEW panel, the Babylon.js canvas and the ITEMS panel in a row over the
+ * footer (#129); the panels are the side panel standard (sidepanel.js, style.css). */
+.body { flex: 1; min-height: 0; display: flex; position: relative; }
+.stage { flex: 1; min-width: 0; position: relative; display: flex; }
+#c { flex: 1; min-width: 0; width: 100%; height: 100%; outline: none; display: block; background: var(--color-surface-alt); touch-action: none; }
+.overlay {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  padding: 6px 12px; border-radius: var(--metric-radius-pill);
+  background: var(--color-surface); color: var(--color-text-muted);
+  border: 1px solid var(--color-border); font-size: var(--metric-font-px-small);
+  pointer-events: none;
+}
+.overlay.hidden { display: none; }
+/* the VIEW panel's controls */
+.control { padding: 6px 8px 4px; }
+.control-label { display: block; color: var(--color-text); font-size: var(--metric-font-px-small); margin-bottom: 4px; }
+.speed-row { display: flex; align-items: center; gap: 6px; }
+.speed-row input[type=range] { flex: 1; min-width: 0; margin: 0; height: 10px; accent-color: var(--color-accent); }
+.speed-row .speed-value { width: 34px; text-align: right; color: var(--color-text-muted); font-family: var(--font-mono), Consolas, monospace; font-size: var(--metric-font-px-small); }
+button.origin {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 4px 8px; padding: 3px 10px;
+  font: inherit; font-size: var(--metric-font-px-small); color: var(--color-text);
+  background: var(--color-surface); border: 1px solid var(--color-border-strong);
+  border-radius: var(--metric-radius-pill); cursor: pointer;
+}
+button.origin:hover { background: var(--color-bg); }
+button.origin svg { width: 12px; height: 12px; }
+/* the ITEMS panel's rows: the name over the file size; picked, off, unreadable */
+.panel-row .item-text { display: flex; flex-direction: column; min-width: 0; }
+.panel-row.selected { background: var(--color-accent-soft); }
+.panel-row.off .name { color: var(--color-text-faint); }
+.panel-row.broken .name { color: var(--color-removed); }
+/* the footer's view mode (#153): a pill with the mode's name, always in sight (#158),
+ * accent off lit, its menu opening above it: fixed on the page, as the footer clips what
+ * overflows it (#175) */
+button.mode-pill {
+  font: inherit; font-size: var(--metric-font-px-small); color: var(--color-text-muted);
+  background: transparent; border: 1px solid transparent; border-radius: var(--metric-radius-pill);
+  padding: 1px 8px; margin-right: 4px; cursor: pointer;
+}
+button.mode-pill:hover { background: var(--color-bg); }
+button.mode-pill.on { color: var(--color-accent); background: var(--color-accent-soft); }
+.mode-menu {
+  position: fixed; right: 30px; bottom: calc(var(--metric-footer-h, 24px) + 4px); z-index: 10;
+  display: flex; flex-direction: column; min-width: 110px; padding: 4px;
+  background: var(--color-surface); border: 1px solid var(--color-border-strong);
+  border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.mode-menu.hidden { display: none; }
+.mode-item {
+  text-align: left; font: inherit; font-size: var(--metric-font-px-small); color: var(--color-text);
+  background: transparent; border: 0; border-radius: 4px; padding: 3px 8px; cursor: pointer;
+}
+.mode-item:hover { background: var(--color-bg); }
+.mode-item.on { color: var(--color-accent); }
+/* the environment (#175): the footer's pill shares the mode pill's look; the VIEW panel's
+ * group: intensity and rotation rows, the background toggle (dimmed while no HDRI is on) */
+.env-controls { border-top: 1px solid var(--color-border); margin-top: 6px; padding-top: 8px; }
+.env-row { margin-bottom: 6px; }
+.env-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+.env-name { color: var(--color-text-muted); font-size: var(--metric-font-px-small); }
+.env-head .speed-value { width: auto; color: var(--color-text-muted); font-family: var(--font-mono), Consolas, monospace; font-size: var(--metric-font-px-small); }
+.env-row input[type=range] { width: 100%; margin: 0; height: 10px; accent-color: var(--color-accent); }
+.env-check { display: flex; align-items: center; gap: 6px; margin-top: 2px; color: var(--color-text); font-size: var(--metric-font-px-small); cursor: pointer; }
+.env-check input { margin: 0; accent-color: var(--color-accent); }
+.env-controls input:disabled, .env-check input:disabled + span { opacity: 0.45; }
+.mode-item:disabled { color: var(--color-text-faint); cursor: default; }
+.mode-item:disabled:hover { background: transparent; }

@@ -1,0 +1,109 @@
+# v2 #49 interacting in views (spec #35 stories 38, 40, 44, 45, 48, 52): a folder of
+# run-001 frames, notes and GeoJSON (tools/gui_flows/v2-46-seed.py); a canvas document
+# with a gallery, a JSON view following its selection, a markdown view of the notes and
+# a map fed by a read contents link (v2-46-canvas.json). With a real mouse and keyboard:
+# the gallery scrolls, Ctrl+wheel changes the tile size, a click and the arrow keys move
+# the pick (the sidecar JSON follows), the context menu's Open image opens the image view
+# beside it (one user submit, a new name: the flow finds it as @image; a double-click
+# opens the preview since #115); the image view zooms with the wheel, F fits and 1 shows 1:1; the
+# JSON view folds and finds; the map shows a feature's properties and selects it; the
+# notes follow a wikilink; the gallery sorts by name and flips; undo reverts the sort.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-46-canvas.json gallery, sidecar json, notes and a map of the project
+wait 6000
+assert_found slot:kobi
+assert_found slot:tamu
+assert_found slot:rena
+assert_found slot:pola
+assert_found tile:kobi:00000
+shot 49-20-views-canvas.png
+print snap {"target": "pola"}
+# the gallery: Ctrl+wheel shrinks the tiles, the wheel scrolls, a click picks, the
+# arrow keys move the pick and the JSON view follows every pick through the link
+wheel slot:kobi -2 0.5 0.5 ctrl
+wait 800
+shot 49-21-gallery-smaller-tiles.png
+print snap {"target": "kobi"}
+wheel slot:kobi 2 0.5 0.5 ctrl
+wait 600
+click tile:kobi:00002
+wait 1500
+shot 49-22-json-follows-the-pick.png
+print snap {"target": "tamu"}
+key right
+wait 1200
+print snap {"target": "kobi"}
+print snap {"target": "tamu"}
+# the context menu's Open image opens the image view beside the gallery (one user submit)
+# on that frame
+rclick tile:kobi:00003
+wait 800
+click menu:gallery.open_image
+wait 2500
+assert_found slot:@image
+shot 49-23-image-view-opened.png
+print snap {"target": "@image"}
+# the image view: wheel zooms in, 1 shows 1:1, F fits again
+click slot:@image 0.5 0.5
+wheel slot:@image 3 0.5 0.5
+wait 800
+shot 49-24-image-zoomed.png
+print snap {"target": "@image"}
+key 1
+wait 600
+print snap {"target": "@image"}
+key f
+wait 600
+shot 49-25-image-fitted.png
+print snap {"target": "@image"}
+# the JSON view folds everything (its footer's fold-all toggle, #130), unfolds, and
+# finds with Ctrl+F
+webclick tamu buttons.fold
+wait 800
+shot 49-26-json-folded.png
+webclick tamu buttons.fold
+wait 400
+click slot:tamu 0.5 0.4
+key ctrl+f
+wait 600
+type pose
+wait 800
+shot 49-27-json-find.png
+key esc
+# (the map's point pick is v2-49-views-map.txt: the map body needs WebGL, the GPU tier)
+# the notes: the first note by name (colour-ramps) has no wikilinks, so step to
+# run-log (the fourth, by the page's own footer); scroll to its first wikilink;
+# clicking it opens the target note in place (and goes out as the selection)
+webclick rena step.next
+wait 600
+webclick rena step.next
+wait 600
+webclick rena step.next
+wait 600
+assert_web rena note "run-log"
+# the wikilinks are the note's last line: scroll to the bottom before the click
+scroll slot:rena -10
+wait 800
+webclick rena wikilinks.0
+wait 2000
+shot 49-29-markdown-wikilink-followed.png
+print snap {"target": "rena"}
+# the footer's sort button (#126): by name, then name again flips to descending; undo
+# reverts the flip
+click sort:kobi
+wait 500
+click menu:sort:kobi:name
+wait 800
+click sort:kobi
+wait 500
+click menu:sort:kobi:name
+wait 1000
+shot 49-30-gallery-sorted-name-descending.png
+print snap {"target": "kobi"}
+click undoButton
+wait 1200
+shot 49-31-undo-sort.png
+print snap {"target": "kobi"}
+print snap {"target": "canvas", "layout": true}

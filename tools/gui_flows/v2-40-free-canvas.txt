@@ -1,0 +1,61 @@
+# v2 #40 free canvas: no window-frame guide is drawn (#120), a canvas document puts a
+# cam-a gallery slightly off the tree and a cam-b gallery far to the right (off screen,
+# paused); the cam-a gallery's header is dragged and snaps to the tree's edge and the
+# frame's top, its corner is dragged and snaps to the frame's bottom (snap lines show
+# while the mouse is down); the wheel over the tree scrolls the tree only; Space held plus
+# a drag, over the tree and then the empty canvas, pans far right (the tree and cam-a
+# gallery pause, the cam-b gallery resumes); Home brings the tree back; each gesture was
+# one undo step. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+assert_missing windowFrameGuide
+submit tools/gui_flows/v2-40-canvas.json cam-a and cam-b galleries around the file tree
+wait 1500
+assert_found slot:kobi
+assert_missing slot:tamu
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+shot 40-01-free-canvas.png
+print snap {"target": "canvas", "layout": true}
+# move: 12 px left and 6 px up lands 4 px short of the tree and 2 px below the frame top
+dragxy header:kobi -12 -6 0.3 0.5 shot=40-02-move-snapping.png
+wait 800
+shot 40-03-moved.png
+print snap {"target": "kobi", "layout": true}
+# resize from the bottom-right corner: the bottom lands 6 px short of the frame's bottom
+dragxy resize:kobi:bottom-right 250 398 0.5 0.5 shot=40-04-resize-snapping.png
+wait 800
+shot 40-05-resized.png
+print snap {"target": "kobi", "layout": true}
+# the wheel over the tree scrolls the tree, never the canvas: the tree stays put
+wheel slot:fege -3
+wait 600
+assert_found slot:fege
+print snap {"target": "canvas", "layout": true}
+# pan: Space held, drag left twice (1600 px), first over the tree itself, then over the
+# empty canvas; the cam-b gallery comes on screen
+keydown space
+dragxy slot:fege -800 0 0.5 0.5
+dragxy panArea -800 0 0.97 0.5
+keyup space
+wait 1500
+assert_missing slot:fege
+assert_found slot:tamu
+shot 40-06-panned-far.png
+print snap {"target": "canvas", "layout": true}
+key home
+wait 1000
+assert_found slot:fege
+assert_missing slot:tamu
+shot 40-07-home.png
+print snap {"target": "canvas", "layout": true}
+click undoButton
+wait 600
+click undoButton
+wait 1000
+shot 40-08-undone.png
+print snap {"target": "kobi", "layout": true}

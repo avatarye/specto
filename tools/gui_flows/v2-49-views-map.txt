@@ -1,0 +1,16 @@
+# v2 #49 interacting in views, the map part (spec #35 story 48), split from
+# v2-49-views.txt for the GPU tier (#237): the map body is MapLibre, which needs WebGL,
+# so the point pick cannot happen offscreen. The same project (tools/gui_flows/v2-46-seed.py)
+# and canvas (v2-46-canvas.json): moving onto a point shows its properties, clicking
+# selects it (emitted on the map's selection port).
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-46-canvas.json gallery, sidecar json, notes and a map of the project
+wait 6000
+assert_found slot:pola
+print snap {"target": "pola"}
+webclick pola points.0
+wait 1200
+shot 49-28-map-feature-selected.png
+print snap {"target": "pola"}

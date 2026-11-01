@@ -1,0 +1,107 @@
+{
+  "schema_version": 2,
+  "project": {"label": "v2-42-proj"},
+  "window_frame": {"rect": {"x": 0, "y": 0, "w": 1600, "h": 900}},
+  "root_view": "rena",
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {"position": [80, 0], "size": [280, 820]},
+      "params": {},
+      "locked": false
+    },
+    "rena": {
+      "type": "video",
+      "label": "Cam-a video",
+      "layout": {"position": [380, 0], "size": [700, 440]},
+      "params": {"speed": 1.0, "loop": null, "hwdec": false},
+      "locked": false
+    },
+    "kobi": {
+      "type": "gallery",
+      "label": "Cam A",
+      "layout": {"position": [380, 460], "size": [700, 360]},
+      "params": {"tile": 132},
+      "locked": false
+    },
+    "tamu": {
+      "type": "gallery",
+      "label": "Cam B",
+      "layout": {"position": [1100, 0], "size": [560, 820]},
+      "params": {"tile": 132},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "fege", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["."], "watch": true},
+      "summary": {"sentence": "The file tree shows every file in the project folder."}
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-a frames",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "kobi", "port": "data"},
+      "two_way": false,
+      "params": {
+        "sources": ["runs/run-001"],
+        "screener": ["@images"],
+        "keys": "(?P<cam>cam-a)/(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "group_by": ["cam", "frame"],
+        "sort": "natural"
+      },
+      "summary": {"sentence": "The cam-a gallery shows the cam-a frames of run run-001."}
+    },
+    "l3": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-b frames",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "tamu", "port": "data"},
+      "two_way": false,
+      "params": {
+        "sources": ["runs/run-001"],
+        "screener": ["@images"],
+        "keys": "(?P<cam>cam-b)/(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "group_by": ["cam", "frame"],
+        "sort": "natural"
+      },
+      "summary": {"sentence": "The cam-b gallery shows the cam-b frames of run run-001."}
+    },
+    "l4": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-a video",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "rena", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["runs/run-001/video"], "screener": ["@video"]},
+      "summary": {"sentence": "The player shows the cam-a video of run run-001."}
+    },
+    "l5": {
+      "kind": "time_map",
+      "label": "cam-a follows the video",
+      "source": {"view": "rena", "port": "time"},
+      "target": {"view": "kobi", "port": "time"},
+      "two_way": true,
+      "params": {"from_timeline": "stamp", "to_timeline": "stamp", "offset_ms": 0},
+      "summary": {"sentence": "The cam-a gallery highlights the frame nearest the video's time, and clicking a frame seeks the video."}
+    },
+    "l6": {
+      "kind": "time_map",
+      "label": "cam-b follows the video",
+      "source": {"view": "rena", "port": "time"},
+      "target": {"view": "tamu", "port": "time"},
+      "two_way": false,
+      "params": {"from_timeline": "stamp", "to_timeline": "stamp", "offset_ms": 0},
+      "summary": {"sentence": "The cam-b gallery highlights the cam-b frame nearest the video's time."}
+    }
+  }
+}

@@ -1,0 +1,206 @@
+{
+  "schema_version": 2,
+  "project": {
+    "label": "v2-107-proj"
+  },
+  "window_frame": {
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1600,
+      "h": 900
+    }
+  },
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {
+        "position": [
+          80,
+          0
+        ],
+        "size": [
+          300,
+          860
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "kobi": {
+      "type": "gallery",
+      "label": "Front frames",
+      "layout": {
+        "position": [
+          400,
+          0
+        ],
+        "size": [
+          480,
+          400
+        ]
+      },
+      "params": {
+        "tile": 120
+      },
+      "locked": false
+    },
+    "dena": {
+      "type": "image",
+      "label": "Front image",
+      "layout": {
+        "position": [
+          900,
+          0
+        ],
+        "size": [
+          560,
+          400
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "rena": {
+      "type": "markdown",
+      "label": "Notes",
+      "layout": {
+        "position": [
+          400,
+          420
+        ],
+        "size": [
+          1060,
+          390
+        ]
+      },
+      "params": {},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "fege",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "."
+        ],
+        "watch": false
+      },
+      "summary": {
+        "sentence": "The file tree shows every file in the project folder."
+      }
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-a frames",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "kobi",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "runs/run-001/cam-a"
+        ],
+        "screener": [
+          "@images"
+        ],
+        "keys": "(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The gallery shows the cam-a frames of the project."
+      }
+    },
+    "l3": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-a frames, full size",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "dena",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "runs/run-001/cam-a"
+        ],
+        "screener": [
+          "@images"
+        ],
+        "keys": "(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The image view shows the cam-a frames full size."
+      }
+    },
+    "l4": {
+      "kind": "follow",
+      "label": "the picked frame",
+      "source": {
+        "view": "kobi",
+        "port": "selection"
+      },
+      "target": {
+        "view": "dena",
+        "port": "selection"
+      },
+      "two_way": true,
+      "params": {
+        "match": null
+      },
+      "summary": {
+        "sentence": "The gallery and the image view pick the same frame, either way."
+      }
+    },
+    "l5": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "notes",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "rena",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "notes"
+        ],
+        "screener": [
+          "@markdown"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The notes view shows the markdown notes of the project."
+      }
+    }
+  }
+}

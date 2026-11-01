@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.idea/
+.vscode/
+*.review.html
+testdata/
+
+# native plugin build output (packages/specto-app/native/build.py)
+packages/specto-app/src/specto_app/qml/Specto/Native/
+
+# the Everything SDK DLL tools/fetch_everything_sdk.py places beside the search (#232)
+packages/specto-intake/src/specto_intake/vendor/
+# benchmark and seam-3 suite output (tools/bench_*.py, tools/gui_flows/v2_suite.py)
+out/

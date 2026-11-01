@@ -1,0 +1,29 @@
+# v2 #41 follow links: open a folder of run-001 frames (tools/gui_flows/v2-39-seed.py,
+# 12 cam-a and 8 cam-b), submit cam-a and cam-b galleries keyed by series and frame
+# (cam-a/00002 vs cam-b/00002) with a two-way follow link matching on frame
+# (v2-41-canvas.json), click a tile in the cam-a gallery with a real mouse and the
+# cam-b gallery selects the same frame; click in the cam-b gallery and the cam-a follows;
+# a frame the cam-b run never recorded leaves the cam-b selection alone.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-41-canvas.json cam-a and cam-b galleries linked on frame
+wait 2500
+assert_found slot:kobi
+assert_found slot:tamu
+assert_found tile:kobi:cam-a/00002
+assert_found tile:tamu:cam-b/00002
+shot 41-01-two-galleries.png
+click tile:kobi:cam-a/00002
+wait 800
+shot 41-02-front-picked-rear-follows.png
+print snap {"target": "tamu"}
+click tile:tamu:cam-b/00006
+wait 800
+shot 41-03-rear-picked-front-follows.png
+print snap {"target": "kobi"}
+click tile:kobi:cam-a/00010
+wait 800
+shot 41-04-unmatched-frame.png
+print snap {"target": "tamu"}
+print snap {"target": "canvas", "layout": true}

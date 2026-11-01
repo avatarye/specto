@@ -1,0 +1,31 @@
+# v2 #94: Ctrl+wheel zooms the pdf view as one document anchored at the pointer. A pdf
+# view fed by the file tree's pick (v2-69-canvas.json) over the #95 seed's report.pdf,
+# whose pages are covered by a coloured grid (tools/gui_flows/v2-95-seed.py). PageDown
+# brings page 2 to the top; Ctrl+wheel over the page's top-left corner zooms in three
+# notches and out two: the grid cell under the pointer stays under it, and the pages
+# grow together (no page scales about its own centre).
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-69-canvas.json pdf view of the picked paper
+wait 2000
+expand fege:papers
+wait 600
+click treeRow:fege:papers/report.pdf
+wait 2500
+assert_found pdf:kobi:page
+click slot:kobi 0.5 0.6
+key pagedown
+wait 1200
+hover slot:kobi 0.06 0.06
+wait 300
+shot 94-01-page-2-fitted.png
+print snap {"target": "kobi"}
+wheel slot:kobi 3 0.06 0.06 ctrl
+wait 1200
+shot 94-02-zoomed-in-at-the-corner.png
+print snap {"target": "kobi"}
+wheel slot:kobi -2 0.06 0.06 ctrl
+wait 1200
+shot 94-03-zoomed-out-at-the-corner.png
+print snap {"target": "kobi"}

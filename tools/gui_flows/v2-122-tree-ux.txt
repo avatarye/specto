@@ -1,0 +1,62 @@
+# v2 #122: the file tree shows a type icon per row (Material Icon Theme, MIT, vendored):
+# data kinds, source and config files, named folders open and closed. The details toggle
+# sits in the tree's own footer (the status bar has none). A double-click on a file opens
+# a preview on the tree's picks: it shows that file, and later single clicks change it.
+# Project: tools/gui_flows/v2-122-seed.py <folder>.
+# a tall window, so more of the 900 px tree shows
+resize 1600 960
+wait 1500
+# the tree starts collapsed (#231): open the folders the flow looks into, and
+# videos/ so that closing it below closes something
+wait_until treeRow:@file_tree:docs 20000
+expand @file_tree:docs
+expand @file_tree:scenes
+expand @file_tree:images
+expand @file_tree:papers
+expand @file_tree:scripts
+expand @file_tree:videos
+wait_until treeRow:@file_tree:videos/clip.mp4 10000
+wait_until treeRow:@file_tree:docs/plan.md 20000
+wait_until treeIcon:@file_tree:scenes/room.splat 10000
+# a folder closed: its closed icon
+collapse @file_tree:videos
+wait 500
+assert_missing treeRow:@file_tree:videos/clip.mp4
+assert_missing treeDetailsButton
+shot v2-122-01-icons-in-a-mixed-tree.png
+shotcrop slot:@file_tree 6 2 v2-122-02-icons-closeup.png
+# the details toggle in the footer: the fresh tree (900 px) can run under the status bar
+# in a short window, so pan its footer into view (Space + drag)
+keydown space
+dragxy panHand 0 -120 0.7 0.5
+keyup space
+wait 600
+assert_found treeDetailsButton:@file_tree
+click treeDetailsButton:@file_tree
+wait 900
+assert_found treeStamp:@file_tree:docs/plan.md
+shotcrop slot:@file_tree 6 2 v2-122-03-footer-details-on.png
+click treeDetailsButton:@file_tree
+wait 700
+assert_missing treeStamp:@file_tree:docs/plan.md
+keydown space
+dragxy panHand 0 120 0.7 0.5
+keyup space
+wait 600
+# double-click: a preview on the picks, showing the file
+dblclick treeRow:@file_tree:docs/plan.md 0.6 0.5
+wait_until slot:@preview 15000
+wait 1500
+assert_missing preview:@preview:card
+shot v2-122-04-double-click-opens-the-preview.png
+# later single clicks change it
+click treeRow:@file_tree:images/00001.jpg 0.6 0.5
+wait 1500
+shot v2-122-05-a-click-shows-the-image.png
+click treeRow:@file_tree:odd.xyz 0.6 0.5
+wait_until preview:@preview:card 8000
+shot v2-122-06-a-click-shows-the-card.png
+click treeRow:@file_tree:papers/report.pdf 0.6 0.5
+wait 1500
+assert_missing preview:@preview:card
+shot v2-122-07-a-click-shows-the-pdf.png

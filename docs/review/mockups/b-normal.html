@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Specto mockup - B Calm Canvas - normal view</title>
+<style>
+:root{
+  --bg:#eeebe5; --card:#fffdfa; --ink:#2a2826; --mute:#8a847b; --soft:#b9b2a7; --line:#e4dfd6;
+  --scout:#6b5bd2; --scoutbg:rgba(107,91,210,.08);
+  --time:#d49a2a; --cam:#2f9aa8; --item:#4f9d5d; --sel:#c2508f;
+  --ui:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; --mono:"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1600px;height:1000px;overflow:hidden}
+body{background:linear-gradient(135deg,#c9d6df,#e3d9cc 60%,#d8cfc4);font:13.5px/1.4 var(--ui);color:var(--ink)}
+.win{position:absolute;left:14px;top:12px;width:1572px;height:976px;background:var(--bg);border-radius:10px;overflow:hidden;box-shadow:0 20px 60px rgba(60,50,40,.28),0 0 0 1px rgba(0,0,0,.08);display:flex;flex-direction:column}
+.title{height:34px;flex:none;display:flex;align-items:center;padding-left:14px;color:#6f695f;font-size:12.5px}
+.title .caps{margin-left:auto;display:flex;height:100%}
+.title .caps span{width:46px;display:flex;align-items:center;justify-content:center;color:#6f695f}
+.head{height:50px;flex:none;display:flex;align-items:center;padding:0 22px;gap:14px}
+.crumb{display:flex;align-items:center;gap:10px;font-size:15px}
+.crumb .pd{width:22px;height:22px;border-radius:7px;background:#5b8def;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700}
+.crumb .sep{color:var(--soft)}
+.crumb b{font-weight:600}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.06),0 0 0 1px var(--line);font-size:13px}
+.pill.scout{background:#f1eefc;box-shadow:0 0 0 1px #d9d2f6;color:#4b3fa6}
+.av{width:20px;height:20px;border-radius:50%;background:var(--scout);color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.btnp{padding:7px 14px;border-radius:999px;background:var(--ink);color:#fff;font-weight:600;font-size:13px}
+.btng{padding:5px 12px;border-radius:999px;background:transparent;box-shadow:0 0 0 1px #d6d0c6;color:#4a463f;font-size:12.5px}
+.btns{padding:5px 12px;border-radius:999px;background:var(--scout);color:#fff;font-size:12.5px;font-weight:600}
+.content{flex:1;padding:4px 18px 18px;display:flex;flex-direction:column;gap:14px;min-height:0}
+.row{display:flex;gap:14px;min-height:0}
+.card{background:var(--card);border-radius:16px;box-shadow:0 1px 2px rgba(60,50,40,.06),0 6px 20px rgba(60,50,40,.06);display:flex;flex-direction:column;min-width:0;position:relative;overflow:hidden}
+.ch{height:44px;flex:none;display:flex;align-items:center;gap:10px;padding:0 16px}
+.ch b{font-weight:600;font-size:14px}
+.ch .sub{color:var(--mute);font-size:12.5px}
+.ch .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.lnk{display:inline-flex;align-items:center;gap:6px;color:var(--mute);font-size:12px;padding:3px 9px;border-radius:999px;background:#f4f1ec}
+.lnk i{width:7px;height:7px;border-radius:50%}
+.cb{flex:1;position:relative;margin:0 10px 10px;border-radius:10px;overflow:hidden}
+canvas{display:block;width:100%;height:100%}
+.hov{display:flex;gap:4px}
+.hov span{width:26px;height:26px;border-radius:8px;background:#f4f1ec;display:flex;align-items:center;justify-content:center;color:#6f695f}
+.proposed{background:rgba(255,253,250,.55);box-shadow:none;outline:1.5px dashed var(--scout);outline-offset:-1.5px}
+.proposed .inner{opacity:.72}
+.ptag{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#4b3fa6;background:#efebfd;padding:3px 10px;border-radius:999px}
+.ptag.dash{background:transparent;box-shadow:0 0 0 1px #cfc6f4;border:none}
+.mini{display:inline-flex;gap:4px}
+.mini span{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px}
+.gal{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:2px 16px 14px}
+.th{position:relative;aspect-ratio:16/10;border-radius:9px;overflow:hidden;background:#ddd}
+.th .cap{position:absolute;left:8px;bottom:6px;color:#fff;font-size:11.5px;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.th.sel{box-shadow:0 0 0 3px var(--card),0 0 0 5px #4f9d5d}
+.th.prop{outline:2px dashed var(--scout);outline-offset:-2px;opacity:.6}
+.code{font:12.5px/20px var(--mono);color:#333;padding:4px 0;background:#fbfaf7;height:100%}
+.cl{display:flex;white-space:pre}
+.cl .ln{width:34px;text-align:right;color:#b8b2a8;padding-right:8px}
+.cl .gm{width:3px;margin-right:10px;border-radius:2px}
+.cl.add{background:rgba(107,91,210,.07)} .cl.add .gm{background:repeating-linear-gradient(var(--scout) 0 3px,transparent 3px 5px)}
+.cl.mod{background:rgba(107,91,210,.04)} .cl.mod .gm{background:repeating-linear-gradient(var(--scout) 0 2px,transparent 2px 5px)}
+.tk{color:#0451a5}.ts{color:#a31515}.tn{color:#098658}.tb{color:#0000ff}
+.ctl{padding:4px 20px 0;display:flex;flex-direction:column;gap:16px}
+.crow{display:flex;align-items:center;gap:14px}
+.crow .lb{width:108px;color:#4a463f}
+.slider{flex:1;height:6px;background:#ece7df;border-radius:3px;position:relative}
+.slider .fill{position:absolute;top:0;bottom:0;background:var(--time);border-radius:3px}
+.slider .kn{position:absolute;top:-6px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 2px var(--time)}
+.val{font:12px var(--mono);color:#4a463f;width:64px;text-align:right}
+.tog{width:34px;height:20px;border-radius:10px;background:#ddd6cb;position:relative}
+.tog.on{background:#6b8f5e}
+.tog:after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.tog.on:after{left:16px}
+.cursor{position:absolute;z-index:20;pointer-events:none}
+.cursor .nm{position:absolute;left:16px;top:18px;background:var(--scout);color:#fff;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px 999px 999px 4px;white-space:nowrap;box-shadow:0 3px 10px rgba(107,91,210,.35)}
+.strip{display:flex;gap:6px;padding:0 16px;height:66px}
+.strip .th{height:100%;aspect-ratio:16/9;flex:none;border-radius:7px}
+.tl{position:relative;height:40px;margin:6px 16px 0}
+.track{position:absolute;left:52px;right:110px;top:18px;height:6px;border-radius:3px;background:#ece7df}
+.track .done{position:absolute;left:0;top:0;bottom:0;width:51.5%;border-radius:3px;background:#c9c1b4}
+.track .kn{position:absolute;top:-6px;left:calc(51.5% - 9px);width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25),0 0 0 2px var(--ink)}
+.play{position:absolute;left:0;top:6px;width:32px;height:32px;border-radius:50%;background:var(--ink);display:flex;align-items:center;justify-content:center}
+.tlabel{position:absolute;right:0;top:10px;font:13px var(--mono);color:#4a463f}
+.legend{position:absolute;left:12px;top:12px;background:rgba(255,253,250,.92);border-radius:10px;padding:8px 12px;font-size:12px;color:#4a463f;display:flex;flex-direction:column;gap:4px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.sw{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:7px;vertical-align:middle}
+.zoom{position:absolute;right:12px;top:12px;display:flex;flex-direction:column;background:#fff;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.1);overflow:hidden}
+.zoom span{width:30px;height:28px;display:flex;align-items:center;justify-content:center;color:#555;font-size:16px}
+.zoom span+span{border-top:1px solid #eee}
+.ov{position:absolute;color:#6f695f;font-size:12px;background:rgba(255,253,250,.85);padding:4px 10px;border-radius:999px}
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="title">Specto<div class="caps"><span>&#8212;</span><span>&#9744;</span><span>&#10005;</span></div></div>
+  <div class="head">
+    <div class="crumb"><span class="pd">r</span><b>robotA</b><span class="sep">/</span><span>Review</span><span class="sep">&middot;</span><span style="color:var(--mute);font-size:13px">run 7 of 12</span></div>
+    <div style="margin-left:auto;margin-right:auto" class="pill scout"><span class="av">S</span><b style="font-weight:600">Scout</b> proposed 3 changes <span style="color:#8a80c9">&middot; turn 12</span><span class="btns" style="padding:3px 11px;margin-left:4px">Step through</span></div>
+    <span class="btng">Overworld &nbsp;<span style="color:var(--soft)">Tab</span></span>
+    <span class="btnp">Ask agent</span>
+    <span style="color:var(--mute);font-size:18px;letter-spacing:2px">&middot;&middot;&middot;</span>
+  </div>
+  <div class="content">
+    <div class="row" style="height:410px">
+      <div class="card" style="flex:1.35">
+        <div class="ch"><b>3D scan</b><span class="sub">USD &middot; lidar1 &middot; frame 1236</span>
+          <div class="r"><span class="lnk"><svg width="12" height="12" viewBox="0 0 16 16"><path d="M7 9l2-2M6 11l-1 1a2 2 0 01-3-3l2-2a2 2 0 013 0M10 5l1-1a2 2 0 013 3l-2 2a2 2 0 01-3 0" fill="none" stroke="#8a847b" stroke-width="1.5"/></svg>linked: time &middot; camera</span>
+          <div class="hov"><span>&#10530;</span><span>&middot;&middot;&middot;</span></div></div></div>
+        <div class="cb">
+          <canvas data-draw="cloud" data-seed="3" data-opts='{"bg":"#efeae2","bg2":"#f8f6f2","cmap":"calm","grid":"rgba(60,50,40,0.07)","ego":"#2a2826","frustum":"#2f9aa8","path":"#d49a2a","size":1.2,"alpha":0.7,"density":0.55,"eye":[-24,-12,14]}'></canvas>
+          <span class="ov" style="left:12px;top:12px">184k points &middot; coloured by height</span>
+        </div>
+      </div>
+      <div class="card" style="flex:1">
+        <div class="ch"><b>Route</b><span class="sub">Map &middot; gps + roads</span>
+          <div class="r"><span class="lnk"><i style="background:var(--time)"></i>time</span><span class="lnk"><i style="background:var(--cam)"></i>camera</span></div></div>
+        <div class="cb">
+          <canvas data-draw="map" data-seed="4" data-opts='{"theme":"light","block":58,"labelSize":10.5,"trackColor":"#5b6fe0","posColor":"#5b6fe0","progress":0.58,"polys":[{"pts":[[-3.6,-1.6],[-0.4,-1.9],[-0.2,0.6],[-3.2,0.9]],"fill":"rgba(212,154,42,0.16)","stroke":"#c8891c","label":"loading zone"},{"pts":[[1.2,-2.7],[3.6,-2.6],[3.8,-0.6],[1.4,-0.8]],"fill":"rgba(47,154,168,0.14)","stroke":"#2f9aa8","dash":[6,4],"label":"geofence B"}]}'></canvas>
+          <div class="legend"><span><span class="sw" style="background:#5b6fe0"></span>Run 7 track</span><span><span class="sw" style="background:#c8891c"></span>Loading zones</span><span><span class="sw" style="background:#2f9aa8"></span>Geofence</span></div>
+          <div class="zoom"><span>+</span><span>&minus;</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="row" style="flex:1">
+      <div class="card" style="flex:1.15">
+        <div class="ch"><b>Camera frames</b><span class="sub">Gallery &middot; 1,204 frames</span>
+          <div class="r"><span class="ptag dash"><span class="av" style="width:16px;height:16px;font-size:9px">S</span>filter: front camera only</span><span class="mini"><span style="background:#e7f2e3;color:#3f7d40">&#10003;</span><span style="background:#f4ece6;color:#9a5a3a">&#10005;</span></span></div></div>
+        <div class="gal">
+          <div class="th"><canvas data-draw="camera" data-seed="1"></canvas><span class="cap">1228</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="2"></canvas><span class="cap">1230</span></div>
+          <div class="th sel"><canvas data-draw="camera" data-seed="5" data-opts='{"boxes":true,"boxColor":"#7ed38a"}'></canvas><span class="cap">1236 &middot; now</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="4"></canvas><span class="cap">1238</span></div>
+          <div class="th prop"><canvas data-draw="camera" data-seed="50" data-opts='{"dusk":true}'></canvas><span class="cap">rear 1236 &middot; hidden</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="7"></canvas><span class="cap">1240</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="8"></canvas><span class="cap">1242</span></div>
+          <div class="th prop"><canvas data-draw="camera" data-seed="51" data-opts='{"dusk":true}'></canvas><span class="cap">rear 1240 &middot; hidden</span></div>
+        </div>
+      </div>
+      <div class="card" style="flex:0.85">
+        <div class="ch"><b>Controls spec</b><span class="sub">JSON &middot; controls.json</span><div class="r"><span class="ptag">5 lines proposed</span></div></div>
+        <div class="cb" style="margin:0 10px 10px;background:#fbfaf7"><div class="code" data-code="controls"></div></div>
+      </div>
+      <div class="card proposed" style="flex:0.72">
+        <div class="inner" style="display:flex;flex-direction:column;height:100%">
+          <div class="ch"><b>Controls</b><span class="sub">new panel</span><div class="r"><span class="ptag"><span class="av" style="width:16px;height:16px;font-size:9px">S</span>proposed</span></div></div>
+          <div class="ctl">
+            <div class="crow"><span class="lb">Time offset</span><div class="slider"><div class="fill" style="left:38%;right:50%"></div><div class="kn" style="left:calc(38% - 9px)"></div></div><span class="val">&minus;120 ms</span></div>
+            <div class="crow"><span class="lb">Show boxes</span><div class="tog on"></div></div>
+            <div class="crow"><span class="lb">Follow camera</span><div class="tog on"></div></div>
+            <div class="crow"><span class="lb">Run</span><span class="btng" style="padding:4px 12px">Run 7 &#9662;</span><span class="btng" style="padding:4px 12px">Next run &rarr;</span></div>
+          </div>
+        </div>
+        <div style="position:absolute;left:20px;right:20px;bottom:16px;display:flex;gap:10px;align-items:center">
+          <span class="btns" style="padding:7px 18px">Accept</span><span class="btng" style="padding:7px 16px">Discard</span>
+          <span style="margin-left:auto;font-size:12px;color:#8a80c9">1 of 3</span>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="height:178px;flex:none">
+      <div class="ch"><b>Front camera</b><span class="sub">Video &middot; cam_front.mp4</span>
+        <div class="r"><span class="lnk"><i style="background:var(--time)"></i>time</span><span class="ptag dash"><span class="av" style="width:16px;height:16px;font-size:9px">S</span>offset follows Controls</span><span class="mini"><span style="background:#e7f2e3;color:#3f7d40">&#10003;</span><span style="background:#f4ece6;color:#9a5a3a">&#10005;</span></span></div></div>
+      <div class="strip" id="strip"></div>
+      <div class="tl">
+        <div class="play"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 1l8 5-8 5z" fill="#fff"/></svg></div>
+        <div class="track"><div class="done"></div>
+          <div style="position:absolute;left:31%;width:6%;top:-3px;height:12px;border-radius:4px;background:rgba(212,154,42,.25)"></div>
+          <div style="position:absolute;left:calc(51.5% - 26px);top:-12px;bottom:-12px;width:0;border-left:1.5px dashed var(--scout)"></div>
+          <div class="kn"></div></div>
+        <div class="tlabel">0:41.2 / 1:20</div>
+      </div>
+    </div>
+  </div>
+  <div class="cursor" style="left:1440px;top:598px">
+    <svg width="22" height="22" viewBox="0 0 22 22"><path d="M3 2l15 8-6.5 1.8L8.5 19z" fill="#6b5bd2" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>
+    <span class="nm">Scout</span>
+  </div>
+</div>
+<script>
+  const s = document.getElementById('strip');
+  for (let i = 0; i < 16; i++) {
+    const d = document.createElement('div'); d.className = 'th' + (i === 7 ? ' sel' : '');
+    d.innerHTML = `<canvas data-draw="camera" data-seed="${30 + i}"></canvas>`;
+    s.appendChild(d);
+  }
+</script>
+<script src="common.js"></script>
+</body>
+</html>

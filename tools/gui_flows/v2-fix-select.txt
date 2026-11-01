@@ -1,0 +1,54 @@
+# v2 fix-select (user test 1: "when I change file selection the downstream views don't
+# update"): the scripted agent (tools/gui_flows/v2-fix-select-agent-script.json) composes a
+# gallery with a selection intaker (it follows the picks) and a video with a pinned one
+# (always the cam-a video). With nothing picked the status bar says "Pick files in the
+# file tree" for the hovered gallery (#80); picking the cam-a folder fills it with the cam-a frames; picking the cam-b folder
+# switches it to the cam-b frames; the pinned video never moves.
+# Project: tools/gui_flows/v2-42-seed.py <folder> --front 12 --rear 8; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-fix-select-agent-script.json
+resize 1600 900
+wait 1500
+assert_found slot:fege
+hover agentIcon
+wait 1200
+key ctrl+k
+wait 600
+click promptInput
+type show the images I pick in a gallery, and the cam-a video
+key enter
+wait 5000
+assert_found slot:kobi
+assert_found slot:tamu
+hover slot:kobi 0.5 0.5
+wait 600
+assert_text statusHint Pick files in the file tree
+shot fix-select-01-nothing-picked.png
+print snap {"target": "kobi"}
+print snap {"target": "tamu"}
+# picking the cam-a folder (the row, not its chevron) picks its files: the gallery fills
+click treeRow:fege:runs/run-001/cam-a
+wait 2500
+assert_found tile:kobi:00000
+hover slot:kobi 0.5 0.5
+wait 600
+assert_text statusHint kobi: 12 thumbnails
+shot fix-select-02-front-picked.png
+print snap {"target": "kobi"}
+# picking the cam-b folder switches the gallery; the pinned video stays
+click treeRow:fege:runs/run-001/cam-b
+wait 2500
+assert_found tile:kobi:00000
+hover slot:kobi 0.5 0.5
+wait 600
+assert_text statusHint kobi: 8 thumbnails
+shot fix-select-03-rear-picked.png
+print snap {"target": "kobi"}
+print snap {"target": "tamu"}
+# one file: one tile
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+wait 2000
+shot fix-select-04-one-file-picked.png
+print snap {"target": "kobi"}
+print snap {"target": "canvas", "layout": true}

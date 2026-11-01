@@ -1,0 +1,30 @@
+{
+ "delay_ms": 40,
+ "turns": [
+  [
+   {
+    "text": "Added **kobi** and **tamu**, the cam-a and cam-b galleries, linked on `frame`:\n\n- pick a frame in kobi and tamu follows\n- cam-b has no file for `00017` and `00093`\n\n```json\n{ \"frame\": 17, \"cam-b\": null, \"note\": \"cam-b timeout\" }\n```\n\nMore in [the run-001 run notes](https://example.com/notes)."
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-canvas.json",
+     "label": "cam-a and cam-b, linked on frame"
+    }
+   }
+  ],
+  [
+   {
+    "wait_ms": 2500
+   },
+   {
+    "text": "Frames `00017` and `00093` have no file in `cam-b/`: cam-b timed out on both. Want me to put the run notes next to the galleries?"
+   }
+  ],
+  [
+   {
+    "text": "Nothing to change: the galleries already follow each other."
+   }
+  ]
+ ]
+}

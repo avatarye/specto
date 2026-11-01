@@ -1,0 +1,137 @@
+{
+  "args": {
+    "seconds": 10.0,
+    "warmup": 5.0,
+    "mode": 0,
+    "web": "both",
+    "backend": "opengl",
+    "triangles": 200000,
+    "tex_size": "",
+    "render_loop": "",
+    "out": "results/gl_native_web.json",
+    "stay": false,
+    "screen": 1,
+    "no_timer_period": false
+  },
+  "pyside6": "6.12.0",
+  "graphics_api": "OpenGL",
+  "screen": {
+    "name": "Cintiq 16",
+    "refreshHz": 60.0,
+    "dpr": 1.0,
+    "size": "1920x1080",
+    "window": "1920x1080"
+  },
+  "swapped_frames": 599,
+  "gui_cpu_busy_pct": 0.78,
+  "timer_latency_ms": {
+    "samples": 358,
+    "p50": 0.116,
+    "p95": 60.746,
+    "p99": 61.653,
+    "max": 63.677,
+    "mean": 24.764
+  },
+  "tex": {
+    "renderFps": 59.793,
+    "renderCpuMs": 0.053,
+    "renderGpuMs": 0.273,
+    "uploadCpuMs": 0.0,
+    "uploadGpuMs": 0.001,
+    "syncMs": 0.0,
+    "renderFpsMin": 56.16,
+    "frames": 587,
+    "glRenderer": "NVIDIA GeForce RTX 4070 Ti/PCIe/SSE2",
+    "glVersion": "4.6.0 NVIDIA 596.49",
+    "uploadBytes": 0
+  },
+  "web": {
+    "webglFpsMean": 15.7,
+    "webglFpsMin": 15,
+    "monacoEditsPerSec": 20.7,
+    "webgl": "WebKit WebGL",
+    "monaco": "on",
+    "range": {
+      "status": 206,
+      "length": 1048576,
+      "bytesOk": true,
+      "contentRange": "bytes 1048576-2097151/33554432",
+      "xRange": null,
+      "acceptRanges": "bytes",
+      "ms": 116.2,
+      "suffixLength": 16,
+      "suffixStatus": 206,
+      "head1k": {
+        "ms": 176.7,
+        "status": 206,
+        "len": 1024
+      },
+      "tail1k": {
+        "ms": 6,
+        "status": 206,
+        "len": 1024
+      },
+      "urlSlice": {
+        "ms": 1.8,
+        "status": 200,
+        "len": 1024,
+        "bytesOk": true,
+        "xRange": "bytes 33553408-33554431/33554432"
+      }
+    },
+    "bulk": {
+      "status": 200,
+      "bytes": 33554432,
+      "mbps": 87,
+      "ms": 369
+    },
+    "errors": []
+  },
+  "pyframe": {},
+  "served": [
+    {
+      "path": "/blob.bin",
+      "range": "bytes=33553408-33554431",
+      "query": null,
+      "total": 33554432,
+      "served": 33554432
+    },
+    {
+      "path": "/vendor/min/vs/base/worker/workerMain.js",
+      "range": null,
+      "query": null,
+      "total": 376515,
+      "served": 376515
+    },
+    {
+      "path": "/blob.bin",
+      "range": null,
+      "query": "range=33553408-33554431",
+      "total": 33554432,
+      "served": 1024
+    },
+    {
+      "path": "/blob.bin",
+      "range": null,
+      "query": null,
+      "total": 33554432,
+      "served": 33554432
+    },
+    {
+      "path": "/vendor/min/vs/language/json/jsonWorker.js",
+      "range": null,
+      "query": null,
+      "total": 131177,
+      "served": 131177
+    },
+    {
+      "path": "/vendor/min/vs/base/worker/workerMain.js",
+      "range": null,
+      "query": null,
+      "total": 376515,
+      "served": 376515
+    }
+  ],
+  "gui_idle_pct": 99.22,
+  "swapped_fps": 59.89
+}

@@ -1,0 +1,52 @@
+# v2 #81 ports (ADR 0018): the #45 canvas (two link chains around the file tree). The normal
+# view draws no link curves. Each view's input circles sit stacked on the frame's left edge,
+# one per linked input, each showing the identicon of the upstream view that feeds it; the
+# output circle on the right edge shows the view's own identicon; unlinked ports are hollow.
+# Hovering an input circle shows the link's summary (the filter on that port) and the port's
+# data type, "two-way with <name>" on a two-way link; hovering the output circle shows the
+# data type of each output. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-45-canvas.json two link chains around the file tree
+wait 2000
+assert_found slot:kobi
+assert_found port:kobi:in
+assert_found port:kobi:out
+assert_found port:rena:in:1
+assert_missing wire:l2
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+click tile:rena:00003
+wait 800
+shot 81-01-ports-with-identicons.png
+# #92: a linked circle is a ring with the identicon inset inside it (its middle is never
+# the surface), an unlinked circle stays hollow (surface inside)
+assert_pixel port:kobi:in 0.5 0.5 not #ffffff
+assert_pixel port:rena:in:1 0.5 0.5 not #ffffff
+assert_pixel port:fege:out 0.5 0.5 not #ffffff
+assert_pixel port:tamu:out 0.5 0.5 is #ffffff
+shot 92-01-ports-ring-and-inset.png
+shotcrop port:rena:in 30 6 92-02-ports-close-up.png
+# the cam-a gallery's input circle: the file tree's identicon; its hover says what the
+# intaker does and what the port takes
+hover port:kobi:in
+wait 700
+assert_found tip:port:kobi:in
+shot 81-02-input-port-hover.png
+# the second input circle of Rear A is the two-way selection link with Rear B
+hover port:rena:in:1
+wait 700
+assert_found tip:port:rena:in:1
+shot 81-03-two-way-port-hover.png
+# the file tree's output circle: its own identicon; the hover says what its outputs carry
+hover port:fege:out
+wait 700
+assert_found tip:port:fege:out
+shot 81-04-output-port-hover.png
+hover slot:tamu 0.5 0.8
+wait 600
+assert_missing tip:port:fege:out

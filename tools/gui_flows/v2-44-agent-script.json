@@ -1,0 +1,71 @@
+{
+ "delay_ms": 90,
+ "turns": [
+  [
+   {
+    "tool": "state"
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-bad.json",
+     "label": "added cam-a and cam-b galleries, linked on frame"
+    }
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-canvas.json",
+     "label": "added cam-a and cam-b galleries, linked on frame"
+    }
+   },
+   {
+    "tool": "snap",
+    "args": {
+     "target": "tamu"
+    }
+   },
+   {
+    "text": "Added a cam-a gallery and a cam-b gallery next to the file tree, linked on frame: pick a frame in one and the other follows."
+   }
+  ],
+  [
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-bad.json",
+     "label": "added a map"
+    }
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-bad.json",
+     "label": "added a map"
+    }
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-bad.json",
+     "label": "added a map"
+    }
+   },
+   {
+    "text": "I couldn't add a map: this project has no GeoJSON or other geographic file to show."
+   }
+  ],
+  [
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-canvas-bigger.json",
+     "label": "made the cam-b gallery bigger"
+    }
+   },
+   {
+    "text": "Made the cam-b gallery bigger and gave the cam-a one a little less room."
+   }
+  ]
+ ]
+}

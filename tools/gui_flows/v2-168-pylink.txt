@@ -1,0 +1,54 @@
+# v2 #168 per-pick Python links: a project seeded by tools/gui_flows/v2-168-seed.py (recordings
+# under recordings/s01/<clip>, their annotations under
+# annotations/s01/<clip>/geo, and .specto/links/clip_to_geo.py).
+# v2-168-canvas.json: tree A (fege) shows the recordings, tree B (tora) the annotations, a map (mapa) the
+# GeoJSONs tree B selects; a per-pick Python link maps tree A's pick to tree B's
+# selection. Until the user approves the code a pick in tree A goes nowhere; after the
+# Approve on tree B the pending pick lands: tree B selects and reveals the annotation
+# geo folder and the map draws its GeoJSONs. A second pick follows live; a burst
+# of three quick picks lands only the last; the user's own pick in tree B still works.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-168-canvas.json two trees and a map joined by a per-pick python link
+wait 2500
+# the tree starts collapsed (#231): open the way down to the clips first
+wait_until treeRow:fege:recordings 20000
+expand fege:recordings/s01
+wait_until treeRow:fege:recordings/s01/clip1 20000
+wait_until treeRow:tora:annotations/s01 20000
+assert_found approve:tora
+assert_missing approve:fege
+shot 168-01-needs-approval.png
+click treeName:fege:recordings/s01/clip1
+wait 1000
+assert_missing treeRow:tora:annotations/s01/clip1/geo
+shot 168-02-unapproved-pick-goes-nowhere.png
+print snap {"target": "tora"}
+click approve:tora
+wait 2500
+assert_missing approve:tora
+wait_until treeRow:tora:annotations/s01/clip1/geo 10000
+shot 168-03-approved-tree-b-selects-the-mirror.png
+print snap {"target": "tora"}
+print snap {"target": "mapa"}
+click treeName:fege:recordings/s01/clip2
+wait 1500
+wait_until treeRow:tora:annotations/s01/clip2/geo 10000
+shot 168-04-the-pick-follows-live.png
+print snap {"target": "tora"}
+print snap {"target": "mapa"}
+click treeName:fege:recordings/s01/clip1
+click treeName:fege:recordings/s01/clip2
+click treeName:fege:recordings/s01/clip3
+wait 1500
+wait_until treeRow:tora:annotations/s01/clip3/geo 10000
+shot 168-05-a-burst-lands-the-last-pick.png
+print snap {"target": "tora"}
+print snap {"target": "mapa"}
+click treeName:tora:annotations/s01/clip2/geo
+wait 1500
+shot 168-06-own-pick-in-tree-b.png
+print snap {"target": "tora"}
+print snap {"target": "mapa"}
+print canvas.state {}

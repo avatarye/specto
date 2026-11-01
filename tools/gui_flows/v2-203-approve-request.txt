@@ -1,0 +1,56 @@
+# v2 #203 link-code approval is GUI only: the same project as the #43 python flow
+# (tools/gui_flows/v2-43-seed.py: cam-a and cam-b run-001 frames and
+# .specto/links/cam_a_to_cam_b.py). After the canvas is submitted the cam-b gallery asks for
+# approval. A `link.approve` through the endpoint, as the CLI or any local process would
+# send it (here naming a fleet member without its labels), does NOT approve: it returns
+# pending, the cam-b gallery still shows Approve, a pick in the cam-a gallery still goes
+# nowhere, and the agent panel shows an approval card '"FLEET/SQUAD/SHIP" (unverified)
+# asks you to approve' with Approve, Open and Dismiss. Dismiss leaves the link waiting; a
+# second request opens a new card; the user's Approve on that card approves: the header's
+# button goes, the pending pick lands and later picks follow through the table. Its own
+# seeded project (suite entry approve-203): the seed's nonce makes the file's hash new.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-43-canvas.json cam-a and cam-b galleries joined by python
+wait 2500
+assert_found tile:kobi:cam-a/00002
+assert_found approve:tamu
+print link.approve {"link": "l9", "from": "FLEET/SQUAD/SHIP"}
+wait 800
+assert_found approve:tamu
+click tile:kobi:cam-a/00002
+wait 800
+hover agentIcon
+wait 1200
+assert_found approvalApprove
+assert_found approvalOpen
+assert_found approvalDismiss
+shot 203-01-request-pending-card-shown.png
+print snap {"target": "tamu"}
+click approvalDismiss
+wait 600
+assert_missing approvalApprove
+assert_found approve:tamu
+shot 203-02-dismissed-still-waiting.png
+print link.approve {"link": "l9", "from": "FLEET/SQUAD/SHIP"}
+wait 800
+assert_found approvalApprove
+click approvalOpen
+wait 800
+assert_found skillMarkdown
+shot 203-03-open-shows-the-file.png
+key escape
+wait 500
+click approvalApprove
+wait 2000
+assert_missing approvalApprove
+assert_missing approve:tamu
+shot 203-04-user-click-approves-pending-pick-lands.png
+print snap {"target": "tamu"}
+print link.approve {"link": "l9"}
+click tile:kobi:cam-a/00003
+wait 800
+shot 203-05-pick-follows-through-table.png
+print snap {"target": "tamu"}
+print canvas.state {}

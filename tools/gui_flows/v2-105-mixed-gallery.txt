@@ -1,0 +1,27 @@
+# v2 #105 gallery thumbnails for every kind (spec #103 decision 2): a folder of images,
+# videos, pdfs, markdown, json, html and 3D files (tools/gui_flows/v2-105-seed.py); one
+# gallery over all of data/ (v2-105-canvas.json). Every tile shows a picture: the image,
+# a video's poster frame, a pdf's first page, an excerpt card for text, a kind icon for
+# 3D. With a real mouse: the wheel scrolls through the mixed tiles, hovering a pdf tile
+# previews its cached thumbnail, a click picks a markdown tile.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-105-canvas.json one gallery over every kind in data
+wait 5000
+assert_found slot:kobi
+assert_found tile:kobi:00000
+shot 105-01-mixed-gallery.png
+print snap {"target": "kobi"}
+wheel slot:kobi -3 0.5 0.5
+wait 2500
+shot 105-02-scrolled.png
+wheel slot:kobi 3 0.5 0.5
+wait 1500
+hover tile:kobi:00005
+wait 1200
+shot 105-03-hover-pdf.png
+click tile:kobi:00015
+wait 800
+shot 105-04-picked-markdown.png
+print snap {"target": "kobi"}

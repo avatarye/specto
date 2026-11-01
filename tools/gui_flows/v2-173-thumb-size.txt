@@ -1,0 +1,29 @@
+# v2 #173: the gallery's Ctrl+wheel thumbnail size sticks. The cam-a gallery
+# (v2-39-canvas.json, params.tile 160) over the cam-a frames; two Ctrl+wheel notches up
+# grow the thumbnails (snap: view.tile up, params.tile remembered once the gesture ends),
+# a click on a tile still in view after the anchored zoom (00007; 00002 scrolls out)
+# picks it and the size stays (it used to snap back to 160). The relaunch
+# (v2-173-reopen.txt) shows the grown size again.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-39-canvas.json cam-a gallery of the picked frames
+wait 1500
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the way down to the cam-a folder first
+wait_until treeRow:fege:runs 20000
+expand fege:runs/run-001
+click treeRow:fege:runs/run-001/cam-a
+wait 2500
+assert_found tile:kobi:00000
+shot 173-01-gallery.png
+print snap {"target": "kobi"}
+wheel slot:kobi 2 0.5 0.4 ctrl
+wait 1500
+shot 173-02-grown.png
+print snap {"target": "kobi"}
+click tile:kobi:00007
+wait 1000
+shot 173-03-picked-same-size.png
+print snap {"target": "kobi"}
+print snap {"target": "canvas"}

@@ -1,0 +1,54 @@
+# v2 #102 auto-update and refresh: a gallery pinned on the cam-a frames, auto-update off
+# (the default). The status bar says "auto-update off · refresh"; frames dripped into the
+# folder do not show until the header's refresh. The switch turns auto-update on (one
+# undo step): the next frames swap in by themselves. The file tree is off too: its new
+# files show after the project node's refresh. The agent's path is the links.refresh
+# command. Project: tools/gui_flows/v2-39-seed.py; canvas document v2-102-canvas.json.
+resize 1600 900
+wait 1500
+assert_found slot:@file_tree
+submit tools/gui_flows/v2-102-canvas.json cam-a frames pinned, auto-update off
+wait 2500
+assert_found slot:@gallery
+assert_found autoUpdate:@gallery
+assert_found refresh:@gallery
+hover slot:@gallery 0.5 0.7
+wait 700
+shot 102-01-auto-update-off-hint.png
+print snap {"target": "@gallery"}
+# two frames arrive: auto-update is off, so the gallery and the tree stay as they were
+spawn uv run python tools/drip_files.py {project}/runs/run-001/cam-a --rate 4 --count 2 --start 12 -q
+wait 3000
+hover slot:@gallery 0.5 0.7
+wait 500
+shot 102-02-arrived-not-shown.png
+print snap {"target": "@gallery"}
+# the header's refresh: one rescan, the two frames swap in (no undo step)
+hover header:@gallery 0.5 0.5
+wait 400
+click refresh:@gallery
+wait 2000
+shot 102-03-view-refreshed.png
+print snap {"target": "@gallery"}
+# the switch: auto-update on, the refresh button goes, the status bar says so
+click autoUpdate:@gallery
+wait 1200
+hover slot:@gallery 0.5 0.7
+wait 700
+shot 102-04-auto-update-on-hint.png
+spawn uv run python tools/drip_files.py {project}/runs/run-001/cam-a --rate 4 --count 2 --start 14 -q
+wait 5000
+shot 102-05-arrivals-swap-in.png
+print snap {"target": "@gallery"}
+# the project node's refresh: the file tree (auto-update off) takes the new frames
+hover projectNode
+wait 700
+shot 102-06-project-node-refresh.png
+click refresh:project
+wait 2000
+hover slot:@file_tree 0.5 0.9
+wait 600
+shot 102-07-tree-refreshed.png
+print snap {"target": "@file_tree"}
+# what an external agent calls (the in-app agent turns watch on instead)
+agent links.refresh {"view": "@gallery"}

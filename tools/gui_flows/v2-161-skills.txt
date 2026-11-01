@@ -1,0 +1,45 @@
+# v2 #161 agent-made project skills: a request that teaches a layout makes the agent
+# (here the scripted one, tools/gui_flows/v2-161-agent-script.json, calling the real
+# save_skill) write .specto/skills/front-run/SKILL.md; the strip says "saved skill
+# specto:front-run" with Open and Undo; Open shows the file rendered as markdown; the
+# next turn uses the skill; an update's Undo puts the previous file back ("undone").
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-161-agent-script.json
+resize 1600 900
+wait 1500
+hover agentIcon
+wait 1200
+click promptInput
+type remember: cam-a runs get the gallery left of the image
+key enter
+wait 3000
+assert_found replySkill
+assert_found replySkillUndo
+shot 161-01-saved-skill.png
+click replySkillOpen
+wait 800
+assert_found skillMarkdown
+shot 161-02-open-skill.png
+key escape
+wait 500
+hover agentIcon
+wait 1200
+click promptInput
+key ctrl+a
+type lay out the cam-a run
+key enter
+wait 3000
+assert_missing replySkill
+shot 161-03-skill-used.png
+hover agentIcon
+wait 1200
+click promptInput
+key ctrl+a
+type no, the gallery goes right
+key enter
+wait 3000
+assert_found replySkillUndo
+click replySkillUndo
+wait 800
+assert_missing replySkillUndo
+shot 161-04-skill-undone.png

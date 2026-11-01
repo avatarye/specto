@@ -1,0 +1,58 @@
+# v2 #113: who owns Space and Home. The #126 seed (twelve cam-a frames); a gallery and an
+# image view on the frames (v2-113-canvas.json). Space is the canvas's: with the gallery
+# focused and a tile picked, Space held plus a left drag over the gallery pans the canvas
+# and opens no quick look; a Space tap with no drag goes on to the gallery and opens it.
+# Home and End go to the focused view first: in the image view End lands on the last
+# frame and Home on the first, the canvas stays put. A click on the empty canvas drops the
+# focus; then Home is the canvas's and brings the file tree back.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-113-canvas.json gallery and image for the key rule
+wait 3000
+wait_until tile:kobi:00002 20000
+click tile:kobi:00002
+wait 500
+hover slot:kobi 0.5 0.6
+wait 300
+assert_text statusHint hold Space and drag to pan
+shot 113-01-gallery-focused-tile-picked.png
+mark slot:kobi
+keydown space
+wait 300
+dragxy slot:kobi -200 -60 0.5 0.6 shot=113-02-space-drag-held.png
+keyup space
+wait 600
+assert_moved slot:kobi -200 -60 4
+assert_missing quickLook:kobi
+shot 113-03-space-drag-panned-no-quick-look.png
+key space
+wait 700
+assert_found quickLook:kobi
+shot 113-04-space-tap-opens-quick-look.png
+key space
+wait 600
+assert_missing quickLook:kobi
+click slot:dena 0.5 0.4
+wait 500
+wait_until position:dena 10000
+assert_text position:dena 1 / 12
+mark slot:dena
+key end
+wait 700
+assert_text position:dena 12 / 12
+key home
+wait 700
+assert_text position:dena 1 / 12
+assert_unmoved slot:dena
+hover slot:dena 0.5 0.4
+wait 300
+assert_text statusHint Home/End first / last
+shot 113-05-image-home-first-frame-canvas-stays.png
+click canvasArea 0.9 0.9
+wait 400
+mark slot:fege
+key home
+wait 900
+assert_moved slot:fege 200 60 4
+shot 113-06-home-unfocused-pans-home.png

@@ -1,0 +1,22 @@
+{
+ "delay_ms": 40,
+ "turns": [
+  [
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-canvas.json",
+     "label": "cam-a and cam-b, side by side"
+    }
+   },
+   {
+    "text": "Put **kobi** and **tamu** side by side. Replying to FLEET/SQUAD/SHIP with fleet_send, quoting m1."
+   }
+  ],
+  [
+   {
+    "text": "Frames `00017` and `00093` have no file in `cam-b/`."
+   }
+  ]
+ ]
+}

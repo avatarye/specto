@@ -1,0 +1,14 @@
+# v2 fix-mech (user test 1): a project folder with no files says so, and fills while
+# the app watches it. gui_session --fresh makes the empty folder; the app opens it as a
+# project; the seed runs against it mid-flow (spawn) and the tree picks the files up.
+resize 1600 900
+wait 1500
+assert_found slot:@file_tree
+wait_until fileTreeEmpty:@file_tree 10000
+shot fix-mech-01-empty-folder.png
+spawn uv run python tools/gui_flows/v2-42-seed.py {project} --cam-a 12 --cam-b 12
+wait_until treeRow:@file_tree:runs 20000
+assert_missing fileTreeEmpty:@file_tree
+wait 800
+shot fix-mech-02-files-arrived.png
+print canvas.state {}

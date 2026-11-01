@@ -1,0 +1,3 @@
+module Specto.Image
+ImageView 1.0 ImageView.qml
+ChannelToggle 1.0 ChannelToggle.qml

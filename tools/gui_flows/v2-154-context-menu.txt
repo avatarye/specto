@@ -1,0 +1,74 @@
+# v2 #154: the shell's one context menu. Project: tools/gui_flows/v2-46-seed.py <folder>
+# (run-001 cam-a frames, notes/, geo/) with v2-46-canvas.json (file tree fege, gallery kobi).
+# A right-click on a tree row opens the menu at the pointer: Copy path (absolute, native
+# separators) and Copy relative path (to the project root); a right-click inside a
+# multi-row selection copies one path per line; Shift+F10 opens it for the focused tree's
+# selection and the keys pick a row; a gallery tile's menu has the gallery's own entries
+# first (Open preview, Open image, Quick look), then the copy entries; Esc closes it and
+# runs nothing.
+resize 1600 900
+wait 1500
+submit tools/gui_flows/v2-46-canvas.json gallery, sidecar json, notes and a map of the project
+wait 6000
+# the tree starts collapsed (#231): open notes/ first
+wait_until treeRow:fege:notes 20000
+expand fege:notes
+wait_until treeRow:fege:notes/run-log.md 20000
+assert_found tile:kobi:00002
+# one row
+rclick treeRow:fege:notes/run-log.md 0.6 0.5
+wait 600
+assert_found menu:copy.path
+assert_found menu:copy.relative_path
+shot v2-154-01-tree-row-menu.png
+click menu:copy.path
+wait 400
+assert_missing menu:copy.path
+assert_clipboard {project}\notes\run-log.md
+rclick treeRow:fege:notes/run-log.md 0.6 0.5
+wait 600
+click menu:copy.relative_path
+wait 400
+assert_clipboard notes\run-log.md
+# several rows: the right-click lands inside the selection, one path per line
+click treeRow:fege:notes/run-001-overview.md 0.6 0.5
+ctrlclick treeRow:fege:notes/run-log.md 0.6 0.5
+wait 600
+rclick treeRow:fege:notes/run-log.md 0.6 0.5
+wait 600
+shot v2-154-02-tree-selection-menu.png
+click menu:copy.relative_path
+wait 400
+assert_clipboard notes\run-001-overview.md|notes\run-log.md
+# the keyboard: Shift+F10 on the focused tree, Down past the launch rows (#186: Open with
+# system default, Open with) and Copy path to Copy relative path, Enter
+key shift+f10
+wait 600
+assert_found menu:copy.path
+shot v2-154-03-tree-keyboard-menu.png
+key down
+key down
+key down
+key enter
+wait 400
+assert_missing menu:copy.path
+assert_clipboard notes\run-001-overview.md|notes\run-log.md
+# a gallery tile: the gallery's entries, then the browsers' copy entries
+rclick tile:kobi:00002
+wait 600
+assert_found menu:gallery.open_preview
+assert_found menu:gallery.open_image
+assert_found menu:gallery.quick_look
+assert_found menu:copy.path
+shot v2-154-04-gallery-tile-menu.png
+click menu:copy.relative_path
+wait 400
+assert_clipboard runs\run-001\cam-a\00002_1700000000062500000.jpg
+# Esc closes the menu and runs nothing
+rclick tile:kobi:00003
+wait 600
+assert_found menu:copy.path
+key escape
+wait 400
+assert_missing menu:copy.path
+assert_clipboard runs\run-001\cam-a\00002_1700000000062500000.jpg

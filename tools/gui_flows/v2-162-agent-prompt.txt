@@ -1,0 +1,118 @@
+# v2 #162 agent prompt: the agent icon at the bottom left, above the status bar (whose text
+# starts clear of it), opens the agent panel when the pointer rests on it. A request typed
+# there runs the window's agent (here the scripted one, tools/gui_flows/v2-162-agent-script.json,
+# calling the real tools): the icon thinks and works, the thread shows the request, the
+# reply as markdown (bold, inline code, a list, a link, a json block with Copy) and the
+# turn row with Undo and diff. Shift+Enter makes a new line. Esc closes the panel while
+# the agent still works; the answer lands with the panel closed, so the icon needs you
+# (badge, a shake every 4 s) and nothing opens by itself; a hover opens it and clears
+# that. `/` lists commands (built-ins greyed); the pin keeps the panel open with the
+# pointer away; the corner resizes it; Esc closes it even pinned and keeps the draft; the
+# first turn row's Undo reverts the whole turn (its step is still the newest; the plain
+# answer after it took the replyUndo name away, #164, so it is turnUndo:<entry id>, 4 on the
+# freshly seeded thread); a new session starts below a divider. #170: the icon is the S
+# character (its eyes per state: blink, look-around, scan, wide, X) and sits as far from
+# the window's left as from its bottom, at either window size; the panel's header shows the S.
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-162-agent-script.json
+resize 1600 900
+wait 1500
+assert_found slot:fege
+assert_found agentIcon
+assert_missing promptPanel
+shot 162-01-at-rest.png
+hover agentIcon
+wait 600
+assert_found promptPanel
+assert_found threadEmpty
+shot 162-02-hover-open.png
+click promptInput
+type add cam-a and cam-b galleries, linked on frame
+shot 162-03-typed.png
+key enter
+wait 250
+shot 162-04-icon-working.png
+wait_until agentDone 20000
+wait 600
+assert_found slot:kobi
+assert_found slot:tamu
+assert_found replyUndo
+assert_found replyCode
+shot 162-05-thread-markdown.png
+click replyCodeCopy
+wait 300
+assert_clipboard { "frame": 17, "cam-b": null, "note": "cam-b timeout" }
+click replyDiff
+wait 400
+assert_found replyDiffText
+shot 162-06-turn-diff.png
+click promptInput
+type why do two cam-a frames
+key shift+enter
+type have no cam-b match?
+wait 300
+shot 162-07-multi-line.png
+key enter
+wait 400
+key escape
+wait 700
+assert_missing promptPanel
+wait_until agentDone 20000
+wait 300
+assert_found agentIconBadge
+shot 162-08-needs-you.png
+wait 4200
+shot 162-09-needs-you-shook.png
+hover agentIcon
+wait 700
+assert_found promptPanel
+assert_missing agentIconBadge
+shot 162-10-answer-read.png
+click promptInput
+type /i
+wait 400
+assert_found slashList
+shot 162-11-slash-list.png
+key escape
+wait 300
+assert_missing slashList
+assert_found promptPanel
+selectall
+type half a thought
+click panelPin
+hover panArea 0.75 0.4
+wait 1200
+assert_found promptPanel
+shot 162-12-pinned-pointer-away.png
+dragxy panelResize:corner 160 -100 shot=162-13-resizing.png
+wait 400
+shot 162-14-resized.png
+click promptInput
+key escape
+wait 600
+assert_missing promptPanel
+shot 162-15-esc-closed-pinned.png
+hover agentIcon
+wait 700
+assert_found promptPanel
+assert_text promptInput half a thought
+click panelPin
+assert_missing replyUndo
+click turnUndo:4
+wait 700
+assert_missing turnUndo:4
+assert_missing slot:kobi
+shot 162-16-turn-undone.png
+click panelNewSession
+wait 500
+assert_found threadDivider
+shot 162-17-new-session.png
+hover panArea 0.75 0.4
+wait 1500
+assert_found promptPanel
+shot 162-18-draft-holds-it-open.png
+# #170: the S icon keeps equal left and bottom gaps in a smaller window
+resize 1100 700
+wait 800
+assert_found agentIcon
+shot 170-01-s-icon-smaller-window.png

@@ -1,0 +1,101 @@
+{
+  "schema_version": 2,
+  "project": {
+    "label": "v2-153-proj"
+  },
+  "window_frame": {
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1600,
+      "h": 900
+    }
+  },
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {
+        "position": [
+          80,
+          0
+        ],
+        "size": [
+          320,
+          820
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "kobi": {
+      "type": "usd",
+      "label": "Modes",
+      "layout": {
+        "position": [
+          420,
+          0
+        ],
+        "size": [
+          1100,
+          700
+        ]
+      },
+      "params": {
+        "renderer": "storm"
+      },
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "fege",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "."
+        ],
+        "watch": true
+      },
+      "summary": {
+        "sentence": "The file tree shows every file in the project folder."
+      }
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "selection",
+      "label": "picked stages",
+      "source": {
+        "view": "fege",
+        "port": "selected_files"
+      },
+      "target": {
+        "view": "kobi",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "worlds"
+        ],
+        "screener": [
+          "@usd"
+        ],
+        "sort": "natural"
+      },
+      "summary": {
+        "sentence": "The usd view shows the stage picked in the file tree, one at a time."
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+# #137 the usd view rendering with RTX (ovrtx) through specto-usd-source: pick the
+# depot world in the file tree; the picture says the start phases (compiling
+# shaders, composing, first frame), then shows the RTX frame from the 3d view's origin
+# look; snap reports it and its image is not black; a drag turns (#151), RMB + W flies (the
+# snaps around it give the frame rate in the app), F frames all.
+# Project: tools/gui_flows/v2-137-seed.py makes it (needs the rtx extra and the file).
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-139-canvas.json usd view of the picked stages
+wait 2000
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/depot_world.usda 15000
+click treeRow:fege:worlds/depot_world.usda
+wait 1500
+assert_found cover:kobi
+shot 137-01-start-phase.png
+wait_while cover:kobi 400000
+wait 4000
+assert_text stage:kobi depot_world.usda
+assert_painted viewport:kobi 0.5
+assert_pixel viewport:kobi 0.5 0.5 not #000000
+shot 137-02-rtx-first-look.png
+print snap {"target": "kobi", "image": true}
+dragxy viewport:kobi 260 40 0.5 0.6
+wait 3000
+assert_painted viewport:kobi 0.5
+shot 137-03-rtx-orbit.png
+click viewport:kobi 0.5 0.5
+print snap {"target": "kobi"}
+# RMB held flies (#151)
+mousedown viewport:kobi 0.5 0.5 button=right
+keydown w
+wait 3000
+keyup w
+mouseup button=right
+print snap {"target": "kobi"}
+wait 2500
+shot 137-04-rtx-flown.png
+key f
+wait 3000
+assert_painted viewport:kobi 0.5
+shot 137-05-rtx-frame-all.png
+print snap {"target": "kobi", "image": true}

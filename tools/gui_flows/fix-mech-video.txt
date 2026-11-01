@@ -1,0 +1,16 @@
+# v2 fix-mech (user test 1): the video plays the right way up. The v2-42 canvas (cam-a
+# video as the root view, cam-a and cam-b galleries time-mapped to it) is submitted and
+# the video played for a moment: the frame in the player and the highlighted frame in
+# the cam-a gallery must show the same orientation. Project: tools/gui_flows/v2-42-seed.py.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-42-canvas.json a video root view with time-mapped galleries
+wait 4000
+assert_found video:rena:play
+assert_found tile:kobi:cam-a/00000
+click video:rena:play
+wait 1500
+shot fix-mech-video.png
+click video:rena:play
+print snap {"target": "rena"}

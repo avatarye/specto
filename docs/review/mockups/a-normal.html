@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Specto mockup - A Studio - normal view</title>
+<style>
+:root{
+  --desk:#0f2a33; --bg0:#18191b; --panel:#25262a; --panel2:#2a2c30; --hdr:#2f3135; --line:#3a3c41;
+  --text:#c8cacf; --dim:#868a92; --faint:#5d6168; --accent:#4c8dff; --agent:#b98cff; --agentbg:rgba(185,140,255,.12);
+  --time:#e6c14a; --cam:#4fc6dd; --item:#6fd17c; --sel:#e273cb;
+  --mono:"Cascadia Mono","Cascadia Code",Consolas,monospace; --ui:"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1600px;height:1000px;overflow:hidden}
+body{background:radial-gradient(1200px 700px at 20% 10%,#1c4a57,#0d1f27 60%,#091419);font:11.5px/1.35 var(--ui);color:var(--text)}
+.win{position:absolute;left:14px;top:12px;width:1572px;height:976px;background:var(--bg0);border:1px solid #000;border-radius:8px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.06);display:flex;flex-direction:column}
+.title{height:30px;flex:none;background:#1f2023;display:flex;align-items:center;padding-left:10px;color:#a9acb2;font-size:12px;border-bottom:1px solid #111}
+.title .ico{width:14px;height:14px;margin-right:8px}
+.title .caps{margin-left:auto;display:flex;height:100%}
+.title .caps span{width:46px;display:flex;align-items:center;justify-content:center;color:#bbb}
+.tool{height:32px;flex:none;background:var(--hdr);display:flex;align-items:center;gap:2px;padding:0 6px;border-bottom:1px solid #141516}
+.menu{padding:4px 7px;color:#b7bac0}
+.sep{width:1px;height:18px;background:var(--line);margin:0 6px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:3px;background:#3a3d42;color:#e1e3e6}
+.ws{padding:5px 11px;color:#9ea2a9;border-radius:3px 3px 0 0;margin-top:5px;height:27px}
+.ws.on{background:var(--bg0);color:#e8e9eb;box-shadow:inset 0 2px 0 var(--accent)}
+.search{margin-left:auto;margin-right:auto;width:420px;height:22px;background:#1d1e21;border:1px solid #44474d;border-radius:3px;display:flex;align-items:center;padding:0 8px;color:var(--faint);gap:8px}
+.kbd{font:10px var(--mono);color:#9a9ea5;border:1px solid #4a4d53;border-radius:3px;padding:0 4px;background:#2a2c30}
+.agentchip{display:flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid #4a3f5e;border-radius:3px;background:#2d2735;color:#d9c8f7}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.cs{height:27px;flex:none;background:linear-gradient(#2c2636,#29243200);background-color:#27222f;border-bottom:1px solid #3d3350;display:flex;align-items:center;gap:8px;padding:0 10px;color:#d4c7ef}
+.cs b{color:#efe6ff;font-weight:600}
+.cg{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border:1px solid #4e4266;border-radius:3px;background:#2f2840;font-size:11px}
+.cg.cur{border-color:var(--agent);background:#3a2f52}
+.g{font:700 10.5px var(--mono);color:var(--agent)}
+.btn{padding:2px 9px;border:1px solid #4c4f55;border-radius:3px;background:#34363b;color:#dfe1e4}
+.btn.ag{border-color:#6a5592;background:#3b3150;color:#ecdfff}
+.main{flex:1;display:flex;flex-direction:column;gap:1px;background:var(--bg0);min-height:0}
+.row{display:flex;gap:1px;min-height:0}
+.p{background:var(--panel);display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}
+.ph{height:23px;flex:none;background:var(--hdr);display:flex;align-items:center;gap:7px;padding:0 7px;border-bottom:1px solid #1d1e20;white-space:nowrap}
+.ph .t{color:#e3e4e7;font-weight:600}
+.ph .addr{font:10.5px var(--mono);color:var(--dim)}
+.ph .r{margin-left:auto;display:flex;gap:6px;align-items:center}
+.lk{display:inline-flex;align-items:center;gap:3px;font:10px var(--mono);color:var(--dim)}
+.lk i{width:6px;height:6px;border-radius:50%;display:inline-block}
+.p.agent-add{outline:1px solid var(--agent);outline-offset:-1px}
+.p.agent-add .ph,.p.agent-mod .ph{background:linear-gradient(90deg,#3a3049,#2f3135 70%);box-shadow:inset 3px 0 0 var(--agent)}
+.tag{font:10px var(--mono);padding:0 5px;border-radius:2px;background:var(--agentbg);color:var(--agent);border:1px solid #57476f}
+.focus{outline:1px solid var(--accent);outline-offset:-1px}
+.focus .ph{box-shadow:inset 0 -1px 0 var(--accent)}
+.body{flex:1;position:relative;overflow:hidden}
+canvas{display:block;width:100%;height:100%}
+/* outliner */
+.tree{padding:4px 0;font-size:11.5px}
+.tree .sec{padding:5px 8px 3px;color:var(--faint);font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+.tree .it{display:flex;align-items:center;gap:6px;height:20px;padding-left:10px;padding-right:8px;color:#c4c7cc}
+.tree .it.l2{padding-left:26px}
+.tree .it .m{font:10.5px var(--mono);color:#d5d7db}
+.tree .it .n{margin-left:auto;color:var(--faint);font-size:10.5px}
+.tree .it.selr{background:#2f4468;color:#fff}
+.tree .it.selr .n{color:#b9c8e6}
+.tree .it.agentr{box-shadow:inset 2px 0 0 var(--agent)}
+.tri{color:var(--faint);width:8px;font-size:8px}
+.ic{width:13px;height:13px;flex:none}
+/* inspector */
+.ins{padding:6px 8px;display:grid;grid-template-columns:86px 1fr;row-gap:5px;column-gap:8px;align-items:center}
+.ins .k{color:var(--dim);text-align:right}
+.ins .v{background:#1e1f22;border:1px solid #393b40;border-radius:2px;padding:1px 6px;font:10.5px var(--mono);color:#d8dadd;height:19px;display:flex;align-items:center;gap:6px}
+.ins .v.plain{background:none;border:none;padding:0}
+.grad{height:8px;flex:1;border-radius:1px;background:linear-gradient(90deg,#30123b,#4686fb,#1ae4b6,#a2fc3c,#faba39,#e4460a,#7a0403)}
+/* code */
+.tabs{height:22px;display:flex;background:#202124;border-bottom:1px solid #191a1c;flex:none}
+.tabs span{padding:4px 10px;color:#8f939a;font-size:11px;border-right:1px solid #191a1c}
+.tabs span.on{background:#1e1e1e;color:#e6e6e6;box-shadow:inset 0 1px 0 var(--accent)}
+.code{background:#1e1e1e;font:11.5px/17px var(--mono);padding:4px 0;height:100%;color:#d4d4d4}
+.cl{display:flex;white-space:pre}
+.cl .ln{width:30px;text-align:right;color:#5a5e64;padding-right:6px}
+.cl .gm{width:3px;margin-right:9px}
+.cl.add{background:rgba(185,140,255,.10)} .cl.add .gm{background:var(--agent)}
+.cl.mod{background:rgba(185,140,255,.05)} .cl.mod .gm{background:repeating-linear-gradient(#b98cff 0 2px,transparent 2px 4px)}
+.tk{color:#9cdcfe}.ts{color:#ce9178}.tn{color:#b5cea8}.tb{color:#569cd6}
+/* gallery */
+.gal{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;padding:5px}
+.th{position:relative;aspect-ratio:16/10;background:#000;outline:1px solid #111}
+.th canvas{width:100%;height:100%}
+.th .cap{position:absolute;left:3px;bottom:2px;font:9.5px var(--mono);color:#e8e8e8;text-shadow:0 1px 2px #000}
+.th.sel{outline:2px solid var(--item);outline-offset:0}
+.th.hidden{opacity:.28}
+/* controls */
+.ctl{padding:10px 12px;display:flex;flex-direction:column;gap:11px}
+.crow{display:flex;align-items:center;gap:10px}
+.crow .lb{width:92px;color:#b9bcc2}
+.slider{flex:1;height:4px;background:#3b3d42;border-radius:2px;position:relative}
+.slider .fill{position:absolute;left:50%;top:0;bottom:0;background:var(--time);border-radius:2px}
+.slider .kn{position:absolute;top:-5px;width:13px;height:13px;border-radius:50%;background:#eee;border:2px solid var(--time)}
+.val{font:10.5px var(--mono);color:#e9e9e9;width:60px;text-align:right;background:#1e1f22;border:1px solid #393b40;padding:1px 4px;border-radius:2px}
+.tog{width:26px;height:14px;border-radius:7px;background:#3b3d42;position:relative}
+.tog.on{background:#3c6fd1}
+.tog:after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:#ddd}
+.tog.on:after{left:14px}
+.bigbtn{padding:5px 14px;background:#3a3d43;border:1px solid #50535a;border-radius:3px;color:#eee}
+/* video + timeline */
+.strip{display:flex;gap:2px;padding:5px 6px 4px;height:62px}
+.strip .th{height:100%;aspect-ratio:16/9;flex:none}
+.tl{position:relative;height:70px;margin:0 6px;border-top:1px solid #33353a}
+.ruler{position:absolute;left:96px;right:0;top:0;height:16px;border-bottom:1px solid #33353a}
+.ruler span{position:absolute;top:2px;font:9.5px var(--mono);color:var(--faint);transform:translateX(-50%)}
+.lane{position:absolute;left:0;right:0;height:14px;display:flex;align-items:center}
+.lane .nm{width:96px;font:10px var(--mono);color:var(--dim);padding-left:2px}
+.lane .bar{position:absolute;left:96px;right:0;top:2px;height:10px;border-radius:1px}
+.ph-line{position:absolute;top:0;bottom:0;width:1px;background:#ff5d5d}
+.ph-head{position:absolute;top:0;width:11px;height:11px;margin-left:-5px;background:#ff5d5d;clip-path:polygon(0 0,100% 0,50% 100%)}
+.trans{display:flex;align-items:center;gap:10px;padding:0 8px;height:26px;border-top:1px solid #33353a;background:#232427}
+.trans .tc{font:12px var(--mono);color:#f0f0f0;background:#17181a;padding:2px 8px;border:1px solid #393b40;border-radius:2px}
+.status{height:22px;flex:none;background:#1f2023;border-top:1px solid #111;display:flex;align-items:center;gap:16px;padding:0 10px;color:#8b8f96;font-size:10.5px}
+.status .r{margin-left:auto;display:flex;gap:16px}
+.ovl{position:absolute;font:10.5px var(--mono);color:#cfd2d6;text-shadow:0 1px 2px #000}
+.vtb{position:absolute;top:6px;right:6px;display:flex;gap:2px}
+.vtb span{width:22px;height:20px;background:rgba(40,42,46,.85);border:1px solid #44474d;display:flex;align-items:center;justify-content:center;border-radius:2px}
+.vtb span.on{background:#2f4468;border-color:#4c8dff}
+.legend{position:absolute;left:8px;top:8px;background:rgba(24,25,27,.85);border:1px solid #3a3c41;padding:5px 7px;font-size:10.5px;color:#c9ccd1;display:flex;flex-direction:column;gap:3px;border-radius:2px}
+.sw{display:inline-block;width:12px;height:8px;margin-right:5px;vertical-align:middle}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <symbol id="i-col" viewBox="0 0 16 16"><path d="M2 4h12v9H2z M2 4l2-2h4l1 2" fill="none" stroke="#9aa0a8" stroke-width="1.2"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 16 16"><g fill="#9aa0a8"><circle cx="3" cy="11" r="1"/><circle cx="6" cy="8" r="1"/><circle cx="9" cy="10" r="1"/><circle cx="12" cy="6" r="1"/><circle cx="5" cy="4" r="1"/><circle cx="11" cy="12" r="1"/></g></symbol>
+    <symbol id="i-img" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" fill="none" stroke="#9aa0a8" stroke-width="1.2"/><path d="M3 12l3-4 2 2 2-3 3 5z" fill="#9aa0a8"/></symbol>
+    <symbol id="i-map" viewBox="0 0 16 16"><path d="M2 4l4-2 4 2 4-2v10l-4 2-4-2-4 2z M6 2v10 M10 4v10" fill="none" stroke="#9aa0a8" stroke-width="1.1"/></symbol>
+    <symbol id="i-vid" viewBox="0 0 16 16"><rect x="2" y="4" width="9" height="8" fill="none" stroke="#9aa0a8" stroke-width="1.2"/><path d="M11 7l3-2v6l-3-2z" fill="#9aa0a8"/></symbol>
+    <symbol id="i-sl" viewBox="0 0 16 16"><path d="M2 5h12M2 11h12" stroke="#9aa0a8" stroke-width="1.2"/><circle cx="6" cy="5" r="2" fill="#9aa0a8"/><circle cx="10" cy="11" r="2" fill="#9aa0a8"/></symbol>
+    <symbol id="i-json" viewBox="0 0 16 16"><path d="M6 3C4 3 5 7 3 8c2 1 1 5 3 5M10 3c2 0 1 4 3 5-2 1-1 5-3 5" fill="none" stroke="#9aa0a8" stroke-width="1.2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 16 16"><path d="M7 9l2-2M6 11l-1 1a2 2 0 01-3-3l2-2a2 2 0 013 0M10 5l1-1a2 2 0 013 3l-2 2a2 2 0 01-3 0" fill="none" stroke="#9aa0a8" stroke-width="1.3"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 16 16"><g fill="#8a8e95"><circle cx="4" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12" cy="8" r="1.2"/></g></symbol>
+  </defs>
+</svg>
+<div class="win">
+  <div class="title">
+    <svg class="ico" viewBox="0 0 16 16"><rect x="1" y="1" width="14" height="14" rx="3" fill="#4c8dff"/><path d="M5 5h6v2H7v1h4v3H5V9h4V8H5z" fill="#fff"/></svg>
+    Specto &mdash; robotA &mdash; Review
+    <div class="caps"><span>&#8212;</span><span>&#9744;</span><span>&#10005;</span></div>
+  </div>
+  <div class="tool">
+    <span class="menu">File</span><span class="menu">Edit</span><span class="menu">View</span><span class="menu">Canvas</span><span class="menu">Agent</span><span class="menu">Help</span>
+    <span class="sep"></span>
+    <span class="chip"><span class="dot" style="background:#4c8dff"></span>robotA <span style="color:#888">&#9662;</span></span>
+    <span class="sep"></span>
+    <span class="ws on">Review</span><span class="ws">Debug</span><span class="ws">Compare</span><span class="ws" style="color:#666">+</span>
+    <div class="search"><svg width="12" height="12" viewBox="0 0 16 16"><circle cx="7" cy="7" r="5" fill="none" stroke="#777" stroke-width="1.5"/><path d="M11 11l4 4" stroke="#777" stroke-width="1.5"/></svg>Commands, views, recipes, addresses&hellip;<span class="kbd" style="margin-left:auto">Ctrl+K</span></div>
+    <span class="agentchip"><span class="dot" style="background:var(--agent)"></span>agent: claude-code <span style="color:#9c8bbd">&middot; idle</span></span>
+    <span class="btn" style="margin-left:6px">Overworld <span class="kbd">Tab</span></span>
+  </div>
+  <div class="cs">
+    <span class="g">&#916;</span><b>Turn 12</b><span style="color:#a596c4">claude-code &middot; 00:42 ago &middot; 4 changes</span>
+    <span class="cg cur"><span class="g">[+]</span>Controls v11</span>
+    <span class="cg"><span class="g">[~]</span>Gallery v2 &nbsp;<span style="font:10.5px var(--mono);color:#a596c4">filter = cam_front</span></span>
+    <span class="cg"><span class="g">[~]</span>link <span style="color:var(--time)">time</span> &rarr; Video v8 <span style="font:10.5px var(--mono);color:#a596c4">offset bound</span></span>
+    <span class="cg"><span class="g">[-]</span><s style="color:#a596c4">Gallery v1</s> <span style="font:10.5px var(--mono);color:#a596c4">parked, removed</span></span>
+    <span style="margin-left:auto;color:#9c8bbd">click a change to fly to it</span>
+    <span class="btn ag">Review 4</span><span class="btn">Revert turn</span>
+  </div>
+  <div class="main">
+    <!-- row 1 -->
+    <div class="row" style="height:452px">
+      <div class="p" style="width:262px">
+        <div class="ph"><span class="t">Outliner</span><div class="r"><svg width="13" height="13"><use href="#i-dots"/></svg></div></div>
+        <div class="body tree">
+          <div class="sec">Collections</div>
+          <div class="it"><span class="tri">&#9660;</span><svg class="ic"><use href="#i-cloud"/></svg><span class="m">col:lidar1</span><span class="n">1,204 pcd</span></div>
+          <div class="it l2"><span class="m" style="color:#9a9ea5">front_top.pcd</span><span class="n">184k pts</span></div>
+          <div class="it"><span class="tri">&#9654;</span><svg class="ic"><use href="#i-img"/></svg><span class="m">col:frames</span><span class="n">1,204 jpg</span></div>
+          <div class="it"><span class="tri">&#9654;</span><svg class="ic"><use href="#i-map"/></svg><span class="m">col:roads</span><span class="n">38 features</span></div>
+          <div class="it"><span class="tri">&#9654;</span><svg class="ic"><use href="#i-map"/></svg><span class="m">col:gps</span><span class="n">1 track</span></div>
+          <div class="it"><span class="tri">&#9654;</span><svg class="ic"><use href="#i-vid"/></svg><span class="m">col:video</span><span class="n">2 streams</span></div>
+          <div class="sec" style="margin-top:6px">Widgets &middot; frame Review</div>
+          <div class="it selr"><svg class="ic"><use href="#i-cloud"/></svg><span class="m" style="color:#fff">view:v3</span>&nbsp;USD<span class="n">Storm</span></div>
+          <div class="it agentr"><svg class="ic"><use href="#i-img"/></svg><span class="m">view:v2</span>&nbsp;Gallery<span class="n"><span class="g">[~]</span></span></div>
+          <div class="it"><svg class="ic"><use href="#i-map"/></svg><span class="m">view:v4</span>&nbsp;Map<span class="n"></span></div>
+          <div class="it agentr"><svg class="ic"><use href="#i-sl"/></svg><span class="m">ctl:v11</span>&nbsp;Controls<span class="n"><span class="g">[+]</span></span></div>
+          <div class="it"><svg class="ic"><use href="#i-vid"/></svg><span class="m">view:v8</span>&nbsp;Video<span class="n"></span></div>
+          <div class="it"><svg class="ic"><use href="#i-json"/></svg><span class="m">view:v6</span>&nbsp;JSON<span class="n"></span></div>
+          <div class="sec" style="margin-top:6px">Links</div>
+          <div class="it"><span class="dot" style="background:var(--time)"></span><span class="m">time</span><span class="n">v3 v4 v2 v8 <span class="g">[~]</span></span></div>
+          <div class="it"><span class="dot" style="background:var(--cam)"></span><span class="m">cam</span><span class="n">v3 v4</span></div>
+          <div class="it"><span class="dot" style="background:var(--item)"></span><span class="m">item</span><span class="n">v2 v6</span></div>
+          <div class="it"><span class="dot" style="background:var(--sel)"></span><span class="m">sel</span><span class="n">v3 v4</span></div>
+          <div class="sec" style="margin-top:6px">Parked</div>
+          <div class="it" style="color:#80848b"><svg class="ic"><use href="#i-vid"/></svg><span class="m" style="color:#80848b">view:v9</span>&nbsp;Video (rear)<span class="n">run 7</span></div>
+        </div>
+      </div>
+      <div class="p focus" style="flex:1">
+        <div class="ph"><svg class="ic"><use href="#i-cloud"/></svg><span class="t">USD</span><span class="addr">view:v3</span><span class="addr">Storm</span>
+          <div class="r"><span class="lk"><i style="background:var(--time)"></i>time</span><span class="lk"><i style="background:var(--cam)"></i>cam</span><span class="lk"><i style="background:var(--sel)"></i>sel</span><svg width="13" height="13"><use href="#i-dots"/></svg></div></div>
+        <div class="body">
+          <canvas data-draw="cloud" data-seed="3" data-opts='{"bg":"#1a1b1e","bg2":"#24262b","cmap":"turbo","frustum":"#4fc6dd","path":"#e6c14a","grid":"rgba(255,255,255,0.055)","size":1.3}'></canvas>
+          <div class="ovl" style="left:8px;top:7px">Perspective &middot; col:lidar1 &middot; frame 1236<br><span style="color:#8a8e95">184,302 pts &middot; colour: height &middot; 60 fps</span></div>
+          <div class="vtb"><span class="on"><svg width="12" height="12" viewBox="0 0 16 16"><path d="M8 2l6 3v6l-6 3-6-3V5z" fill="none" stroke="#cfe0ff" stroke-width="1.3"/></svg></span><span><svg width="12" height="12" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="#aaa"/></svg></span><span><svg width="12" height="12" viewBox="0 0 16 16"><path d="M2 8h12M8 2v12" stroke="#aaa" stroke-width="1.3"/></svg></span><span><svg width="12" height="12" viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" fill="none" stroke="#aaa" stroke-width="1.3"/></svg></span></div>
+          <div class="ovl" style="right:10px;bottom:8px;color:#4fc6dd">&#9679; cam &rarr; Map v4 (follow)</div>
+        </div>
+      </div>
+      <div style="width:372px;display:flex;flex-direction:column;gap:1px">
+        <div class="p" style="height:196px">
+          <div class="ph"><span class="t">Inspector</span><span class="addr">view:v3</span><div class="r"><svg width="13" height="13"><use href="#i-dots"/></svg></div></div>
+          <div class="body ins">
+            <span class="k">type</span><span class="v plain">viewer.usd</span>
+            <span class="k">source</span><span class="v">col:lidar1 <span style="color:#777;margin-left:auto">&#9662;</span></span>
+            <span class="k">camera</span><span class="v">persp &middot; linked <span class="dot" style="background:var(--cam);margin-left:auto"></span></span>
+            <span class="k">colour by</span><span class="v">height <span class="grad"></span></span>
+            <span class="k">point size</span><span class="v">1.5 px</span>
+            <span class="k">links</span><span class="v plain"><span class="lk"><i style="background:var(--time)"></i>time</span>&nbsp;<span class="lk"><i style="background:var(--cam)"></i>cam</span>&nbsp;<span class="lk"><i style="background:var(--sel)"></i>sel</span></span>
+            <span class="k">provenance</span><span class="v plain" style="color:#8a8e95">recipe:lidar-review@4</span>
+          </div>
+        </div>
+        <div class="p" style="flex:1">
+          <div class="ph"><svg class="ic"><use href="#i-json"/></svg><span class="t">JSON</span><span class="addr">view:v6</span><div class="r"><span class="lk"><i style="background:var(--item)"></i>item</span><span class="tag">2 hunks t12</span></div></div>
+          <div class="tabs"><span class="on">ctl:v11.json</span><span>frame_1236.geojson</span><span>session.specto</span></div>
+          <div class="body"><div class="code" data-code="controls"></div></div>
+        </div>
+      </div>
+    </div>
+    <!-- row 2 -->
+    <div class="row" style="flex:1">
+      <div class="p agent-mod" style="width:520px">
+        <div class="ph"><span class="g">[~]</span><svg class="ic"><use href="#i-img"/></svg><span class="t">Gallery</span><span class="addr">view:v2</span><span class="tag">filter = cam_front &middot; t12</span>
+          <div class="r"><span class="lk"><i style="background:var(--time)"></i>time</span><span class="lk"><i style="background:var(--item)"></i>item</span><svg width="13" height="13"><use href="#i-dots"/></svg></div></div>
+        <div class="body gal">
+          <div class="th"><canvas data-draw="camera" data-seed="1"></canvas><span class="cap">1228</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="2"></canvas><span class="cap">1230</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="3"></canvas><span class="cap">1232</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="4"></canvas><span class="cap">1234</span></div>
+          <div class="th sel"><canvas data-draw="camera" data-seed="5" data-opts='{"boxes":true,"boxColor":"#6fd17c"}'></canvas><span class="cap">1236</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="6"></canvas><span class="cap">1238</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="7"></canvas><span class="cap">1240</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="8"></canvas><span class="cap">1242</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="9"></canvas><span class="cap">1244</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="10"></canvas><span class="cap">1246</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="12"></canvas><span class="cap">1248</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="13"></canvas><span class="cap">1250</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="14"></canvas><span class="cap">1252</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="15"></canvas><span class="cap">1254</span></div>
+          <div class="th"><canvas data-draw="camera" data-seed="16"></canvas><span class="cap">1256</span></div>
+        </div>
+      </div>
+      <div class="p" style="flex:1">
+        <div class="ph"><svg class="ic"><use href="#i-map"/></svg><span class="t">Map</span><span class="addr">view:v4</span><span class="addr">col:gps + col:roads</span>
+          <div class="r"><span class="lk"><i style="background:var(--time)"></i>time</span><span class="lk"><i style="background:var(--cam)"></i>cam</span><span class="lk"><i style="background:var(--sel)"></i>sel</span><svg width="13" height="13"><use href="#i-dots"/></svg></div></div>
+        <div class="body">
+          <canvas data-draw="map" data-seed="2" data-opts='{"theme":"dark","block":40,"labelSize":9,"trackColor":"#4fc6dd","trackHalo":"rgba(10,12,14,0.9)","progress":0.6,"polys":[{"pts":[[-3.6,-1.6],[-0.4,-1.9],[-0.2,0.6],[-3.2,0.9]],"fill":"rgba(230,193,74,0.12)","stroke":"#e6c14a","label":"loading zone"},{"pts":[[1.2,-2.7],[3.6,-2.6],[3.8,-0.6],[1.4,-0.8]],"fill":"rgba(226,115,203,0.12)","stroke":"#e273cb","dash":[6,4],"label":"geofence B"}]}'></canvas>
+          <div class="legend"><span><span class="sw" style="background:#4fc6dd"></span>gps track run 7</span><span><span class="sw" style="background:rgba(230,193,74,.4);border:1px solid #e6c14a"></span>roads: zones</span><span><span class="sw" style="border:1px dashed #e273cb"></span>geofence</span></div>
+          <div class="vtb"><span>+</span><span>&minus;</span><span>&#8982;</span></div>
+        </div>
+      </div>
+      <div class="p agent-add" style="width:372px">
+        <div class="ph"><span class="g">[+]</span><svg class="ic"><use href="#i-sl"/></svg><span class="t">Controls</span><span class="addr">ctl:v11</span><span class="tag">added t12</span>
+          <div class="r"><span class="lk"><i style="background:var(--time)"></i>time</span><span class="lk"><i style="background:var(--cam)"></i>cam</span></div></div>
+        <div class="body ctl">
+          <div class="crow"><span class="lb">time offset</span><div class="slider"><div class="fill" style="left:38%;right:50%"></div><div class="kn" style="left:calc(38% - 6px)"></div></div><span class="val">-120 ms</span></div>
+          <div class="crow"><span class="lb">show boxes</span><div class="tog on"></div><span style="color:#8a8e95;font-size:10.5px">overlay on view:v2</span></div>
+          <div class="crow"><span class="lb">follow camera</span><div class="tog on"></div><span style="color:#8a8e95;font-size:10.5px">link:cam.follow</span></div>
+          <div class="crow"><span class="lb">run</span><span class="v" style="background:#1e1f22;border:1px solid #393b40;padding:2px 8px;font:10.5px var(--mono);width:120px">run 7 / 12 &#9662;</span><span class="bigbtn">next run &rarr;</span></div>
+          <div style="color:#7d7290;font:10px var(--mono);margin-top:-2px">spec: ctl:v11.json &middot; bound to 3 channels</div>
+        </div>
+      </div>
+    </div>
+    <!-- row 3: video + timeline -->
+    <div class="p" style="height:186px;flex:none">
+      <div class="ph"><svg class="ic"><use href="#i-vid"/></svg><span class="t">Video</span><span class="addr">view:v8</span><span class="addr">cam_front.mp4 &middot; 30 fps &middot; mpv</span>
+        <div class="r"><span class="lk"><i style="background:var(--time)"></i>time</span><span class="g">[~]</span><span class="tag">offset &larr; ctl:v11</span><svg width="13" height="13"><use href="#i-dots"/></svg></div></div>
+      <div class="strip" id="strip"></div>
+      <div class="tl">
+        <div class="ruler"><span style="left:0%">00:00</span><span style="left:12.5%">00:10</span><span style="left:25%">00:20</span><span style="left:37.5%">00:30</span><span style="left:50%">00:40</span><span style="left:62.5%">00:50</span><span style="left:75%">01:00</span><span style="left:87.5%">01:10</span><span style="left:99%">01:20</span></div>
+        <div class="lane" style="top:19px"><span class="nm">lidar1</span><div class="bar" style="background:repeating-linear-gradient(90deg,#4f6d8f 0 2px,transparent 2px 4px)"></div></div>
+        <div class="lane" style="top:35px"><span class="nm">gps</span><div class="bar" style="background:#3c6a5a"></div></div>
+        <div class="lane" style="top:51px"><span class="nm">video <span style="color:var(--agent)">-120ms</span></span><div class="bar" style="background:#5a4f78;left:calc(96px - 6px)"></div></div>
+        <div style="position:absolute;left:96px;right:0;top:0;bottom:0">
+          <div style="position:absolute;left:31%;top:17px;width:6%;height:50px;background:rgba(230,193,74,.10);border-left:1px solid rgba(230,193,74,.5);border-right:1px solid rgba(230,193,74,.5)"></div>
+          <div class="ph-line" style="left:51.5%"></div><div class="ph-head" style="left:51.5%"></div>
+        </div>
+      </div>
+      <div class="trans">
+        <span>&#9198;</span><span>&#9664;&#9664;</span><span style="color:#fff">&#9654;</span><span>&#9654;&#9654;</span><span>&#9197;</span>
+        <span class="tc">00:41.200</span><span style="font:11px var(--mono);color:#9a9ea5">frame 1236 / 2410</span>
+        <span class="chip" style="padding:1px 7px">1.0x</span><span class="chip" style="padding:1px 7px">loop A-B</span>
+        <span style="margin-left:auto" class="lk"><i style="background:var(--time)"></i>time drives v3 v4 v2 v8</span>
+      </div>
+    </div>
+  </div>
+  <div class="status">
+    <span>robotA.specto &middot; saved 14:02</span><span>frame Review &middot; 1920&times;1080 &middot; Monitor 1</span><span>6 widgets &middot; 4 channels</span>
+    <div class="r"><span>GPU 4.1 / 24 GB</span><span>Storm 60 fps</span><span style="color:#a596c4">last agent turn: 12 (4 changes, unreviewed)</span></div>
+  </div>
+</div>
+<script>
+  const s = document.getElementById('strip');
+  for (let i = 0; i < 17; i++) {
+    const d = document.createElement('div'); d.className = 'th' + (i === 8 ? ' sel' : '');
+    if (i === 8) d.style.outlineColor = '#ff5d5d';
+    d.innerHTML = `<canvas data-draw="camera" data-seed="${30 + i}"></canvas><span class="cap">00:${String(33 + i).padStart(2, '0')}</span>`;
+    s.appendChild(d);
+  }
+</script>
+<script src="common.js"></script>
+</body>
+</html>

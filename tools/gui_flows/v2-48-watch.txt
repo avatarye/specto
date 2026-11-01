@@ -1,0 +1,29 @@
+# v2 #48 watch mode, locks and quotas: open a project whose drops/ folder holds two
+# frames, submit a canvas document with a LOCKED gallery fed by a WATCHED intaker on drops/,
+# then feed the folder from tools/drip_files.py while the app runs: the gallery grows
+# live (arrivals resolve in the background and swap in). Then the agent tries to move
+# the locked gallery and to add nine JSON views: both submits are refused with fix-its.
+# Project: tools/gui_flows/v2-48-seed.py <folder>; run with gui_session.py --pool.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-48-canvas.json watched gallery of the drops folder, locked
+wait 2500
+assert_found slot:kobi
+shot 48-01-watched-gallery-two-frames.png
+print snap {"target": "kobi"}
+spawn uv run python tools/drip_files.py {project}/drops --rate 1 --count 10 --start 2 -q
+wait 3500
+shot 48-02-arriving.png
+print snap {"target": "kobi"}
+wait 3500
+shot 48-03-growing.png
+print snap {"target": "kobi"}
+wait 7000
+shot 48-04-twelve-frames.png
+print snap {"target": "kobi"}
+submit_refused tools/gui_flows/v2-48-moved.json move and unlock the gallery
+submit_refused tools/gui_flows/v2-48-quota.json nine json inspectors
+wait 500
+shot 48-05-still-locked.png
+print snap {"target": "canvas", "layout": true}

@@ -1,0 +1,127 @@
+{
+  "schema_version": 2,
+  "project": {"label": "v2-45-proj"},
+  "window_frame": {"rect": {"x": 0, "y": 0, "w": 1576, "h": 804}},
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {"position": [80, 0], "size": [280, 804]},
+      "params": {},
+      "locked": false
+    },
+    "kobi": {
+      "type": "gallery",
+      "label": "Front frames",
+      "layout": {"position": [392, 8], "size": [624, 400]},
+      "params": {"tile": 160},
+      "locked": false
+    },
+    "tamu": {
+      "type": "gallery",
+      "label": "Rear frames",
+      "layout": {"position": [376, 424], "size": [640, 380]},
+      "params": {"tile": 160},
+      "locked": false
+    },
+    "rena": {
+      "type": "gallery",
+      "label": "Rear A",
+      "layout": {"position": [1040, 8], "size": [600, 400]},
+      "params": {"tile": 120},
+      "locked": false
+    },
+    "pola": {
+      "type": "gallery",
+      "label": "Rear B",
+      "layout": {"position": [1040, 424], "size": [600, 380]},
+      "params": {"tile": 120},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "fege", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["."], "watch": true},
+      "summary": {"sentence": "The file tree shows every file in the project folder."}
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "selection",
+      "label": "cam-a frames",
+      "source": {"view": "fege", "port": "selected_files"},
+      "target": {"view": "kobi", "port": "data"},
+      "two_way": false,
+      "params": {
+        "sources": ["runs/run-001/cam-a"],
+        "screener": ["@images"],
+        "keys": "(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "group_by": ["frame"],
+        "sort": "natural"
+      },
+      "summary": {"sentence": "The gallery shows the cam-a frames picked in the file tree."}
+    },
+    "l3": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-b frames",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "tamu", "port": "data"},
+      "two_way": false,
+      "params": {
+        "sources": ["runs/run-001/cam-b"],
+        "screener": ["@images"],
+        "keys": "(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "group_by": ["frame"],
+        "sort": "natural"
+      },
+      "summary": {"sentence": "The gallery shows every cam-b frame under the file tree."}
+    },
+    "l4": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-b from project",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "rena", "port": "data"},
+      "two_way": false,
+      "params": {
+        "sources": ["runs/run-001/cam-b"],
+        "screener": ["@images"],
+        "keys": "(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "group_by": ["frame"],
+        "sort": "natural"
+      },
+      "summary": {"sentence": "Rear A shows the cam-b frames straight from the project folder."}
+    },
+    "l5": {
+      "kind": "follow",
+      "label": "linked on frame",
+      "source": {"view": "rena", "port": "selection"},
+      "target": {"view": "pola", "port": "selection"},
+      "two_way": true,
+      "params": {"match": "frame"},
+      "summary": {"sentence": "Selecting a frame in Rear A selects the same frame in Rear B, and back."}
+    },
+    "l6": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-b from project, again",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "pola", "port": "data"},
+      "two_way": false,
+      "params": {
+        "sources": ["runs/run-001/cam-b"],
+        "screener": ["@images"],
+        "keys": "(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "group_by": ["frame"],
+        "sort": "natural"
+      },
+      "summary": {"sentence": "Rear B shows the same cam-b frames from the project folder."}
+    }
+  }
+}

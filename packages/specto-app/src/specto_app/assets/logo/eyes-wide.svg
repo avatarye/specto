@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">
+  <!-- Eyes wide (needs you). r 8.5, centres spread 1.5 units outward (46.5 / 65.5) so the eyes do not touch. Wide eyes may travel inside an ellipse up to (4.7, 5.5) units (0.75 units clear), not the full (6, 7). Colour: theme "agent"; in this state the S body also takes "agent" and the tile "agent-soft". -->
+  <g id="mark" transform="translate(6.24 6.24) scale(0.3952)">
+    <circle id="eye-left" cx="46.5" cy="40" r="8.5" fill="#B86A2B"/>
+    <circle id="eye-right" cx="65.5" cy="40" r="8.5" fill="#B86A2B"/>
+  </g>
+</svg>

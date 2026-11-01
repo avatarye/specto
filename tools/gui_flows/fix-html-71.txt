@@ -1,0 +1,24 @@
+# fix-html (#71): a double-click on an .html row of the file tree opens a preview
+# beside the tree (#106) and the page shows in its frame; a second html file re-points
+# the same preview. Project: two self-contained html reports, e.g.
+#   <proj>/reports/diagrams/01-diagram.html
+#   <proj>/reports/survey/survey.html
+resize 1600 900
+wait 1500
+assert_found slot:@file_tree
+assert_missing slot:@preview
+# the tree starts collapsed (#231): open the report folders first
+wait_until treeRow:@file_tree:reports 20000
+expand @file_tree:reports/diagrams
+expand @file_tree:reports/survey
+dblclick treeRow:@file_tree:reports/diagrams/01-diagram.html 0.5 0.5
+wait 1000
+wait_until slot:@preview 15000
+wait 4000
+shot fix-html-01-diagram.png
+dblclick treeRow:@file_tree:reports/survey/survey.html 0.5 0.5
+wait 5000
+assert_found slot:@preview
+assert_missing slot:@preview#2
+shot fix-html-02-survey.png
+print canvas.state {}

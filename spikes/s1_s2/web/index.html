@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>specto spike web panel</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #fff; font: 13px Consolas, monospace; color: #3a3630; }
+  #wrap { display: flex; flex-direction: column; height: 100%; }
+  #editor { flex: 1 1 50%; min-height: 0; border-bottom: 1px solid #e3dccd; }
+  #gl { flex: 1 1 50%; min-height: 0; position: relative; }
+  canvas { width: 100%; height: 100%; display: block; }
+  #hud { position: absolute; left: 12px; top: 12px; background: #f4efe6ee; border-radius: 8px; padding: 8px 12px; white-space: pre; }
+  .off { display: none !important; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="editor"></div>
+  <div id="gl"><canvas id="c"></canvas><div id="hud">starting</div></div>
+</div>
+<script src="vendor/min/vs/loader.js"></script>
+<script src="webgl.js"></script>
+<script>
+(function () {
+  const q = new URLSearchParams(location.search);
+  const mode = q.get("web") || "both";          // webgl | monaco | both | none
+  const stats = { webglFps: 0, monacoEditsPerSec: 0, monaco: "off", webgl: "off", range: null, bulk: null, errors: [] };
+  window.onerror = (m) => { stats.errors.push(String(m)); };
+
+  function publish() { document.title = JSON.stringify(stats); }
+  setInterval(publish, 500);
+
+  // ---- WebGL2 ----------------------------------------------------------------
+  if (mode === "webgl" || mode === "both") {
+    try {
+      const canvas = document.getElementById("c");
+      const gl = canvas.getContext("webgl2", { antialias: true, alpha: false });
+      if (!gl) throw new Error("no webgl2");
+      const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+      stats.webgl = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : (gl.getParameter(gl.RENDERER) || "webgl2");
+      const scene = makeCubeField(gl, 4000);
+      let frames = 0, last = performance.now();
+      function tick(t) {
+        const dpr = window.devicePixelRatio || 1;
+        const w = Math.floor(canvas.clientWidth * dpr), h = Math.floor(canvas.clientHeight * dpr);
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+        scene.draw(t / 1000, w, h);
+        frames++;
+        if (t - last >= 1000) { stats.webglFps = frames * 1000 / (t - last); frames = 0; last = t; }
+        document.getElementById("hud").textContent =
+          "webgl2 " + stats.webglFps.toFixed(1) + " fps\n" + stats.webgl + "\nmonaco " + stats.monaco + " edits/s " + stats.monacoEditsPerSec;
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    } catch (e) { stats.errors.push("webgl: " + e.message); }
+  } else {
+    document.getElementById("gl").classList.add("off");
+  }
+
+  // ---- Monaco: a 6000-line JSON document edited 20 times a second -------------
+  if (mode === "monaco" || mode === "both") {
+    // Workers are created from blob:/data: URLs, where relative paths cannot
+    // resolve; point them at the absolute specto:// base (standard Monaco CDN recipe).
+    const base = location.href.replace(/index\.html.*$/, "") + "vendor/min/";
+    window.MonacoEnvironment = {
+      getWorkerUrl: function () {
+        return "data:text/javascript;charset=utf-8," + encodeURIComponent(
+          "self.MonacoEnvironment={baseUrl:'" + base + "'};importScripts('" + base + "vs/base/worker/workerMain.js');");
+      },
+    };
+    require.config({ paths: { vs: base + "vs" } });
+    require(["vs/editor/editor.main"], function () {
+      const lines = [];
+      lines.push("[");
+      for (let i = 0; i < 6000; i++) {
+        lines.push(`  {"id": "item_${i}", "frame": ${10000 + i}, "stamp_ns": ${1757700000000000000 + i * 33333333}, "pose": [${(Math.sin(i) * 10).toFixed(4)}, ${(Math.cos(i) * 10).toFixed(4)}, 0.0], "tags": ["front", "rear", "ok"], "score": ${(i % 100) / 100}},`);
+      }
+      lines.push("]");
+      const editor = monaco.editor.create(document.getElementById("editor"), {
+        value: lines.join("\n"), language: "json", theme: "vs", automaticLayout: true, minimap: { enabled: true },
+      });
+      stats.monaco = "on";
+      let edits = 0, n = 0, last = performance.now();
+      setInterval(function () {
+        n++;
+        const line = 2 + (n * 97) % 6000;
+        const model = editor.getModel();
+        const range = new monaco.Range(line, 1, line, model.getLineMaxColumn(line));
+        model.pushEditOperations([], [{ range, text: `  {"id": "item_${line}", "edit": ${n}, "stamp_ns": ${Date.now()}000000, "pose": [${Math.random().toFixed(4)}, 0.0, 0.0], "tags": ["agent"], "score": ${(n % 100) / 100}},` }], () => null);
+        if (n % 10 === 0) editor.revealLineInCenter(line);
+        edits++;
+        const t = performance.now();
+        if (t - last >= 1000) { stats.monacoEditsPerSec = edits; edits = 0; last = t; }
+      }, 50);
+    });
+  } else {
+    document.getElementById("editor").classList.add("off");
+  }
+
+  // ---- Range requests through the specto:// scheme handler --------------------
+  (async function () {
+    try {
+      const t0 = performance.now();
+      const r = await fetch("blob.bin", { headers: { Range: "bytes=1048576-2097151" } });
+      const buf = new Uint8Array(await r.arrayBuffer());
+      let ok = buf.length === 1048576;
+      for (let i = 0; ok && i < buf.length; i += 4099) ok = buf[i] === ((1048576 + i) & 0xff);
+      stats.range = {
+        status: r.status, length: buf.length, bytesOk: ok,
+        contentRange: r.headers.get("content-range"), xRange: r.headers.get("x-specto-range"),
+        acceptRanges: r.headers.get("accept-ranges"), ms: +(performance.now() - t0).toFixed(1),
+      };
+      const s = await fetch("blob.bin", { headers: { Range: "bytes=-16" } });
+      const sb = new Uint8Array(await s.arrayBuffer());
+      stats.range.suffixLength = sb.length;
+      stats.range.suffixStatus = s.status;
+      // Is Chromium's slicing O(offset)? Time a 1 KiB range at the start vs the end.
+      async function timed(hdr) {
+        const a = performance.now();
+        const rr = await fetch("blob.bin", { headers: { Range: hdr } });
+        const ab = await rr.arrayBuffer();
+        return { ms: +(performance.now() - a).toFixed(1), status: rr.status, len: ab.byteLength };
+      }
+      stats.range.head1k = await timed("bytes=0-1023");
+      stats.range.tail1k = await timed("bytes=33553408-33554431");
+      stats.range.tail1k = await timed("bytes=33553408-33554431");
+      // App-controlled slicing through the URL (Python serves only the slice).
+      const a2 = performance.now();
+      const qr = await fetch("blob.bin?range=33553408-33554431");
+      const qb = new Uint8Array(await qr.arrayBuffer());
+      stats.range.urlSlice = { ms: +(performance.now() - a2).toFixed(1), status: qr.status, len: qb.length,
+        bytesOk: qb.length === 1024 && qb[0] === (33553408 & 0xff), xRange: qr.headers.get("x-specto-range") };
+      const t1 = performance.now();
+      const full = await fetch("blob.bin");
+      const fb = new Uint8Array(await full.arrayBuffer());
+      const dt = (performance.now() - t1) / 1000;
+      stats.bulk = { status: full.status, bytes: fb.length, mbps: +(fb.length / 1048576 / dt).toFixed(0), ms: +(dt * 1000).toFixed(0) };
+    } catch (e) { stats.errors.push("range: " + e.message); }
+    publish();
+  })();
+})();
+</script>
+</body>
+</html>

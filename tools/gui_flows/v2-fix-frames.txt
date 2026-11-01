@@ -1,0 +1,38 @@
+# v2 fix-frames (user feedback after testing v2): the #45 canvas (two link chains around
+# the file tree). In the normal view every view wears one chain-coloured frame around header
+# and body, rounded at all corners, inside a 2 px gutter (snapped views 4 px apart); dragging
+# a header moves the view (screenshot while held; since #81 the normal view draws no curves,
+# the ports and their hovers are tools/gui_flows/v2-81-ports.txt); Tab opens the overworld
+# where every card carries its own view's snapshot. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-45-canvas.json two link chains around the file tree
+wait 2000
+assert_found slot:kobi
+assert_found frame:kobi
+assert_found port:kobi:in
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+click tile:rena:00003
+wait 800
+shot fix-frames-01-frames-and-gutter.png
+# drag the cam-a gallery by its header: the curves (and the file tree's) follow while held
+dragxy header:kobi 160 90 0.4 0.5 shot=fix-frames-02-curves-follow-drag.png
+wait 800
+shot fix-frames-03-dropped.png
+click undoButton
+wait 800
+# the overworld: every card shows its own view's snapshot
+key tab
+wait 1500
+assert_found overworld
+assert_found overCard:pola
+shot fix-frames-06-overworld-snapshots.png
+key tab
+wait 1200
+assert_found slot:kobi
+shot fix-frames-07-back.png

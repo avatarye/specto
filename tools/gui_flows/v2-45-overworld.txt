@@ -1,0 +1,78 @@
+# v2 #45 overworld and link visuals: a canvas document with two link chains (the tree feeding
+# a cam-a and a cam-b gallery; two project-fed cam-b galleries linked on frame). In the
+# normal view the links show as identicons on the port circles, no curves (#81), and the
+# frames take the chain's colour. Tab opens the overworld: every view paused, cards with snapshots, clear wires
+# with link nodes. A link node opens its summary; Advanced opens the read-only link view;
+# a card is dragged free and lands snapped (one undo step); Delete removes the follow
+# link (one undo step); Ask agent to change pre-fills the prompt (a notice until #44
+# mounts the bar); Tab returns to the normal view with the snapped layout; two undos
+# revert the move and the delete. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-45-canvas.json two link chains around the file tree
+wait 2000
+assert_found slot:kobi
+assert_found slot:rena
+assert_found port:kobi:in
+assert_missing wire:l2
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+click tile:rena:00003
+wait 800
+shot 45-01-normal-view-chains.png
+key tab
+wait 1500
+assert_found overworld
+assert_found overCard:kobi
+assert_found linkNode:l2
+assert_missing slot:kobi
+shot 45-02-overworld.png
+print snap {"target": "canvas", "layout": true}
+# #121: the link node is a dot that opens the link view
+click linkNode:l2
+wait 800
+assert_found linkView
+shot 45-04-link-view.png
+key esc
+wait 500
+assert_missing linkView
+# move the cam-a gallery card: free while held (no snap lines), snapped on drop
+# (200 canvas px right, up past the frame's top edge: it lands flush at y = 0)
+dragxy overHeader:kobi 170 -10 0.3 0.5 shot=45-05-moving-free.png
+wait 800
+shot 45-06-moved.png
+print snap {"target": "kobi", "layout": true}
+# delete the follow link between the project-fed galleries: its node goes and the two
+# galleries become chains of their own
+click linkNode:l5
+wait 600
+click linkDelete
+wait 800
+assert_missing linkNode:l5
+shot 45-07-link-deleted.png
+# ask the agent to change the cam-a intaker
+click linkNode:l2
+wait 600
+click linkAskAgent
+wait 800
+shot 45-08-ask-agent.png
+# the prefilled prompt keeps the focus, where Tab stays in the input (#162): Esc first
+key escape
+wait 600
+assert_missing promptInput
+key tab
+wait 1500
+assert_found slot:kobi
+assert_missing overCard:kobi
+shot 45-09-back-snapped.png
+print snap {"target": "canvas", "layout": true}
+click undoButton
+wait 600
+click undoButton
+wait 1000
+shot 45-10-undone.png
+print snap {"target": "kobi", "layout": true}

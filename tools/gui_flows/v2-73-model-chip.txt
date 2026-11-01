@@ -1,0 +1,36 @@
+# v2 #73 model chip: the prompt bar carries a small chip naming the model of the next
+# turn (Sonnet by default); clicking it opens the menu (Opus / Sonnet / Haiku, the current
+# one marked), picking Opus changes the chip at once and the session before its next
+# turn; the choice is kept in the user's settings ini (prompt/model), not in the canvas.
+# The turn itself runs the scripted agent (tools/gui_flows/v2-44-agent-script.json), and
+# the app log shows the per-turn timing line ("[OK] prompt turn changed: total ...").
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-44-agent-script.json
+resize 1600 900
+wait 1500
+assert_found slot:@file_tree
+shot 73-00-bar-hidden.png
+hover agentIcon
+wait 1200
+assert_found promptInput
+assert_found modelChip
+shot 73-01-chip-sonnet.png
+click modelChip
+wait 600
+assert_found menu:model-opus
+shot 73-02-chip-menu.png
+click menu:model-opus
+wait 600
+assert_missing menu:model-opus
+shot 73-03-chip-opus.png
+# the pointer is left above the bar after the menu: bring the bar back before typing
+hover agentIcon
+wait 1200
+click promptInput
+type add cam-a and cam-b galleries, linked on frame
+key enter
+wait 350
+shot 73-04-turn-on-opus-working.png
+wait 4500
+assert_found replyUndo
+shot 73-05-turn-on-opus-done.png

@@ -1,0 +1,63 @@
+# v2 #49 opening a project and asking the agent (spec #35 stories 1-5, 7-17, 29, 31,
+# 35, 37, 51). The project folder was typed on the welcome card (gui_session --welcome,
+# screenshots 49-01-*): a plain folder of run-001 frames (tools/gui_flows/v2-39-seed.py)
+# becomes a project with one canvas and a file tree. The prompt bar's (scripted) agent
+# composes cam-a and cam-b galleries linked on frame in one prompt turn: the first
+# document it submits is invalid and retried invisibly, the reply streams into the
+# strip with Undo and Diff on request; a tile click follows on frame; a second turn
+# makes the cam-b gallery bigger; Ctrl+Z undoes that turn and Ctrl+Y redoes it; the
+# cam-a pick stays selected for the relaunch (v2-49-reopen.txt).
+# App flag: --agent scripted:<abs path>/tools/gui_flows/v2-49-agent-script.json
+resize 1600 900
+wait 1500
+assert_found slot:fege
+# the tree starts collapsed (#231): open the way down to the cam-a folder first
+wait_until treeRow:fege:runs 20000
+expand fege:runs/run-001
+assert_found treeRow:fege:runs/run-001/cam-a
+assert_missing promptInput
+shot 49-02-file-tree.png
+print canvas.state {}
+hover agentIcon
+wait 1200
+assert_found promptInput
+click promptInput
+type show cam-a and cam-b frames side by side, linked on frame
+shot 49-03-typed.png
+key enter
+wait 5500
+assert_found slot:kobi
+assert_found slot:tamu
+assert_found replyUndo
+assert_found replyDiff
+shot 49-04-agent-composed.png
+print canvas.history {"last": 3}
+click replyDiff
+wait 700
+assert_found replyDiffText
+shot 49-05-diff-on-request.png
+click replyDiff
+wait 400
+click tile:kobi:cam-a/00004
+wait 1000
+shot 49-06-linked-on-frame.png
+print snap {"target": "tamu"}
+hover agentIcon
+wait 1200
+click promptInput
+key ctrl+a
+type make the cam-b gallery bigger
+key enter
+wait 4500
+assert_found replyUndo
+shot 49-07-second-turn.png
+print snap {"target": "tamu", "layout": true}
+key esc
+wait 300
+key ctrl+z
+wait 1000
+print snap {"target": "tamu", "layout": true}
+key ctrl+y
+wait 1000
+print snap {"target": "tamu", "layout": true}
+print canvas.history {"last": 6}

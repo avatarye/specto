@@ -1,0 +1,53 @@
+# v2 #90 overworld cards (spec #78, ADR 0018): the #45 canvas (five views, six links, two
+# chains). Tab opens the overworld: no link-node chip covers a card's header (the cam-a
+# frames node sits under kobi's header instead of on it); every card carries the normal
+# view's port circles (the upstream view's identicon on each linked input, stacked; the
+# view's own on the output; hollow when unlinked) and its header rule (`name: label`, the
+# health dot, the lock), with no footer counts or health text. The wires stay. Dragging a
+# card keeps its nodes off the headers; the wiring layer follows the same rule. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-45-canvas.json two link chains around the file tree
+wait 2000
+assert_found slot:kobi
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+click lock:pola
+wait 600
+key tab
+wait 1500
+assert_found overworld
+assert_found overTitle:kobi
+assert_found overPort:kobi:in
+assert_found overPort:pola:in:1
+assert_found overPort:pola:out
+assert_found overLock:pola
+assert_found linkNode:l2
+assert_found overWire:l2
+shot 90-01-overworld-cards.png
+# hover the second input circle of Rear B: the project's intaker
+hover overPort:pola:in:1
+wait 700
+assert_found tip:overPort:pola:in:1
+shot 90-02-overworld-port-hover.png
+# drag Rear B down and left: its nodes follow, still off the headers
+dragxy overHeader:pola -120 60 0.4 0.5 shot=90-03-dragging.png
+wait 800
+key ctrl+z
+wait 800
+key tab
+wait 1200
+assert_found slot:kobi
+# the wiring layer over the normal view (#82) uses the same node rule: no node on a
+# view header or a port circle
+key `
+wait 1000
+assert_found wiringLayer
+assert_found wireNode:l2
+shot 90-04-wiring-layer.png
+key `
+wait 600

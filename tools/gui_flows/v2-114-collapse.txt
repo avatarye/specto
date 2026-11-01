@@ -1,0 +1,58 @@
+# v2 #114 collapse: a cam-a gallery fed by the file tree's picks, its image view, and a
+# cam-b gallery below it. Healthy views show no health dot. The cam-a gallery's collapse
+# button shrinks it to its title bar (the status bar says "collapsed · expand"); picks made
+# in the file tree while it is collapsed still reach it, and expanding shows them. The
+# cam-b gallery's header drag snaps under the collapsed title bar (not the stored height);
+# the overworld shows the collapsed card as a bar. Deleting the cam-b gallery's only link
+# shows its "not connected" dot; Undo brings the link back and the dot goes. Each gesture
+# is one undo step. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-114-canvas.json cam-a gallery, its image view, cam-b gallery
+wait 1500
+assert_found slot:@gallery
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+wait 2500
+# every view is healthy: no health dots in the headers
+shot 114-01-healthy-no-dots.png
+# collapse the cam-a gallery: its title bar alone, at the same width
+click collapse:@gallery
+wait 800
+hover header:@gallery 0.3 0.5
+wait 400
+shot 114-02-collapsed.png
+print snap {"target": "canvas", "layout": true}
+# pick a range in the file tree while it is collapsed: the link still delivers
+shiftclick treeRow:fege:runs/run-001/cam-a/00009_1700000000281250000.jpg
+wait 2500
+shot 114-03-picks-while-collapsed.png
+# expand: the gallery shows the eight frames picked while it was collapsed
+click collapse:@gallery
+wait 1500
+shot 114-04-expanded-shows-new-picks.png
+# collapse again; drag the cam-b gallery's header up to 5 px under the title bar and 6 px
+# right of its left edge: it snaps flush under the bar, where the expanded gallery was
+click collapse:@gallery
+wait 800
+dragxy header:@gallery#2 6 -399 0.3 0.5 shot=114-05-snap-to-title-bar.png
+wait 800
+shot 114-06-snapped-under-bar.png
+print snap {"target": "canvas", "layout": true}
+# the overworld: the collapsed view is a card the size of its title bar
+key tab
+wait 1500
+shot 114-07-overworld-collapsed-card.png
+# delete the cam-b gallery's only link: back in the normal view its dot says not connected
+click linkNode:l5
+wait 600
+click linkDelete
+wait 800
+key tab
+wait 1500
+shot 114-08-dot-not-connected.png
+click undoButton
+wait 1200
+shot 114-09-dot-gone-when-healthy.png

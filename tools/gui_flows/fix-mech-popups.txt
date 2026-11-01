@@ -1,0 +1,36 @@
+# v2 fix-mech (user test 1): hover popups draw above the neighbouring card and outside
+# the tree's clip, and a move or resize ends cleanly (no QML error in the app log, the
+# card stays where it was dropped). A gallery sits flush with the tree's right edge and
+# is focused (on top): the tree's close-button tip reaches over it; a tree image row's
+# thumbnail shows beside the tree; a tile's hover preview opens; then the gallery is
+# moved and resized. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/fix-mech-canvas.json a gallery flush with the tree
+wait 2500
+assert_found tile:kobi:00002
+click header:kobi 0.5 0.5
+wait 300
+hover close:fege
+wait 600
+assert_found tip:close:fege
+shot fix-mech-03-tooltip-over-card.png
+expand fege:runs/run-001/cam-a
+wait 600
+hover treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+wait 900
+assert_found fileTreeThumb:fege
+shot fix-mech-04-thumbnail-beside-tree.png
+hover tile:kobi:00003
+wait 1200
+assert_found galleryPreview:kobi
+shot fix-mech-05-gallery-preview.png
+hover panArea 0.9 0.9
+wait 400
+dragxy header:kobi 60 80 0.3 0.5
+wait 800
+dragxy resize:kobi:bottom-right 40 40
+wait 800
+print snap {"target": "kobi", "layout": true}
+shot fix-mech-06-moved-and-resized.png

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HTML</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="html.css">
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="/bridge.js"></script>
+  <script src="/wheel.js"></script>
+  <script src="/zoom.js"></script>
+  <script src="/icons.js"></script>
+  <script src="/step.js"></script>
+  <script src="/footer.js"></script>
+</head>
+<body>
+  <div class="body">
+    <div class="empty" id="empty">Select an html file in a linked view<br><small>the page runs in a sandboxed frame: its own files, and the network unless the view's network param is false</small></div>
+    <!-- a different origin from this page (the view's items origin): the user's scripts run
+         there without the bridge; allow-same-origin keeps the frame's own origin so its
+         relative fetches and module scripts work -->
+    <iframe id="frame" class="hidden" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer" title="page"></iframe>
+  </div>
+  <div id="footer"></div>
+  <script src="main.js"></script>
+</body>
+</html>

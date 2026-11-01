@@ -1,0 +1,20 @@
+# v2 #187 section 4, the agent messages the fleet: a request makes the agent (the
+# scripted one, tools/gui_flows/v2-187-send-agent-script.json) call fleet_status and
+# fleet_send twice through a fake nimitz (SPECTO_NIMITZ=tools/gui_flows/v2-187-fake-nimitz/
+# nimitz.cmd; it never reaches a real member). The thread shows one fleet row per send:
+# "to FLEET/SQUAD/SHIP" with the message, and "not sent to MAIN/ELSE: not among the
+# recipients the user allows" in the error tone (the default recipients are the fake's
+# one fleet, FLEET/...).
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-187-send-agent-script.json
+resize 1600 900
+wait 1500
+assert_found slot:fege
+hover agentIcon
+wait 1200
+click promptInput
+type tell FLEET/SQUAD/SHIP the cam-a frames are ready
+key enter
+wait 4000
+assert_found replyFleet
+shot 187-01-fleet-rows.png

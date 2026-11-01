@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">
+  <!-- Eyes at rest. Same 100-unit grid as s-body.svg. Colour: theme "agent". Move both eyes together by an offset inside the ELLIPSE with semi-axes (6, 7) units (not a box: at the box corners the eyes reach the top arc). At least 2.96 units clear on rev 3.3. -->
+  <g id="mark" transform="translate(6.24 6.24) scale(0.3952)">
+    <circle id="eye-left" cx="48" cy="40" r="6.5" fill="#B86A2B"/>
+    <circle id="eye-right" cx="64" cy="40" r="6.5" fill="#B86A2B"/>
+  </g>
+</svg>

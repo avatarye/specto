@@ -1,0 +1,175 @@
+{
+  "schema_version": 2,
+  "project": {
+    "label": "v2-141-proj"
+  },
+  "window_frame": {
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1600,
+      "h": 900
+    }
+  },
+  "root_view": "kobi",
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {
+        "position": [
+          80,
+          0
+        ],
+        "size": [
+          260,
+          820
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "rena": {
+      "type": "video",
+      "label": "Cam-a video",
+      "layout": {
+        "position": [
+          360,
+          0
+        ],
+        "size": [
+          520,
+          400
+        ]
+      },
+      "params": {
+        "speed": 1.0,
+        "loop": null,
+        "hwdec": false
+      },
+      "locked": false
+    },
+    "kobi": {
+      "type": "usd",
+      "label": "Drive stage",
+      "layout": {
+        "position": [
+          360,
+          420
+        ],
+        "size": [
+          1180,
+          420
+        ]
+      },
+      "params": {
+        "panels": {
+          "view": {
+            "collapsed": true,
+            "width": 200
+          },
+          "prims": {
+            "collapsed": true,
+            "width": 240
+          }
+        }
+      },
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "fege",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "."
+        ],
+        "watch": true
+      },
+      "summary": {
+        "sentence": "The file tree shows every file in the project folder."
+      }
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "cam-a video",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "rena",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "runs/video"
+        ],
+        "screener": [
+          "@video"
+        ]
+      },
+      "summary": {
+        "sentence": "The player shows the cam-a video."
+      }
+    },
+    "l3": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "the drive stage",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "kobi",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "worlds"
+        ],
+        "screener": [
+          "@usd"
+        ]
+      },
+      "summary": {
+        "sentence": "The usd view shows the drive stage."
+      }
+    },
+    "l4": {
+      "kind": "time_map",
+      "label": "the video follows the stage",
+      "source": {
+        "view": "kobi",
+        "port": "time"
+      },
+      "target": {
+        "view": "rena",
+        "port": "time"
+      },
+      "two_way": false,
+      "params": {
+        "from_timeline": "usd",
+        "to_timeline": "video",
+        "offset_ms": 0
+      },
+      "summary": {
+        "sentence": "Playing the stage kobi moves the video to the same time."
+      }
+    }
+  }
+}

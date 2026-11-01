@@ -1,0 +1,93 @@
+# #151 the usd view's camera is Unreal Editor's viewport (RTX on the depot world):
+# a left-drag turns and moves along the ground, a right-drag looks around, RMB held with
+# W flies and the wheel sets the speed (kept in params.camera_speed when RMB comes up),
+# a middle-drag and a left+right chord pan, the wheel dollies, Alt+left orbits the point
+# under the press, Alt+right dollies along the view; a click still picks (#140), F frames the
+# selection, then (nothing selected) the whole stage. Each step: a shot and a snap whose
+# source.camera says where the camera went.
+# Project: tools/gui_flows/v2-137-seed.py makes it (needs the rtx extra and the file).
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-139-canvas.json usd view of the picked stages
+wait 2000
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/depot_world.usda 15000
+click treeRow:fege:worlds/depot_world.usda
+wait 1500
+wait_while phase:kobi 400000
+# the loading cover stays up through the first frame (#156); a cold RTX start takes longer than the wait below
+wait_while cover:kobi 400000
+wait 4000
+assert_painted viewport:kobi 0.5
+shot 151-01-first-look.png
+print snap {"target": "kobi"}
+hover viewport:kobi 0.5 0.5
+wait 400
+assert_text statusHint right-drag looks
+# left-drag: right turns the camera in place, up moves it forward on the ground
+dragxy viewport:kobi 200 0 0.5 0.6
+wait 1500
+shot 151-02-lmb-turned.png
+print snap {"target": "kobi"}
+dragxy viewport:kobi 0 -200 0.5 0.6
+wait 1500
+shot 151-03-lmb-forward.png
+print snap {"target": "kobi"}
+# right-drag: look around, the eye stays
+dragxy viewport:kobi -150 60 0.5 0.5 button=right
+wait 1500
+shot 151-04-rmb-look.png
+print snap {"target": "kobi"}
+# RMB held: W flies, the wheel doubles the speed (one submit when RMB comes up)
+mousedown viewport:kobi 0.5 0.5 button=right
+keydown w
+wait 1500
+keyup w
+wheel viewport:kobi 2 0.5 0.5
+wait 300
+mouseup button=right
+wait 1500
+shot 151-05-rmb-flown.png
+print snap {"target": "kobi"}
+# middle-drag and the left+right chord pan: the camera follows the cursor
+dragxy viewport:kobi 120 0 0.5 0.5 button=middle
+wait 1000
+dragxy viewport:kobi 0 -120 0.5 0.5 button=both
+wait 1500
+shot 151-06-panned.png
+print snap {"target": "kobi"}
+# the wheel dollies back
+wheel viewport:kobi -3 0.5 0.5
+wait 1500
+shot 151-07-dollied.png
+print snap {"target": "kobi"}
+# Alt+left orbits the point under the press; Alt+right dollies along the view
+dragxy viewport:kobi 200 0 0.5 0.6 alt
+wait 1500
+shot 151-08-alt-orbit.png
+print snap {"target": "kobi"}
+dragxy viewport:kobi 120 0 0.5 0.6 button=right alt
+wait 1500
+shot 151-09-alt-dolly.png
+print snap {"target": "kobi"}
+# a click still picks (#140); F frames the pick
+click viewport:kobi 0.5 0.7
+wait 3000
+print snap {"target": "kobi"}
+key f
+wait 3000
+assert_painted viewport:kobi 0.5
+shot 151-10-f-selection.png
+print snap {"target": "kobi"}
+# nothing selected: F frames the whole stage
+click viewport:kobi 0.5 0.03
+wait 3000
+key f
+wait 3000
+assert_painted viewport:kobi 0.5
+shot 151-11-f-stage.png
+print snap {"target": "kobi", "image": true}

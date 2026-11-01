@@ -1,0 +1,50 @@
+# #153 the 3D view's view modes: lit, unlit, wireframe, and collision because scans/
+# carries crate.gltf with an Unreal collision hull (UCX_Crate_00). Same canvas as #47.
+# The footer's mode pill is always in sight (#158), saying Lit at rest, and the hull is
+# not drawn; its menu offers all four modes; each pick redraws the scene and is kept in
+# params.view_mode; off lit the pill names the mode in accent. Check the shots: unlit has no shading on the crate and
+# torus, wireframe is wire over a dark background (points and splats as they are),
+# collision is the green hull with the crate ghosted and the points / splats gone.
+# Project: tools/gui_flows/v2-153-3d-seed.py makes it (the #47 scene, smaller, plus the crate).
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-47-canvas.json 3D view of the picked scans
+wait 2500
+assert_found slot:kobi
+click treeRow:fege:scans
+wait 8000
+hover slot:fege 0.5 0.5
+wait 400
+shot 153-01-lit-pill-at-rest.png
+print snap {"target": "kobi"}
+hover slot:kobi 0.5 0.55
+wait 400
+shot 153-02-hovered.png
+webclick kobi buttons.viewMode
+wait 500
+shot 153-03-menu-four-modes.png
+print snap {"target": "kobi"}
+webclick kobi modes.unlit
+wait 900
+shot 153-04-unlit.png
+webclick kobi buttons.viewMode
+wait 400
+webclick kobi modes.wireframe
+wait 900
+shot 153-05-wireframe.png
+webclick kobi buttons.viewMode
+wait 400
+webclick kobi modes.collision
+wait 900
+hover slot:fege 0.5 0.5
+wait 400
+shot 153-06-collision-at-rest.png
+print snap {"target": "kobi"}
+hover slot:kobi 0.5 0.55
+webclick kobi buttons.viewMode
+wait 400
+webclick kobi modes.lit
+wait 900
+shot 153-07-back-to-lit.png
+print snap {"target": "kobi"}

@@ -1,0 +1,99 @@
+# v2 #174 walk-through: asked from the agent prompt, the agent plans the walk to tamu
+# (walkthrough), so the path lights at once (tamu, kobi and the project, the file tree
+# dims) and the caption card lists the planned hops while it writes the captions; then it
+# plays them (walkthrough_play): the establishing shot in the overworld, hops at 1:1 with
+# the camera holding when a hop already fits, the current hop's two views ringed, a pulse
+# on the walked link, the hop track with the branch (↩ project) into the fork at tamu.
+# The agent panel closes once the walk plays. Space pauses and plays; the hop track jumps; End is the summary
+# (chips under the views, Replay, Done); Esc puts the camera back where it was.
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-174-agent-script.json
+resize 1600 900
+wait 1500
+assert_found slot:fege
+shot 174-00-before.png
+hover agentIcon
+wait 600
+assert_found promptPanel
+click promptInput
+type walk me through tamu
+key enter
+wait 900
+assert_found walkControls
+assert_text walkCounter preparing
+assert_found walkPrepRow:1
+assert_found walkRing:tamu
+assert_missing walkRing:fege
+shot 174-01-preparing.png
+# the script plays from the establishing shot, auto-advance on: pause it at once (its
+# dwell is 5 s or more, #183), so the flow steps by hand from here
+wait_until walkNarration 15000
+key space
+wait 1000
+assert_text walkCounter start
+assert_found overworld
+assert_text walkHopLabel WALK-THROUGH
+# the agent panel it was asked in closes while the walk plays
+assert_missing promptPanel
+shot 174-02-establishing.png
+key right
+wait 1600
+assert_text walkCounter 1 / 3
+assert_text walkHopLabel HOP 1 OF 3
+assert_found walkFocus:kobi
+assert_found walkPulse
+# #183: hop 1's caption carries a ~120-character path: it wraps at its '/'s inside the card
+shot 174-03-hop1.png
+wait 400
+shot 174-04-hop1-pulse.png
+key right
+wait 1600
+assert_text walkCounter 2 / 3
+shot 174-05-hop2.png
+# play: the dwell ring fills on the pause button; pause again before it moves on
+key space
+wait 700
+shot 174-06-playing-dwell.png
+key space
+wait 300
+key right
+wait 1600
+assert_text walkCounter 3 / 3
+assert_found walkBranch:3
+shot 174-07-hop3-branch.png
+hover walkTrack:2
+wait 600
+shot 174-08-track-tip.png
+# #183: the walk speed (slow / normal / fast, the user's setting) cycles on a click;
+# three clicks bring it back to what it was
+hover walkSpeed
+wait 500
+shot 174-08b-speed-tip.png
+click walkSpeed
+wait 300
+shot 174-08c-speed-changed.png
+click walkSpeed
+wait 200
+click walkSpeed
+wait 200
+click walkStop:kobi
+wait 1600
+assert_text walkCounter 1 / 3
+key end
+wait 1800
+assert_text walkCounter summary
+assert_found walkDone
+assert_found walkChip:tamu
+# #183: kobi's chip is the long path, middle-elided at a chip's width
+assert_found walkChip:kobi
+shot 174-09-summary.png
+click walkReplay
+wait 1200
+assert_text walkCounter start
+shot 174-10-replay.png
+key esc
+wait 1200
+assert_missing walkControls
+assert_missing walkRing:tamu
+assert_found slot:fege
+shot 174-11-back.png

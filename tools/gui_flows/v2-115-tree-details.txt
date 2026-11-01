@@ -1,0 +1,58 @@
+# v2 #115: the file tree shows names only; a long name is cut in the middle (the start
+# and the extension stay) and shows in full in the hover tip. The details button in the
+# tree's footer (#122) adds a second line under every name: the modified time by its age
+# (under 10 min, under an hour, under a day, older) and the size. A file arriving in the
+# project shows up on its own (the file tree auto-updates by default), fresh-coloured.
+# The button again hides the details. Project: tools/gui_flows/v2-115-seed.py <folder>.
+resize 1600 900
+wait 1500
+# the tree starts collapsed (#231): open notes/ and runs/cam-a/ first
+wait_until treeRow:@file_tree:notes 20000
+expand @file_tree:notes
+expand @file_tree:runs/cam-a
+wait_until treeRow:@file_tree:notes/last-month.md 20000
+wait_until treeRow:@file_tree:runs/cam-a/00002_frame_with_a_very_long_name_for_the_tree_7255.jpg 10000
+assert_missing treeDetails:@file_tree:notes/last-month.md
+assert_missing treeSize:@file_tree:notes/last-month.md
+shot v2-115-01-details-off.png
+shotcrop slot:@file_tree 6 2 v2-115-02-names-only-closeup.png
+# a long name: cut in the middle, in full in the tip
+hover treeName:@file_tree:runs/cam-a/00002_frame_with_a_very_long_name_for_the_tree_7255.jpg 0.5 0.5
+wait 900
+assert_found treeTip:@file_tree:runs/cam-a/00002_frame_with_a_very_long_name_for_the_tree_7255.jpg
+shotcrop slot:@file_tree 6 2 v2-115-03-long-name-cut-in-the-middle.png
+hover header:@file_tree 0.5 0.5
+wait 400
+# details on: time by age and size under every name; the toggle is in the tree's footer
+# (#122), which the fresh 900 px tree can run under the status bar: pan it into view
+keydown space
+dragxy panHand 0 -120 0.7 0.5
+keyup space
+wait 600
+click treeDetailsButton:@file_tree
+keydown space
+dragxy panHand 0 120 0.7 0.5
+keyup space
+wait 900
+assert_found treeStamp:@file_tree:notes/fresh-note.md
+assert_found treeDetailSize:@file_tree:notes/last-month.md
+shot v2-115-04-details-on.png
+shotcrop slot:@file_tree 6 2 v2-115-05-details-ages-closeup.png
+# a file arrives: it shows up on its own, fresh
+spawn uv run python tools/gui_flows/v2-115-seed.py {project} --arrive
+wait_until treeRow:@file_tree:notes/just-arrived.md 15000
+wait 600
+assert_found treeStamp:@file_tree:notes/just-arrived.md
+shotcrop slot:@file_tree 6 2 v2-115-06-a-file-arrives-on-its-own.png
+# details off again
+keydown space
+dragxy panHand 0 -120 0.7 0.5
+keyup space
+wait 600
+click treeDetailsButton:@file_tree
+keydown space
+dragxy panHand 0 120 0.7 0.5
+keyup space
+wait 700
+assert_missing treeStamp:@file_tree:notes/fresh-note.md
+shot v2-115-07-details-off-again.png

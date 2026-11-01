@@ -1,0 +1,238 @@
+{
+  "schema_version": 2,
+  "project": {
+    "label": "v2-48-proj"
+  },
+  "window_frame": {
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 1600,
+      "h": 900
+    }
+  },
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {
+        "position": [80,
+          0
+        ],
+        "size": [
+          280,
+          900
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "kobi": {
+      "type": "gallery",
+      "label": "Drops (watched, locked)",
+      "layout": {
+        "position": [380,
+          0
+        ],
+        "size": [
+          1280,
+          880
+        ]
+      },
+      "params": {
+        "columns": 4
+      },
+      "locked": true
+    },
+    "tamu": {
+      "type": "json",
+      "label": "sidecar 1",
+      "layout": {
+        "position": [380,
+          0
+        ],
+        "size": [
+          400,
+          270
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "rena": {
+      "type": "json",
+      "label": "sidecar 2",
+      "layout": {
+        "position": [800,
+          0
+        ],
+        "size": [
+          400,
+          270
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "pola": {
+      "type": "json",
+      "label": "sidecar 3",
+      "layout": {
+        "position": [1220,
+          0
+        ],
+        "size": [
+          400,
+          270
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "mihu": {
+      "type": "json",
+      "label": "sidecar 4",
+      "layout": {
+        "position": [380,
+          290
+        ],
+        "size": [
+          400,
+          270
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "vesa": {
+      "type": "json",
+      "label": "sidecar 5",
+      "layout": {
+        "position": [800,
+          290
+        ],
+        "size": [
+          400,
+          270
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "duna": {
+      "type": "json",
+      "label": "sidecar 6",
+      "layout": {
+        "position": [1220,
+          290
+        ],
+        "size": [
+          400,
+          270
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "lito": {
+      "type": "json",
+      "label": "sidecar 7",
+      "layout": {
+        "position": [380,
+          580
+        ],
+        "size": [
+          400,
+          270
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "gabe": {
+      "type": "json",
+      "label": "sidecar 8",
+      "layout": {
+        "position": [800,
+          580
+        ],
+        "size": [
+          400,
+          270
+        ]
+      },
+      "params": {},
+      "locked": false
+    },
+    "nuri": {
+      "type": "json",
+      "label": "sidecar 9",
+      "layout": {
+        "position": [1220,
+          580
+        ],
+        "size": [
+          400,
+          270
+        ]
+      },
+      "params": {},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "fege",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "."
+        ],
+        "watch": true
+      },
+      "summary": {
+        "sentence": "The file tree shows every file in the project folder."
+      }
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "dropped frames",
+      "source": {
+        "view": "project",
+        "port": "all_files"
+      },
+      "target": {
+        "view": "kobi",
+        "port": "data"
+      },
+      "two_way": false,
+      "params": {
+        "sources": [
+          "drops"
+        ],
+        "screener": [
+          "@images"
+        ],
+        "keys": "(?P<frame>\\d{5})_\\d+\\.jpg$",
+        "group_by": [
+          "frame"
+        ],
+        "watch": true
+      },
+      "summary": {
+        "sentence": "The gallery shows every frame dropped into the drops folder, live."
+      }
+    }
+  }
+}

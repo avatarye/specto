@@ -1,0 +1,21 @@
+# #85: a large splat is on screen once it has loaded, before any input reaches the 3D
+# view. The page used to stop rendering IDLE_FRAMES after the load while the splat was
+# still sorting on its worker, so the view stayed blank until the first drag; it now keeps
+# asking for frames until the splat reports settled. The project folder holds
+# scans/<file>.spz (the #66 7.6 M-splat v4 capture in the verified run; any large splat
+# does); the canvas is v2-47-canvas.json (file tree feeding a 3D view).
+resize 1600 900
+wait 1200
+assert_found treeRow:fege:scans
+submit tools/gui_flows/v2-47-canvas.json 3D view of the picked scans
+wait 2500
+assert_found slot:kobi
+click treeRow:fege:scans
+wait 45000
+# no input has touched the 3D view since the load
+shot 85-01-splat-first-paint.png
+assert_painted slot:kobi
+print snap {"target": "kobi"}
+dragxy slot:kobi 260 80
+wait 1500
+shot 85-02-splat-orbited.png

@@ -1,0 +1,63 @@
+# #153 the usd view's view modes with Storm (params.renderer storm): pick
+# worlds/modes.usda (the seed, tools/gui_flows/v2-153-seed.py: a red box, a green
+# UsdPreviewSurface ball, a blue collider wall and a convex-hull rock; Storm draws no
+# sky). The footer's mode pill is always shown (#158); its menu switches to unlit (flat
+# base colours, the ball's preview green too, every prim still drawn; the note says no
+# textures), wireframe (wires over near-black) and collision (only the two colliders,
+# tinted, the note says how many), the pill in the accent; a click in collision names
+# a collider; lit again.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-153-storm-canvas.json usd view of the picked stage, Storm, view modes
+wait 2000
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/modes.usda 15000
+click treeRow:fege:worlds/modes.usda
+wait_while cover:kobi 60000
+wait 3000
+shot 153s-01-lit-pill.png
+assert_found viewMode:kobi
+assert_text viewMode:kobi Lit
+click viewMode:kobi
+wait 600
+assert_found menu:mode-collision
+shot 153s-03-mode-menu.png
+click menu:mode-unlit
+wait 2500
+assert_text viewMode:kobi Unlit
+assert_text viewModeNote:kobi no textures
+shot 153s-04-unlit.png
+print snap {"target": "kobi", "image": true}
+click viewMode:kobi
+wait 600
+click menu:mode-wireframe
+wait 2500
+assert_found viewMode:kobi
+assert_text viewMode:kobi Wireframe
+shot 153s-05-wireframe.png
+click viewMode:kobi
+wait 600
+click menu:mode-collision
+wait 4000
+assert_text viewMode:kobi Collision
+assert_text viewModeNote:kobi 2 colliders
+shot 153s-06-collision.png
+print snap {"target": "kobi", "image": true}
+click viewport:kobi 0.35 0.55
+wait 1500
+print snap {"target": "kobi"}
+shot 153s-07-collision-pick.png
+click viewMode:kobi
+wait 600
+click menu:mode-lit
+wait 3000
+# lit again: Storm's grey clear behind the stage (no sky: it covers ~80 % of the
+# picture, so "painted" allows 90 %), not collision's near-black
+assert_painted viewport:kobi 0.9
+assert_pixel viewport:kobi 0.05 0.05 is #292a2b
+shot 153s-08-lit-again.png
+print snap {"target": "kobi"}

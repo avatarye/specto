@@ -1,0 +1,67 @@
+# v2 #44 prompt bar, in the agent panel since #162: the panel opens when the pointer rests
+# on the agent icon at the bottom left; a request typed there runs the window's agent
+# (here the scripted one, tools/gui_flows/v2-44-agent-script.json, calling the real
+# tools): its first document is rejected and retried invisibly, the reply streams into
+# the thread, the turn row shows the label with Undo, the changed views are outlined,
+# the follow link works; /init is refused before it reaches the agent; three rejected
+# documents end a turn with a short failure; a second composing turn is one undo step
+# and its row's Undo reverts it whole; the panel closes again when left alone.
+# Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-44-agent-script.json
+resize 1600 900
+wait 1500
+assert_found slot:fege
+assert_missing promptInput
+shot 44-01-bar-hidden.png
+hover agentIcon
+wait 1200
+assert_found promptInput
+shot 44-02-bar-revealed.png
+click promptInput
+type add cam-a and cam-b galleries, linked on frame
+shot 44-03-typed.png
+key enter
+wait 350
+shot 44-04-streaming.png
+wait 4500
+assert_found slot:kobi
+assert_found slot:tamu
+assert_found replyUndo
+shot 44-05-reply-with-undo.png
+print snap {"target": "canvas"}
+click tile:kobi:cam-a/00004
+wait 900
+shot 44-06-linked-on-frame.png
+print snap {"target": "tamu"}
+hover agentIcon
+wait 1200
+click promptInput
+type /init
+key enter
+wait 900
+shot 44-07-slash-refused.png
+click promptInput
+key ctrl+a
+type add a map of the route
+key enter
+wait 4500
+assert_missing replyUndo
+shot 44-08-failed-after-three.png
+hover agentIcon
+wait 1200
+click promptInput
+key ctrl+a
+type make the cam-b gallery bigger
+key enter
+wait 4500
+assert_found replyUndo
+shot 44-09-second-turn.png
+print snap {"target": "tamu", "layout": true}
+click replyUndo
+wait 900
+shot 44-10-turn-undone.png
+print snap {"target": "tamu", "layout": true}
+click panArea 0.6 0.15
+wait 8500
+assert_missing promptInput
+shot 44-11-bar-hidden-again.png

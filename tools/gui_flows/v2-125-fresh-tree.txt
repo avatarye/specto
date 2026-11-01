@@ -1,0 +1,21 @@
+# v2 #125: a new project's file tree fills the visible canvas (the window frame, above
+# the bottom bar): as opened, then in a 700 px and a 520 px tall window its footer and
+# details toggle stay above the bottom bar, the project node at the canvas origin. Each
+# resize is one "resize window" step carrying the tree's height. Project: no .specto/
+# (the app makes a new project), tools/gui_flows/v2-39-seed.py <folder>.
+wait 1500
+assert_found slot:fege
+assert_found footer:fege
+assert_found projectNode
+print snap {"target": "canvas", "layout": true}
+shot v2-125-01-fresh-tree-opened.png
+resize 1300 700
+wait 1500
+assert_found footer:fege
+print snap {"target": "canvas", "layout": true}
+shot v2-125-02-fresh-tree-700.png
+resize 1300 520
+wait 1500
+assert_found footer:fege
+print snap {"target": "canvas", "layout": true}
+shot v2-125-03-fresh-tree-520.png

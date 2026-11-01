@@ -1,0 +1,59 @@
+# #141 the usd view's time: a video (the root view) time-mapped onto an animated stage
+# authored by the seed (tools/gui_flows/v2-141-seed.py: a red box crossing the ground and
+# a blue ball rising, 0-168 at 24 tc/s), rendered with RTX. The stage's footer shows the
+# scrubber, play and the time readout; scrubbing the video moves the stage; the stage's
+# own scrubber and play move it too. Then a second document makes the usd view the root
+# view with the video following it: the stage's play drives the global clock.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-141-canvas.json a video drives an animated stage
+wait 2000
+assert_found slot:kobi
+assert_found video:rena:track
+wait_while cover:kobi 400000
+wait 3000
+assert_found usd:kobi:track
+assert_found play:kobi
+assert_text time:kobi 0 / 0-168 @ 24 tc/s
+assert_painted viewport:kobi 0.5
+shot 141-01-stage-at-start-video-root.png
+print snap {"target": "kobi", "image": true}
+# a press on the video's bar scrubs it: the time map moves the stage
+click video:rena:track 0.5 0.5
+wait 3000
+shot 141-02-video-scrub-moves-stage.png
+print snap {"target": "rena"}
+print snap {"target": "kobi"}
+click video:rena:track 0.95 0.5
+wait 3000
+shot 141-03-video-scrub-near-end.png
+print snap {"target": "kobi"}
+# the stage's own scrubber: a whole timecode, out on its time port
+click usd:kobi:track 0.25 0.5
+wait 3000
+assert_text time:kobi 42 / 0-168
+shot 141-04-stage-scrubber.png
+print snap {"target": "kobi"}
+# play / pause on the stage (from the footer)
+click play:kobi
+wait 2000
+shot 141-05-stage-playing.png
+click play:kobi
+wait 2500
+print snap {"target": "kobi"}
+shot 141-06-stage-paused.png
+# the usd view as the root view: its play drives the global clock, the video follows
+submit tools/gui_flows/v2-141-root.json the stage is the root view and drives the video
+wait 3000
+click usd:kobi:track 0.05 0.5
+wait 2000
+click play:kobi
+wait 3000
+shot 141-07-root-stage-plays-video-follows.png
+click play:kobi
+wait 2500
+print snap {"target": "kobi"}
+print snap {"target": "rena"}
+shot 141-08-root-paused-video-on-same-time.png
+print snap {"target": "canvas", "layout": true}

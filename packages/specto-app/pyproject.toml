@@ -1,0 +1,62 @@
+[project]
+name = "specto-app"
+version = "0.2.0"
+description = "Specto app: Qt Quick shell, canvas, view hosts, endpoint, worker pool."
+requires-python = ">=3.12,<3.13"
+license = "MIT"
+dependencies = [
+    "specto-core",
+    "specto-intake",
+    "specto-readers",
+    "specto-web",
+    "PySide6>=6.8",
+    "claude-agent-sdk>=0.2.168",
+    "qasync>=0.28",
+    # the usd view's Storm renderer (#143), the default: the source draws offscreen with
+    # PyOpenGL and reads back with numpy. Both are small; with them a plain `uv run` keeps
+    # Storm wherever the OpenUSD imaging build exists (specto_core.machine.detect_storm)
+    "PyOpenGL==3.1.10",
+    "numpy>=2",
+]
+
+[project.optional-dependencies]
+# the usd view's RTX renderer (#137): NVIDIA ovrtx + ovstage, pinned (every release breaks
+# the API), with usd-core for the stage's bounds. The ovrtx package on PyPI is a stub
+# that downloads the 2.3 GB binary from pypi.nvidia.com at install.
+rtx = [
+    "ovrtx==0.6.0.1791947691",
+    "ovstage==0.3.0.1791986420",
+    "usd-core==26.11",
+    "numpy>=2",
+]
+# the usd view's Storm renderer (#143): Hydra Storm from the OpenUSD imaging build
+# (tools/parked/build_openusd.py; pip usd-core has no UsdImagingGL). Its Python packages
+# are base dependencies now; the extra stays so `--extra storm` keeps working
+storm = [
+    "PyOpenGL==3.1.10",
+    "numpy>=2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/specto_app"]
+[project.scripts]
+specto-app = "specto_app.main:main"
+specto-usd-source = "specto_app.usd.source:main"
+
+[project.entry-points."specto.view_hosts"]
+json = "specto_app.views.json_view:register"
+gallery = "specto_app.views.gallery:register"
+image = "specto_app.views.image_view:register"
+video = "specto_app.views.video_view:register"
+markdown = "specto_app.views.markdown_view:register"
+map = "specto_app.views.map_view:register"
+3d = "specto_app.views.scene3d_view:register"
+html = "specto_app.views.html_view:register"
+pdf = "specto_app.views.pdf_view:register"
+preview = "specto_app.views.preview_view:register"
+usd = "specto_app.views.usd_view:register"
+scratch = "specto_app.views.scratch_view:register"

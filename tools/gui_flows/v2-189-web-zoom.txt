@@ -1,0 +1,53 @@
+# v2 #189: Ctrl+wheel is no page zoom. Over the markdown OUTLINE nothing zooms; over the
+# note the note alone zooms (the snap's `zoom`), the outline and the footer keep the
+# theme's size; over the map's LAYERS panel the page stays as it was. Compare the
+# outline text across 189-01..03 and the LAYERS text across 189-04..05.
+# Seed and canvas: #130's (the notes in rena, the GeoJSON on the map pola).
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-130-canvas.json the web views after the UX pass
+wait 6000
+assert_found slot:pola
+hover slot:rena 0.3 0.5
+wait 600
+shot 189-01-markdown-before.png
+wheel slot:rena 3 0.93 0.15 ctrl
+wait 800
+assert_web rena zoom 1
+shot 189-02-markdown-ctrl-wheel-outline.png
+wheel slot:rena 2 0.3 0.4 ctrl
+wait 800
+assert_web rena zoom 1.21
+hover slot:rena 0.3 0.5
+wait 400
+shot 189-03-markdown-ctrl-wheel-note.png
+click slot:rena 0.3 0.6
+wait 300
+key ctrl+0
+wait 600
+assert_web rena zoom 1
+print snap {"target": "rena"}
+hover slot:pola 0.5 0.5
+wait 400
+shot 189-04-map-before.png
+wheel slot:pola 3 0.93 0.2 ctrl
+wait 800
+shot 189-05-map-ctrl-wheel-layers.png
+# #202: the reading zoom is the view's params.zoom: the agent sets it (params), the
+# reader's Ctrl+- moves it from there, and v2-202-zoom-reopen.txt (the project reopened
+# from the recent list) finds the last level again. The outline text keeps its size.
+params rena {"zoom": 2}
+wait 800
+assert_web rena zoom 2
+hover slot:rena 0.3 0.5
+wait 400
+shot 202-01-agent-zoom-2.png
+click slot:rena 0.3 0.6
+wait 300
+key ctrl+-
+wait 300
+key ctrl+-
+wait 800
+assert_web rena zoom 1.65
+print snap {"target": "rena"}

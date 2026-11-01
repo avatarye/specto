@@ -1,0 +1,49 @@
+{
+ "schema_version": 2,
+ "project": {"label": "bench"},
+ "window_frame": {"rect": {"x": 0, "y": 0, "w": 1600, "h": 900}},
+ "root_view": null,
+ "views": {
+  "v1": {
+   "type": "file_tree",
+   "label": "Files",
+   "layout": {"position": [0, 0], "size": [300, 820]},
+   "params": {},
+   "locked": false
+  },
+  "v2": {
+   "type": "gallery",
+   "label": "Cam A",
+   "layout": {"position": [900, 420], "size": [620, 400]},
+   "params": {"tile": 132},
+   "locked": false
+  }
+ },
+ "links": {
+  "l1": {
+   "kind": "intaker",
+   "label": "project files",
+   "source": {"view": "project", "port": "all_files"},
+   "target": {"view": "v1", "port": "data"},
+   "two_way": false,
+   "params": {"sources": ["."], "watch": false},
+   "summary": {"sentence": "The file tree shows every file in the project folder."}
+  },
+  "l2": {
+   "kind": "intaker",
+   "scope": "pinned",
+   "label": "cam-a frames",
+   "source": {"view": "project", "port": "all_files"},
+   "target": {"view": "v2", "port": "data"},
+   "two_way": false,
+   "params": {
+    "sources": ["runs/run-001"],
+    "screener": ["@images"],
+    "keys": "(?P<cam>cam-a)/(?P<frame>\\d{5})_\\d+\\.jpg$",
+    "group_by": ["cam", "frame"],
+    "sort": "natural"
+   },
+   "summary": {"sentence": "The cam-a gallery always shows the cam-a frames of run run-001."}
+  }
+ }
+}

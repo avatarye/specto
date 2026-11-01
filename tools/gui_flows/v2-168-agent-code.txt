@@ -1,0 +1,45 @@
+# v2 #168 parts 4-5, the agent writes link code: a request that no built-in link can
+# express makes the agent (the scripted one, tools/gui_flows/v2-168-agent-script.json,
+# calling the real write_link_code and submit_canvas with describe link:python's worked
+# example) write .specto/links/clip_to_geo.py and wire tree B (naku, on annotations), the
+# per-pick link from the file tree's picks to naku's selection, and a map (memu) on
+# naku's picks. The thread's code row says "wrote link code clip_to_geo: needs your
+# approval" with Open (the code) and Undo; naku shows Approve; a pick goes nowhere until
+# the user approves, then naku selects the annotation folder and the map draws it.
+# Needs the per-pick runtime (#168 parts 1-3) merged.
+# Project: tools/gui_flows/v2-168-agent-seed.py <folder>; app flag:
+#   --agent scripted:<abs path>/tools/gui_flows/v2-168-agent-script.json
+resize 1600 900
+wait 1500
+assert_found slot:fege
+hover agentIcon
+wait 1200
+click promptInput
+type picking a world selects its source folder in a second tree; a map shows its geo data
+key enter
+wait 4000
+assert_found replyCode
+assert_found replyCodeUndo
+assert_found approve:naku
+shot 168a-01-wrote-link-code.png
+click replyCodeOpen
+wait 800
+assert_found skillMarkdown
+shot 168a-02-open-link-code.png
+key escape
+wait 500
+# the tree starts collapsed (#231): open the way down to the clips first
+wait_until treeRow:fege:recordings 20000
+expand fege:recordings/s01
+wait_until treeRow:fege:recordings/s01/clip1 20000
+click treeName:fege:recordings/s01/clip1
+wait 1500
+assert_missing treeRow:naku:annotations/s01/clip1/geo
+shot 168a-03-unapproved-pick-goes-nowhere.png
+click approve:naku
+wait 2500
+assert_missing approve:naku
+wait_until treeRow:naku:annotations/s01/clip1/geo 10000
+shot 168a-04-approved-mirror-and-map.png
+print snap {"target": "naku"}
+print snap {"target": "memu"}

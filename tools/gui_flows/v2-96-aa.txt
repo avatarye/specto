@@ -1,0 +1,34 @@
+# v2 #96 antialiased link curves: a pixel patch across each curve, below its link node,
+# in the wiring layer (#82) and the overworld (#45): l2 is solid, l4 (two-way) dashed. The
+# rows a curve crosses must show intermediate tones, not just curve and background. Run it
+# again with QT_SCALE_FACTOR=1.5 in the app's environment for the 150 % check. The frame
+# cost while the curves follow a dragged view is v2-96-drag.txt.
+# Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-96-canvas.json two galleries, a solid and a dashed link
+wait 2500
+assert_found slot:kobi
+assert_found slot:tamu
+click header:tamu 0.5 0.5
+wait 500
+key `
+wait 800
+assert_found wire:l2
+assert_found wire:l4
+shot 96-01-wiring-layer.png
+assert_smooth wireNode:l2 0 40 64 32 shot=96-02-solid-closeup.png
+assert_smooth wireNode:l4 0 40 64 32 shot=96-03-dashed-closeup.png
+key esc
+wait 500
+key tab
+wait 1500
+assert_found overworld
+assert_found linkNode:l2
+shot 96-04-overworld.png
+assert_smooth linkNode:l2 0 40 64 32 shot=96-05-overworld-solid-closeup.png
+assert_smooth linkNode:l4 0 40 64 32 shot=96-06-overworld-dashed-closeup.png
+key tab
+wait 1500
+assert_missing overworld

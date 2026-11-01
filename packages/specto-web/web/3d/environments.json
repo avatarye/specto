@@ -1,0 +1,63 @@
+{
+  "about": "The 3D view's bundled HDRI environments (#175): CC0 1k .hdr files from Poly Haven, fetched by packages/specto-web/build.py (pinned by sha256) and prefiltered at build time into web/vendor/hdri/<name>.env (Babylon's prefiltered cube, cube_size per face). Nothing is fetched at runtime.",
+  "licence": "CC0-1.0",
+  "licence_url": "https://polyhaven.com/license",
+  "cube_size": 256,
+  "environments": [
+    {
+      "name": "studio",
+      "label": "Studio",
+      "look": "a small photo studio with softboxes: the product look",
+      "asset": "studio_small_09",
+      "page": "https://polyhaven.com/a/studio_small_09",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/studio_small_09_1k.hdr",
+      "size": 1615248,
+      "sha256": "e7cfda5f4e98e623db12b8bfd0184e048488e4855d9c83e2751fb44a32e80c45",
+      "author": "Sergej Majboroda"
+    },
+    {
+      "name": "overcast",
+      "label": "Overcast",
+      "look": "outdoor, an overcast sky over grass: soft, even light",
+      "asset": "kloofendal_overcast",
+      "page": "https://polyhaven.com/a/kloofendal_overcast",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloofendal_overcast_1k.hdr",
+      "size": 1590386,
+      "sha256": "9b3f50a2c958ab7dc9c14562905f639de6cd74eb8a0af0d129650b2a6444a021",
+      "author": "Greg Zaal"
+    },
+    {
+      "name": "sunny",
+      "label": "Sunny",
+      "look": "outdoor, midday sun and a partly cloudy sky: hard shadows' light",
+      "asset": "kloofendal_48d_partly_cloudy",
+      "page": "https://polyhaven.com/a/kloofendal_48d_partly_cloudy",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloofendal_48d_partly_cloudy_1k.hdr",
+      "size": 1637206,
+      "sha256": "5477b7dbb2aea4a6947cb36b96339c119f90bf36a03b039af3254b5e6a22896d",
+      "author": "Greg Zaal"
+    },
+    {
+      "name": "indoor",
+      "label": "Indoor",
+      "look": "a furnished room lit by its windows and lamps",
+      "asset": "lebombo",
+      "page": "https://polyhaven.com/a/lebombo",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/lebombo_1k.hdr",
+      "size": 1476953,
+      "sha256": "a02c9615adeba91a753c3e4737c3ce7a719273df822eeaa85d24982bd43c9ecb",
+      "author": "Greg Zaal"
+    },
+    {
+      "name": "urban",
+      "label": "Urban",
+      "look": "a city square under a light overcast sky",
+      "asset": "potsdamer_platz",
+      "page": "https://polyhaven.com/a/potsdamer_platz",
+      "url": "https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/potsdamer_platz_1k.hdr",
+      "size": 1540678,
+      "sha256": "7afe4c2f9700ee78c7477c53fa355463d7dda1fdede401432d6b5f9ff0a95696",
+      "author": "Greg Zaal"
+    }
+  ]
+}

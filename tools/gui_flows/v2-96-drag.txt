@@ -1,0 +1,21 @@
+# v2 #96 frame cost of the curves: a view dragged under the wiring layer, its curves
+# following live, after an idle gap so its frames are the last ones in the app log (run
+# the app with QSG_RENDER_TIMING=1 and QT_FORCE_STDERR_LOGGING=1). Runs on its own or
+# after v2-96-aa.txt (the submit is then a no-op).
+resize 1600 900
+wait 1500
+submit tools/gui_flows/v2-96-canvas.json two galleries, a solid and a dashed link
+wait 2500
+assert_found slot:kobi
+assert_missing overworld
+click header:tamu 0.5 0.5
+wait 500
+key `
+wait 800
+assert_found wire:l2
+wait 3000
+dragxy header:kobi 160 -120 0.3 0.5
+dragxy header:kobi -160 120 0.3 0.5
+dragxy header:kobi 160 -120 0.3 0.5 shot=96-07-dragging-under-the-layer.png
+dragxy header:kobi -160 120 0.3 0.5
+wait 800

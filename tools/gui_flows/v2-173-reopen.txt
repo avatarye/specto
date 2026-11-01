@@ -1,0 +1,9 @@
+# v2 #173 relaunch: the project reopened from the welcome card's recent list; the cam-a
+# gallery shows the thumbnail size v2-173-thumb-size.txt grew it to (snap: view.tile)
+# with the picked frame.
+resize 1600 900
+wait 2500
+assert_found slot:kobi
+wait 2000
+shot 173-04-reopened-same-size.png
+print snap {"target": "kobi"}

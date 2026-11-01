@@ -1,0 +1,50 @@
+# v2 #80 header trim and status-bar hints (spec #78 decision 6): the view header shows
+# `<name>: <label>`, the health dot and the buttons; the `view:<id>` text, the type and
+# the in/out counts are gone, and so is the empty-state line in the gallery's area. The
+# status bar speaks for the hovered view, else the selected one: the empty gallery's
+# "nothing picked  ·  Pick files in the file tree", the gestures once it has frames,
+# the file tree's count. Overworld cards follow the same header rule.
+# Project: tools/gui_flows/v2-39-seed.py; canvas document v2-39-canvas.json.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-39-canvas.json cam-a gallery of the picked frames
+wait 1500
+assert_found slot:kobi
+assert_found title:kobi
+assert_found health:kobi
+assert_missing hint:kobi
+# nothing hovered or selected: the status bar is quiet
+hover canvasArea 0.95 0.9
+wait 500
+shot 80-01-header-id-label.png
+# the pointer on the empty gallery: its hints move to the status bar
+hover slot:kobi
+wait 600
+shot 80-02-status-hovered-empty-state.png
+# selected and not hovered: the same words stay while the pointer is elsewhere
+click header:kobi 0.3 0.5
+hover canvasArea 0.95 0.9
+wait 500
+shot 80-03-status-selected.png
+# pick frames: the gallery is healthy, so hovering it offers the gestures
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+wait 800
+shiftclick treeRow:fege:runs/run-001/cam-a/00005_1700000000156250000.jpg
+wait 1500
+hover slot:kobi 0.5 0.3
+wait 600
+shot 80-04-status-healthy-gestures.png
+hover slot:fege 0.5 0.9
+wait 600
+shot 80-05-status-file-tree.png
+# the overworld: cards carry `<name>: <label>` in the header too
+key tab
+wait 1500
+assert_found overTitle:kobi
+shot 80-06-overworld-card-header.png
+key tab
+wait 800
+assert_found slot:kobi

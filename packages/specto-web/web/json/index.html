@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JSON inspector</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+  <script src="/bridge.js"></script>
+  <script src="/wheel.js"></script>
+  <script src="/zoom.js"></script>
+  <script src="/icons.js"></script>
+  <script src="/step.js"></script>
+  <script src="/footer.js"></script>
+  <script src="/monaco-env.js"></script>
+  <script src="/vendor/vs/loader.js"></script>
+</head>
+<body>
+  <div class="empty" id="empty">Select an item in a linked gallery<br><small>the sidecar <code>.json</code> shows here</small></div>
+  <div id="editor" class="hidden"></div>
+  <div id="footer"></div>
+  <script src="main.js"></script>
+</body>
+</html>

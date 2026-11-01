@@ -1,0 +1,41 @@
+{
+ "delay_ms": 40,
+ "turns": [
+  [
+   {
+    "text": "Preparing a walk through **tamu**: 3 links from the project folder."
+   },
+   {
+    "tool": "submit_canvas",
+    "args": {
+     "document_file": "v2-44-canvas.json",
+     "label": "cam-a and cam-b, linked on frame"
+    }
+   },
+   {
+    "tool": "walkthrough",
+    "args": {"view": "tamu"}
+   },
+   {
+    "wait_ms": 2500
+   },
+   {
+    "tool": "walkthrough_play",
+    "args": {
+     "view": "tamu",
+     "intro": "tamu shows the **cam-b** frame of whatever you pick in kobi. Its data starts at the **project folder** and reaches tamu along **3 links**.",
+     "captions": [
+      "The project folder sends its **.jpg** frames from **C:/data/depot/captures/run-01/session_2026_10_24/cam-a/half_resolution/frames/** to kobi, the cam-a gallery.",
+      "A frame picked in kobi picks the frame with the same **frame** number in tamu.",
+      "tamu also takes files straight from the project: a pinned intaker keeps the **cam-b/** frames. These are the frames the follow link chooses among."
+     ],
+     "summary": "From the project files, kobi shows the **cam-a** frames and tamu the **cam-b** ones; a pick in kobi shows its cam-b twin in tamu.",
+     "chips": ["C:/data/depot/captures/run-01/session_2026_10_24/cam-a/half_resolution/frames/", "cam-b twin, by frame", "cam-b frames"]
+    }
+   },
+   {
+    "text": "The walk through tamu is ready: step with the arrows, Space pauses, Esc puts the camera back."
+   }
+  ]
+ ]
+}

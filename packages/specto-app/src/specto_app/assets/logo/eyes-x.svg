@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">
+  <!-- Error: X eyes. Colour: theme "removed"; the S body drops to 45 % opacity in this state. -->
+  <g id="mark" transform="translate(6.24 6.24) scale(0.3952)">
+    <path id="eye-left" d="M 42.5 34.5 L 53.5 45.5 M 53.5 34.5 L 42.5 45.5" fill="none" stroke="#C0504D" stroke-width="4" stroke-linecap="round"/>
+    <path id="eye-right" d="M 58.5 34.5 L 69.5 45.5 M 69.5 34.5 L 58.5 45.5" fill="none" stroke="#C0504D" stroke-width="4" stroke-linecap="round"/>
+  </g>
+</svg>

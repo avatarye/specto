@@ -1,0 +1,42 @@
+# v2 #84 group move: a cam-a gallery and a locked cam-b gallery sit stacked beside the
+# file tree; a marquee from the empty canvas selects both; dragging the cam-a gallery's
+# header moves both by the same delta (the dragged one snaps to the tree's edge and the
+# frame's top, the locked one follows: locks bind the agent, not the user), one undo
+# step; one undo restores both. With the selection cleared, a header drag moves only
+# that view. Project: tools/gui_flows/v2-39-seed.py <folder>.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-84-canvas.json cam-a and cam-b galleries stacked beside the file tree
+wait 1500
+assert_found slot:kobi
+assert_found slot:tamu
+expand fege:runs/run-001/cam-a
+wait 600
+click treeRow:fege:runs/run-001/cam-a/00002_1700000000062500000.jpg
+shiftclick treeRow:fege:runs/run-001/cam-a/00005_1700000000156250000.jpg
+wait 2500
+shot 84-01-two-galleries.png
+print snap {"target": "canvas", "layout": true}
+# the marquee: from the empty canvas below-right of both galleries up-left over them
+dragxy panArea -200 -520 0.66 0.97 shot=84-02-marquee.png
+wait 600
+shot 84-03-both-selected.png
+# drag the cam-a header 14 px left and 34 px up: it snaps to the tree's edge (280) and
+# the frame's top (0), a delta of (-20, -40); the locked cam-b gallery moves by the same
+dragxy header:kobi -14 -34 0.3 0.5 shot=84-04-group-held-snapping.png
+wait 800
+shot 84-05-group-moved.png
+print snap {"target": "canvas", "layout": true}
+# one undo restores both
+click undoButton
+wait 1000
+shot 84-06-undone-both-back.png
+print snap {"target": "canvas", "layout": true}
+# a click on the empty canvas clears the selection: a header drag moves that view alone
+click panArea 0.66 0.97
+wait 400
+dragxy header:tamu 120 0 0.3 0.5
+wait 800
+shot 84-07-unselected-drag-moves-one.png
+print snap {"target": "canvas", "layout": true}

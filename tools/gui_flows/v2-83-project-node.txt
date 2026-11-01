@@ -1,0 +1,70 @@
+# v2 #83/#87 the project source as a drawn node: a canvas saved before #83 (the file tree
+# at the origin under the old fixed id "files", fed from project.folder, a gallery pinned
+# off the tree's all_files, a gallery on the tree's picks) opens fitted in one journal
+# entry, no undo step: the tree gets a generated name (tuto, #87), the pinned link leaves
+# the project node at the canvas origin and the layout moves right of it. The node is the
+# Specto mark with no card body; its output port and the inputs it feeds show the "root"
+# identicon; hovering it says "all files" and the count. Dragging it moves nothing. An
+# agent submit with a view no link reaches is refused. Panning away and Home bring the node
+# back; the wiring layer draws its wires. The overworld shows it the same way; deleting
+# the cam-a gallery's only link there is the user's call: the gallery says "not
+# connected" (health and status bar) until relinked.
+# Project: tools/gui_flows/v2-83-seed.py <folder>.
+resize 1600 900
+wait 2500
+assert_found projectNode
+assert_found slot:tuto
+assert_found slot:kobi
+shot 83-01-old-canvas-rewired.png
+print snap {"target": "canvas", "layout": true}
+hover projectNode
+wait 900
+shot 83-02-hover-all-files.png
+# the node has no header or handles: a drag on it moves nothing
+dragxy projectNode 260 160
+wait 600
+shot 83-03-drag-moves-nothing.png
+print snap {"target": "canvas", "layout": true}
+# the lower gallery follows the picks in the file tree
+expand tuto:runs/run-001/cam-a
+wait 1200
+click treeRow:tuto:runs/run-001/cam-a/00002_1700000000062500000.jpg
+wait 400
+shiftclick treeRow:tuto:runs/run-001/cam-a/00007_1700000000218750000.jpg
+wait 2000
+shot 83-04-picks-follow.png
+# the agent adds a json view no link reaches: refused, naming the view and the link to add
+submit_refused tools/gui_flows/v2-83-orphan.json a loose json inspector
+# pan far away, then Home brings the node and the file tree back
+keydown space
+dragxy panArea -900 -200 0.9 0.8
+keyup space
+wait 1200
+shot 83-05-panned-away.png
+key home
+wait 1200
+shot 83-06-home.png
+# the wiring layer (#82): the node's wires leave its output port
+key `
+wait 1000
+shot 83-07-wiring-layer.png
+key `
+wait 600
+# the overworld: the same node; the user deletes the cam-a gallery's only link: allowed
+# (reachability binds the agent only), the gallery is left "not connected"
+key tab
+wait 2500
+assert_found overProjectNode
+shot 83-08-overworld.png
+click linkNode:l2
+wait 800
+click linkDelete
+wait 1000
+key escape
+wait 300
+key tab
+wait 1500
+hover header:kobi 0.5 0.5
+wait 600
+shot 83-09-not-connected.png
+print snap {"target": "canvas", "layout": true}

@@ -1,0 +1,4 @@
+module Specto.Video
+VideoView 1.0 VideoView.qml
+VideoProgress 1.0 VideoProgress.qml
+VolumeSlider 1.0 VolumeSlider.qml

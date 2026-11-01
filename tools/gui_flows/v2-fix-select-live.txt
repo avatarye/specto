@@ -1,0 +1,27 @@
+# v2 fix-select, one short live run against the real agent (Claude Code over the Agent SDK
+# on your Claude login): the project is a copy of testdata/runs/run-001 (front/, rear/,
+# video/). One plain request; the agent must wire a selection-scoped intaker so the gallery
+# follows the picks. The turn's time and cost are in the app log ("[OK] prompt turn ...").
+# App flag: --agent claude. Keep it short: the run is billed to that login.
+resize 1600 900
+wait 1500
+assert_found slot:@file_tree
+hover agentIcon
+wait 1200
+key ctrl+k
+wait 600
+click promptInput
+type show the images I pick in a gallery
+key enter
+wait 1500
+shot fix-select-10-live-working.png
+wait_until agentDone 180000
+wait 800
+shot fix-select-11-live-composed.png
+print canvas.state {}
+print snap {"target": "canvas", "layout": true}
+# the tree opens with front/ expanded (rear/ sits below the fold): one folder pick is enough
+click treeRow:@file_tree:front
+wait 3000
+shot fix-select-12-live-front-picked.png
+print snap {"target": "@gallery"}

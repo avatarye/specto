@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">
+  <!-- Agent tile behind the mark (52 px, radius 14). Fill theme "surface", border "border-strong". Needs you: fill "agent-soft" (#F6E6D6), border "agent" 1.5 px. Shadow in the app: 0 4 13 rgba(0,0,0,.12). -->
+  <rect x="0.5" y="0.5" width="51" height="51" rx="13.5" fill="#FFFFFF" stroke="#CFC5B2" stroke-width="1"/>
+</svg>

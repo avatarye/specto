@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "project": {"label": "v2-106-proj"},
+  "window_frame": {"rect": {"x": 0, "y": 0, "w": 1600, "h": 900}},
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {"position": [80, 0], "size": [320, 820]},
+      "params": {},
+      "locked": false
+    },
+    "kobi": {
+      "type": "gallery",
+      "label": "Look",
+      "layout": {"position": [420, 0], "size": [520, 400]},
+      "params": {},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "fege", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["."]},
+      "summary": {"sentence": "The file tree shows every file in the project folder."}
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "pinned",
+      "label": "look",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "kobi", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["look"]},
+      "summary": {"sentence": "The gallery always shows the files in look/."}
+    }
+  }
+}

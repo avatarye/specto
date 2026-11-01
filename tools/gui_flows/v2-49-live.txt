@@ -1,0 +1,36 @@
+# v2 #49 one short live run against the real agent (Claude Code over the Agent SDK on
+# your Claude login; spec #35 stories 9-14, 17-19). Project: tools/gui_flows/v2-39-seed.py
+# <folder>; app flag: --agent claude (the default). Two plain-language requests; each
+# turn's time and cost are printed by the app ("[OK] prompt turn ...", see the app log).
+# Keep it short: the run is billed to that login.
+resize 1600 900
+wait 1500
+assert_found slot:@file_tree
+hover agentIcon
+wait 1200
+click promptInput
+type show cam-a and cam-b frames side by side, linked on frame
+key enter
+wait 1500
+shot 49-40-live-working.png
+wait_until agentDone 180000
+wait 800
+shot 49-41-live-first-turn.png
+print canvas.history {"last": 2}
+print snap {"target": "canvas", "layout": true}
+# the agent chooses the keys: click the second row's first tile by position instead
+click slot:@gallery 0.125 0.27
+wait 1200
+shot 49-42-live-linked-on-frame.png
+print snap {"target": "@gallery#2"}
+hover agentIcon
+wait 1200
+click promptInput
+key ctrl+a
+type make the cam-b gallery a bit bigger
+key enter
+wait_until agentDone 180000
+wait 800
+shot 49-43-live-second-turn.png
+print snap {"target": "@gallery#2", "layout": true}
+print canvas.history {"last": 3}

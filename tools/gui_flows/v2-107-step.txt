@@ -1,0 +1,59 @@
+# v2 #107: viewers step through their input collection. The #46 seed (12 cam-a frames,
+# the test data's notes); a gallery and an image view on the frames, picking the same
+# frame either way (two-way follow), and a markdown view on the notes
+# (v2-107-canvas.json). The image view steps by keys (Right, PageDown) and its footer's
+# next pill; each step is a pick, so the gallery's highlight follows. Four Lefts from the
+# fourth frame land on the first and stay there (stepping stops at the ends, no wrap;
+# Home is the shell's, it brings the file tree back into view). The markdown
+# view steps to the next note by Right and PageDown and back by its bar's previous
+# button. The status bar names the keys of the hovered view.
+resize 1600 900
+wait 1500
+assert_found slot:fege
+submit tools/gui_flows/v2-107-canvas.json image and notes that step
+wait 3000
+wait_until step:@image:next 20000
+click slot:@image 0.5 0.4
+hover slot:@image 0.5 0.4
+wait 400
+assert_text statusHint Left/Right or PageUp/PageDown previous / next item
+shot 107-01-image-first-frame-hovered.png
+key right
+wait 700
+key pagedown
+wait 900
+shot 107-02-image-stepped-by-keys-gallery-follows.png
+print snap {"target": "@image"}
+print snap {"target": "@gallery"}
+click step:@image:next
+wait 900
+hover slot:@image 0.5 0.4
+wait 300
+shot 107-03-image-next-pill.png
+key left
+wait 500
+key left
+wait 500
+key left
+wait 500
+key left
+wait 700
+shot 107-04-image-stops-at-the-first.png
+print snap {"target": "@image"}
+click slot:@markdown 0.7 0.85
+hover slot:@markdown 0.7 0.85
+wait 600
+assert_text statusHint Left/Right or PageUp/PageDown previous / next item
+shot 107-05-markdown-first-note.png
+key right
+wait 1500
+key pagedown
+wait 1500
+shot 107-06-markdown-stepped-by-keys.png
+print snap {"target": "@markdown"}
+webclick @markdown step.prev
+wait 1500
+hover slot:@markdown 0.7 0.85
+wait 300
+shot 107-07-markdown-previous-button.png
+print snap {"target": "@markdown"}

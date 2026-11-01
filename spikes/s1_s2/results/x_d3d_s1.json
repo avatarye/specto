@@ -1,0 +1,137 @@
+{
+  "args": {
+    "seconds": 4.0,
+    "warmup": 4.0,
+    "mode": 0,
+    "web": "webgl",
+    "backend": "d3d11",
+    "triangles": 200000,
+    "tex_size": "",
+    "render_loop": "",
+    "out": "spikes\\s1_s2\\results\\x_d3d_s1.json",
+    "stay": false,
+    "screen": 1,
+    "no_timer_period": false
+  },
+  "pyside6": "6.12.0",
+  "graphics_api": "Direct3D11",
+  "screen": {
+    "name": "Cintiq 16",
+    "refreshHz": 60.0,
+    "dpr": 1.0,
+    "size": "1920x1080",
+    "window": "1920x1080"
+  },
+  "swapped_frames": 240,
+  "gui_cpu_busy_pct": 0.78,
+  "timer_latency_ms": {
+    "samples": 1001,
+    "p50": 0.023,
+    "p95": 1.004,
+    "p99": 1.226,
+    "max": 1.473,
+    "mean": 0.199
+  },
+  "tex": {
+    "renderFps": 0.0,
+    "renderCpuMs": 0.0,
+    "renderGpuMs": 0.0,
+    "uploadCpuMs": 0.0,
+    "uploadGpuMs": 0.0,
+    "syncMs": 0.0,
+    "renderFpsMin": 0.0,
+    "frames": 0,
+    "glRenderer": "",
+    "glVersion": "",
+    "uploadBytes": 0
+  },
+  "web": {
+    "webglFpsMean": 60.0,
+    "webglFpsMin": 60.0,
+    "monacoEditsPerSec": 0,
+    "webgl": "ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Ti (0x00002782) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "monaco": "off",
+    "range": {
+      "status": 206,
+      "length": 1048576,
+      "bytesOk": true,
+      "contentRange": "bytes 1048576-2097151/33554432",
+      "xRange": null,
+      "acceptRanges": "bytes",
+      "ms": 12.7,
+      "suffixLength": 16,
+      "suffixStatus": 206,
+      "head1k": {
+        "ms": 1.7,
+        "status": 206,
+        "len": 1024
+      },
+      "tail1k": {
+        "ms": 1.7,
+        "status": 206,
+        "len": 1024
+      },
+      "urlSlice": {
+        "ms": 1.6,
+        "status": 200,
+        "len": 1024,
+        "bytesOk": true,
+        "xRange": "bytes 33553408-33554431/33554432"
+      }
+    },
+    "bulk": {
+      "status": 200,
+      "bytes": 33554432,
+      "mbps": 385,
+      "ms": 83
+    },
+    "errors": []
+  },
+  "pyframe": {},
+  "served": [
+    {
+      "path": "/blob.bin",
+      "range": "bytes=-16",
+      "query": null,
+      "total": 33554432,
+      "served": 33554432
+    },
+    {
+      "path": "/blob.bin",
+      "range": "bytes=0-1023",
+      "query": null,
+      "total": 33554432,
+      "served": 33554432
+    },
+    {
+      "path": "/blob.bin",
+      "range": "bytes=33553408-33554431",
+      "query": null,
+      "total": 33554432,
+      "served": 33554432
+    },
+    {
+      "path": "/blob.bin",
+      "range": "bytes=33553408-33554431",
+      "query": null,
+      "total": 33554432,
+      "served": 33554432
+    },
+    {
+      "path": "/blob.bin",
+      "range": null,
+      "query": "range=33553408-33554431",
+      "total": 33554432,
+      "served": 1024
+    },
+    {
+      "path": "/blob.bin",
+      "range": null,
+      "query": null,
+      "total": 33554432,
+      "served": 33554432
+    }
+  ],
+  "gui_idle_pct": 99.22,
+  "swapped_fps": 59.98
+}

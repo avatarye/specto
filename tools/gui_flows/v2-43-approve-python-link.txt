@@ -1,0 +1,44 @@
+# v2 #43 Python links with first-run approval: open a folder of run-001 frames seeded by
+# tools/gui_flows/v2-43-seed.py (12 cam-a, 8 cam-b, and .specto/links/cam_a_to_cam_b.py),
+# submit cam-a and cam-b galleries joined by a Python link (v2-43-canvas.json: the
+# code maps a cam-a frame to the cam-b frame of the same number). The cam-b gallery shows
+# an Approve button and a pick in the cam-a gallery goes nowhere until the user clicks
+# it; after that the pending pick lands and later picks follow through the table without
+# running the code again. Editing the file (seed --edit: next frame) makes the cam-b
+# gallery ask again on the next pick; approving once more runs the new code.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-43-canvas.json cam-a and cam-b galleries joined by python
+wait 2500
+assert_found tile:kobi:cam-a/00002
+assert_found tile:tamu:cam-b/00002
+assert_found approve:tamu
+assert_missing approve:kobi
+shot 43-01-needs-approval.png
+click tile:kobi:cam-a/00002
+wait 800
+shot 43-02-unapproved-pick-goes-nowhere.png
+print snap {"target": "tamu"}
+click approve:tamu
+wait 2000
+assert_missing approve:tamu
+shot 43-03-approved-pending-pick-lands.png
+print snap {"target": "tamu"}
+click tile:kobi:cam-a/00003
+wait 800
+shot 43-04-pick-follows-through-table.png
+print snap {"target": "tamu"}
+spawn uv run python tools/gui_flows/v2-43-seed.py $PROJECT --edit
+wait 1500
+click tile:kobi:cam-a/00004
+wait 1000
+assert_found approve:tamu
+shot 43-05-changed-file-asks-again.png
+print snap {"target": "tamu"}
+click approve:tamu
+wait 2000
+assert_missing approve:tamu
+shot 43-06-reapproved-next-frame.png
+print snap {"target": "tamu"}
+print canvas.state {}
