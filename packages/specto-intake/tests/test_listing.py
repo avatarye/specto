@@ -57,9 +57,12 @@ def test_the_root_lists_one_level_folders_first_and_never_the_projects_specto(ro
         ("runs", True),
         ("top.txt", False),
     ]
-    # files carry the stat the listing saw; folders carry none (not known cheaply)
+    # files carry the stat the listing saw; a folder its own modified time (#38), from
+    # the same directory entry, and no size (its total is never known cheaply)
     top = lister.list_dir("")[-1]
     assert (top.size, top.mtime_ns) == (1, (root / "top.txt").stat().st_mtime_ns)
+    notes = lister.list_dir("")[1]
+    assert (notes.size, notes.mtime_ns) == (0, (root / "notes").stat().st_mtime_ns)
     assert names(lister.list_dir("runs")) == [
         ("runs/cam-a", True),
         ("runs/cam-b", True),

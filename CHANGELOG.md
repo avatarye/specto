@@ -15,6 +15,12 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- A folder row's details line is never empty (#38): with details on it shows the folder's
+  own modified time, coloured by age like a file's, and once the folder is listed how many
+  items it shows (`12 items`, `empty`); an archive shows its file's size; a folder whose
+  time is not known yet says `not listed yet`. Every row keeps the one row height. The
+  time comes from the directory entry the listing already read: no walk, and nothing is
+  read under a folder that is not open. Auto-update carries a folder's new time.
 - The file tree's search matches the path, not only the name (#36): every word must occur
   somewhere in the file's path below the project folder (`notes readme` finds
   `docs/notes/readme.md`; `docs/read` and `docs\read` match across the separator), never

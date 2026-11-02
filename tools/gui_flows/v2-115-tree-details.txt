@@ -1,17 +1,24 @@
 # v2 #115: the file tree shows names only; a long name is cut in the middle (the start
 # and the extension stay) and shows in full in the hover tip. The details button in the
 # tree's footer (#122) adds a second line under every name: the modified time by its age
-# (under 10 min, under an hour, under a day, older) and the size. A file arriving in the
-# project shows up on its own (the file tree auto-updates by default), fresh-coloured.
-# The button again hides the details. Project: tools/gui_flows/v2-115-seed.py <folder>.
+# (under 10 min, under an hour, under a day, older) and the size. A folder row's line is
+# never empty (#38): the folder's own time and, once listed, its item count ("empty" for
+# an empty one); an archive its file's size; a closed folder its time alone. A file
+# arriving in the project shows up on its own (the file tree auto-updates by default),
+# fresh-coloured, and its folder's count follows. The button again hides the details.
+# Project: tools/gui_flows/v2-115-seed.py <folder>.
 resize 1600 900
 wait 1500
-# the tree starts collapsed (#231): open notes/ and runs/cam-a/ first
+# the tree starts collapsed (#231): open notes/, runs/cam-a/, the empty scratch/ and
+# archives/ (its zip stays closed); models/ is never opened
 wait_until treeRow:@file_tree:notes 20000
 expand @file_tree:notes
 expand @file_tree:runs/cam-a
+expand @file_tree:scratch
+expand @file_tree:archives
 wait_until treeRow:@file_tree:notes/last-month.md 20000
 wait_until treeRow:@file_tree:runs/cam-a/00002_frame_with_a_very_long_name_for_the_tree_7255.jpg 10000
+wait_until treeRow:@file_tree:archives/notes.zip 10000
 assert_missing treeDetails:@file_tree:notes/last-month.md
 assert_missing treeSize:@file_tree:notes/last-month.md
 shot v2-115-01-details-off.png
@@ -36,13 +43,22 @@ keyup space
 wait 900
 assert_found treeStamp:@file_tree:notes/fresh-note.md
 assert_found treeDetailSize:@file_tree:notes/last-month.md
+# folder rows (#38): the folder's own time under every folder, then what it lists
+assert_found treeStamp:@file_tree:notes
+assert_text treeStamp:@file_tree:notes 20
+assert_text treeDetailSize:@file_tree:notes 4 items
+assert_text treeDetailSize:@file_tree:runs/cam-a 4 items
+assert_text treeDetailSize:@file_tree:scratch empty
+assert_text treeDetailSize:@file_tree:archives/notes.zip KB
+assert_text treeStamp:@file_tree:models 20
 shot v2-115-04-details-on.png
 shotcrop slot:@file_tree 6 2 v2-115-05-details-ages-closeup.png
-# a file arrives: it shows up on its own, fresh
+# a file arrives: it shows up on its own, fresh, and its folder's count follows
 spawn uv run python tools/gui_flows/v2-115-seed.py {project} --arrive
 wait_until treeRow:@file_tree:notes/just-arrived.md 15000
 wait 600
 assert_found treeStamp:@file_tree:notes/just-arrived.md
+assert_text treeDetailSize:@file_tree:notes 5 items
 shotcrop slot:@file_tree 6 2 v2-115-06-a-file-arrives-on-its-own.png
 # details off again
 keydown space

@@ -389,8 +389,10 @@ Item {
                     anchors.verticalCenter: parent.verticalCenter
                 }
             }
-            // details: the time (coloured by age) and the size, under the name; empty
-            // texts while details are off, so a row costs what it did before
+            // details: the time (coloured by age) and the size, under the name; a folder's
+            // own time and its item count once listed (#38; the model's sizeText carries
+            // the tail for both, so no row's line is empty); empty texts while details
+            // are off, so a row costs what it did before
             Row {
                 objectName: "treeDetails:" + root.viewId + ":" + row.path
                 visible: root.details

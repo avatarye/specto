@@ -37,6 +37,14 @@ def format_stamp(mtime_ns: int) -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mtime_ns / 1e9))
 
 
+def format_count(n: int) -> str:
+    """A listed folder's item count on its details line (#38): ``empty``, ``1 item``,
+    ``12 items``."""
+    if n == 0:
+        return "empty"
+    return f"{n} item" if n == 1 else f"{n} items"
+
+
 #: the age buckets' upper bounds in seconds: under 10 min, under an hour, under a day
 AGE_BOUNDS = (10 * 60, 60 * 60, 24 * 60 * 60)
 
@@ -49,4 +57,4 @@ def age_of(mtime_ns: int, now: float) -> int:
     return next((i for i, bound in enumerate(AGE_BOUNDS) if age < bound), len(AGE_BOUNDS))
 
 
-__all__ = ["AGE_BOUNDS", "age_of", "format_bytes", "format_size", "format_stamp"]
+__all__ = ["AGE_BOUNDS", "age_of", "format_bytes", "format_count", "format_size", "format_stamp"]

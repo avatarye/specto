@@ -41,7 +41,10 @@ Stat = tuple[int, int]
 
 @dataclass(frozen=True)
 class Entry:
-    """One row of a listing: a file, a folder, or an archive shown as a folder."""
+    """One row of a listing: a file, a folder, or an archive shown as a folder. A folder
+    carries its own modified time (#38), read from the directory entry its parent's
+    listing already holds (never from what is under it); an archive its file's size and
+    time; a folder on the way to a source, or inside an archive, carries none."""
 
     path: str  # the tree path (POSIX, relative to the base; virtual inside an archive)
     name: str
@@ -230,7 +233,8 @@ class TreeLister:
             try:
                 if e.is_dir(follow_symlinks=r.src.follow_links):
                     if dirs_ok and not (r.inside and _hidden(child)):
-                        out.append(Entry(child, e.name, True))
+                        mtime_ns = _dir_mtime_ns(e, r.src.follow_links)
+                        out.append(Entry(child, e.name, True, mtime_ns=mtime_ns))
                     continue
                 if not e.is_file(follow_symlinks=True):
                     continue
@@ -391,6 +395,16 @@ class TreeLister:
             child = join_virtual(archive_path, m.path)
             if r.accepts(child, self.screener):
                 stats[child] = (m.size, m.mtime_ns or mtime_ns)
+
+
+def _dir_mtime_ns(e: os.DirEntry, follow_links: bool) -> int:
+    """A folder's own modified time from its directory entry (#38): on Windows the entry
+    already holds it; elsewhere one stat of the folder itself, never of what is under
+    it. 0 when it cannot be read (the folder still lists)."""
+    try:
+        return e.stat(follow_symlinks=follow_links).st_mtime_ns
+    except OSError:
+        return 0
 
 
 def join_path(folder: str, name: str) -> str:

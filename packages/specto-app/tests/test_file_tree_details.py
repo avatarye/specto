@@ -128,8 +128,9 @@ def test_the_details_button_adds_the_time_by_age_and_the_size_under_each_name(ap
         name = item(app, f"treeName:fege:{rel}")
         assert stamp.property("font").pixelSize() < name.property("font").pixelSize()
         assert rect(stamp).top() >= rect(name).bottom() - 2  # under the name
-    # a folder: its newest file and the total under it
-    assert item(app, "treeDetailSize:fege:a").property("text") == "· 2.0 KB"
+    # a folder (#38): its own time, what it lists, and the total under it once known
+    assert item(app, "treeStamp:fege:a").property("text")
+    assert item(app, "treeDetailSize:fege:a").property("text") == "· 1 item · 2.0 KB"
 
     click(app, button)
     spin(until=lambda: item(app, "treeRow:fege:old.md").height() == 20)

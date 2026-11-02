@@ -1,8 +1,10 @@
 """Seed the project folder for the v2 #115 scripted flow: notes of four ages (2 min,
 25 min, 5 h, 20 days old: one per age colour) and frames under ``runs/cam-a/``, one with
-a long name the file tree cuts in the middle. No ``.specto/``: the app initialises the
-project on open (the file tree auto-updates). ``--arrive`` drops one more note into
-``notes/`` while the app runs (the flow spawns it).
+a long name the file tree cuts in the middle; for the folder rows' details (#38) an
+empty folder ``scratch/``, an archive ``archives/notes.zip`` and a folder the flow never
+opens, ``models/``. No ``.specto/``: the app initialises the project on open (the file
+tree auto-updates). ``--arrive`` drops one more note into ``notes/`` while the app runs
+(the flow spawns it).
 
     uv run python tools/gui_flows/v2-115-seed.py <folder> [--arrive]
 """
@@ -13,6 +15,7 @@ import argparse
 import os
 import shutil
 import time
+import zipfile
 from pathlib import Path
 
 TESTDATA = Path(os.environ.get("SPECTO_TESTDATA", Path(__file__).resolve().parents[2] / "testdata"))
@@ -57,7 +60,18 @@ def main() -> int:
     jpg = frame_bytes()
     for i, name in enumerate(["00000.jpg", "00001.jpg", LONG, "00003.jpg"]):
         touch(root / "runs" / "cam-a" / name, 3 * 86400 + i * 60, jpg)
-    print(f"[OK] seeded {root}: {len(NOTES)} notes of four ages, 4 frames (one long name)")
+    # the folder rows' details (#38): an empty folder, an archive, a folder never opened
+    (root / "scratch").mkdir()
+    touch(root / "models" / "box.obj", 2 * 86400, b"o box\nv 0 0 0\n")
+    archive = root / "archives" / "notes.zip"
+    archive.parent.mkdir()
+    with zipfile.ZipFile(archive, "w") as zf:
+        for name in NOTES:
+            zf.writestr(name, f"# {name}\n" * 40)
+    print(
+        f"[OK] seeded {root}: {len(NOTES)} notes of four ages, 4 frames (one long name), "
+        "an empty folder, an archive, a closed folder"
+    )
     return 0
 
 

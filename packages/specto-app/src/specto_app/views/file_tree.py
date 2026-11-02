@@ -52,12 +52,17 @@ Each row shows the icon of its file or folder type (#122, ``file_icons``: a vend
 subset of Material Icon Theme), then the name only, a long one cut in the middle (the
 start and the extension stay); a closed folder shows how many files are under it once
 every folder below it has been listed (never a scan for the count). Details mode (#115;
-a per-user view setting, toggled in the tree's footer, #122) adds a second line: the
-modified time to the second, coloured by age (under 10 min, under an hour, under a
-day, older; theme tokens ``age_*``), and the size; a folder's only where known. The ages
-are judged against ``FileTreeModel.clock``, read again at most once a minute
-(``refresh_ages``, the view's timer while details show). The footer says the file count
-when it is known, else how many rows are loaded, or how many files are picked.
+a per-user view setting, toggled in the tree's footer, #122) adds a second line, one
+row height for every row: the modified time to the second, coloured by age (under 10
+min, under an hour, under a day, older; theme tokens ``age_*``), and the size. A folder's
+line (#38) is never empty: its own modified time, from the directory entry its parent's
+listing read (no walk), and once it is listed how many items the listing shows (``12
+items``, ``empty``); an archive its file's size; the total under a folder once every
+folder below it is listed; a folder with no time known yet says ``not listed yet``
+(``detail_text``, ``stamp_ns``). The ages are judged against ``FileTreeModel.clock``,
+read again at most once a minute (``refresh_ages``, the view's timer while details
+show), and auto-update's relisting carries a folder's new time. The footer says the file
+count when it is known, else how many rows are loaded, or how many files are picked.
 """
 
 from __future__ import annotations
@@ -99,6 +104,7 @@ from .file_tree_format import (  # noqa: F401  (re-exported: the tree's formatti
     AGE_BOUNDS,
     age_of,
     format_bytes,
+    format_count,
     format_size,
     format_stamp,
 )
@@ -125,6 +131,11 @@ class Node:
     children: list[Node] = field(default_factory=list)
     size: int = 0  # a folder: the total of what is under it, once known
     mtime_ns: int = 0  # a folder: the newest file under it, once known
+    #: a folder's own stat (#38), as its parent's listing saw it: the folder's modified
+    #: time; an archive's file size and time. 0 when the listing had none (a tree of
+    #: explicit files, a folder on the way to a source, one inside an archive)
+    own_size: int = 0
+    own_mtime_ns: int = 0
     #: a folder whose children have been listed (False: listed when it is expanded)
     loaded: bool = True
     archive: bool = False
@@ -195,12 +206,42 @@ def build_tree(paths: list[str], stats: dict[str, Stat] | None = None) -> Node:
     return root
 
 
-def size_text(node: Node) -> str:
-    """A row's size: a file's size, a folder's total once known ("" for an empty folder
-    or one not fully listed)."""
-    if node.is_dir:
-        return format_bytes(node.size) if node.complete and node.size else ""
-    return format_bytes(node.size)
+def stamp_ns(node: Node) -> int:
+    """The time a row's details line shows: a file's modified time; a folder's own
+    (#38) when the listing saw it, else the newest file under it once every folder
+    below it is listed; 0 when none is known."""
+    if not node.is_dir:
+        return node.mtime_ns
+    if node.own_mtime_ns:
+        return node.own_mtime_ns
+    return node.mtime_ns if node.complete else 0
+
+
+def detail_text(node: Node) -> str:
+    """What follows the time on a row's details line: a file's size; a folder's item
+    count once it is listed (``12 items``, ``empty``: what the listing shows, so what
+    the screener drops is not counted), an archive's own size, the total under a folder
+    once every folder below it is listed. A folder nothing is known about yet (no own
+    time: one on the way to a source outside the project, a folder inside an archive
+    not opened yet) says ``not listed yet``, so no row's line is empty (#38)."""
+    if not node.is_dir:
+        return format_bytes(node.size)
+    parts: list[str] = []
+    if node.loaded:
+        parts.append(format_count(len(node.children)))
+    if node.archive and node.own_size:
+        parts.append(format_bytes(node.own_size))
+    elif node.complete and node.size:
+        parts.append(format_bytes(node.size))
+    if not parts and not stamp_ns(node):
+        return "not listed yet"
+    return " · ".join(parts)
+
+
+def _stat_key(node: Node) -> tuple[bool, int, int, int, int]:
+    """What a listing landing again compares, per child: a file's stat, a folder's own
+    (a folder touched since is a change, so its details line follows)."""
+    return (node.is_dir, node.size, node.mtime_ns, node.own_size, node.own_mtime_ns)
 
 
 def default_expanded(root: Node) -> set[str]:
@@ -305,21 +346,21 @@ class FileTreeModel(QAbstractListModel):
         node = self.node(path)
         if node is None or not node.is_dir:
             return False
-        before = {c.path: (c.is_dir, c.size, c.mtime_ns) for c in node.children}
+        before = {c.path: _stat_key(c) for c in node.children}
         old = {c.path: c for c in node.children}
         children: list[Node] = []
         for e in entries:
             c = old.get(e.path)
             if c is not None and c.is_dir == e.is_dir:
                 c.name, c.archive = e.name, e.archive
-                if not c.is_dir:
-                    c.size, c.mtime_ns = e.size, e.mtime_ns
             else:
                 if c is not None:
                     self._forget(c)
                 c = Node(e.path, e.name, e.is_dir, loaded=not e.is_dir, archive=e.archive)
-                if not e.is_dir:
-                    c.size, c.mtime_ns = e.size, e.mtime_ns
+            if e.is_dir:
+                c.own_size, c.own_mtime_ns = e.size, e.mtime_ns  # its own stat (#38)
+            else:
+                c.size, c.mtime_ns = e.size, e.mtime_ns
             children.append(c)
             self._nodes[c.path] = c
             self._parents[c.path] = node
@@ -327,9 +368,7 @@ class FileTreeModel(QAbstractListModel):
             if p not in {e.path for e in entries}:
                 self._forget(c)
         children.sort(key=lambda n: (not n.is_dir, n.name.lower()))
-        changed = not node.loaded or before != {
-            c.path: (c.is_dir, c.size, c.mtime_ns) for c in children
-        }
+        changed = not node.loaded or before != {c.path: _stat_key(c) for c in children}
         node.children = children
         node.loaded = True
         self._recount_up(node)
@@ -428,9 +467,9 @@ class FileTreeModel(QAbstractListModel):
                 "is_dir": n.is_dir,
                 "expanded": n.path in self.expanded,
                 "selected": n.path in self.selected,
-                "size": size_text(n),
-                "stamp": format_stamp(n.mtime_ns),
-                "age": age_of(n.mtime_ns, self.now),
+                "size": detail_text(n),
+                "stamp": format_stamp(stamp_ns(n)),
+                "age": age_of(stamp_ns(n), self.now),
                 "icon": self.icon_of(n),
             }
             for n, d in self._rows
@@ -591,11 +630,11 @@ class FileTreeModel(QAbstractListModel):
         if role == self.CountRole:
             return (node.total or 0) if node.is_dir else 0
         if role == self.SizeRole:
-            return size_text(node)
+            return detail_text(node)
         if role == self.StampRole:
-            return format_stamp(node.mtime_ns)
+            return format_stamp(stamp_ns(node))
         if role == self.AgeRole:
-            return age_of(node.mtime_ns, self.now)
+            return age_of(stamp_ns(node), self.now)
         if role == self.IconRole:
             return self.icon_of(node)
         return None
@@ -1253,6 +1292,8 @@ __all__ = [
     "ancestors",
     "build_tree",
     "default_expanded",
+    "detail_text",
     "factory",
     "register",
+    "stamp_ns",
 ]
