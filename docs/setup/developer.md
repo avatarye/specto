@@ -356,9 +356,13 @@ events (`QTest`, synthetic wheel and key events) on the app's own GUI thread
 (`specto_app.testdrive`). Nothing in the run reaches the desktop: the clipboard is an
 in-memory one, mpv plays into the null audio output, launchers start only the flows' fake
 programs, `window.raise` raises nothing, and off the offscreen platform the window opens
-with `Qt.WindowDoesNotAcceptFocus`; keys go to the window's own focus item, so no OS focus
-is needed (`test_testdrive.py` checks the foreground window, the cursor and the system
-clipboard are unchanged after a run). A normal launch never opens the driver. Offscreen
+with `Qt.WindowDoesNotAcceptFocus` and is lowered to the bottom of the z order as it
+shows, behind whatever the user is working in (it keeps rendering covered); keys go to
+the window's own focus item, so no OS focus is needed (`test_testdrive.py` checks the
+foreground window, the cursor and the system clipboard are unchanged after a run). A
+line a tier cannot honour carries `mouse:` or `driver:` (the driver's mpv plays into the
+null audio output, so the real output is the mouse tier's to check). A normal launch
+never opens the driver. Offscreen
 the scene graph is the software one, so `shot` lines render through it: the native
 gallery's tiles, mpv and WebGL bodies stay blank there, which is why their pixel asserts
 live in the GPU tier. One session by hand:

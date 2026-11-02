@@ -169,6 +169,41 @@ def test_window_flags_take_the_focus_away_only_off_the_offscreen_platform(monkey
     assert testdrive.window_flags(plain) == plain
 
 
+def test_a_shown_window_is_lowered_behind_the_users_work(qapp, tmp_path, monkeypatch):
+    """Off the offscreen platform the driver lowers every top-level window as it shows and
+    on its first expose (#34): ``WindowDoesNotAcceptFocus`` alone leaves a new window on
+    top of the z order, over what the user looks at. The rule, on a window that records
+    ``lower``; popups and child windows are left alone."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QWindow
+
+    calls: list[str] = []
+
+    class Recording(QWindow):
+        def lower(self) -> None:
+            calls.append(self.title())
+
+    monkeypatch.setattr(testdrive, "user_data_dir", lambda: tmp_path)
+    drv = testdrive.TestDriver()
+    try:
+        win = Recording()
+        win.setTitle("shell")
+        drv.eventFilter(win, QEvent(QEvent.Type.Show))
+        drv.eventFilter(win, QEvent(QEvent.Type.Expose))
+        drv.eventFilter(win, QEvent(QEvent.Type.Expose))
+        assert calls == ["shell", "shell"], "once on show, once on the first expose"
+        popup = Recording()
+        popup.setTitle("menu")
+        popup.setFlags(Qt.WindowType.Popup)
+        drv.eventFilter(popup, QEvent(QEvent.Type.Show))
+        child = Recording(win)
+        child.setTitle("child")
+        drv.eventFilter(child, QEvent(QEvent.Type.Show))
+        assert calls == ["shell", "shell"]
+    finally:
+        drv.server.close()
+
+
 def test_key_names_follow_the_flows():
     from PySide6.QtCore import Qt
 
@@ -180,6 +215,9 @@ def test_key_names_follow_the_flows():
     assert testdrive.parse_key("ctrl+-")[0] == Qt.Key.Key_Minus
     assert testdrive.parse_key("w") == (Qt.Key.Key_W, Qt.KeyboardModifier.NoModifier, "w")
     assert testdrive.parse_key("esc")[0] == Qt.Key.Key_Escape
+    # a modifier held on its own, what ``dragxy ... mod=alt`` presses first (#34)
+    assert testdrive.parse_key("alt") == (Qt.Key.Key_Alt, Qt.KeyboardModifier.NoModifier, "")
+    assert testdrive.parse_key("ctrl")[0] == Qt.Key.Key_Control
 
 
 # -- the desktop is left alone ---------------------------------------------------------------

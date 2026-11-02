@@ -14,9 +14,11 @@ A driver run takes no attention and leaves nothing behind (issue #237 decisions 
 
 - windows never ask for the OS focus (``raise_window`` skips ``raise_()`` and
   ``requestActivate()``; off the offscreen platform the shell opens with
-  ``Qt.WindowDoesNotAcceptFocus``), and keys go to the window's own focus item: with no
-  focus window in the process Qt Quick treats the window as focused once it has had a
-  ``FocusIn``, which :meth:`TestDriver.ensure_focus` sends in-process;
+  ``Qt.WindowDoesNotAcceptFocus`` and is lowered to the bottom of the z order as it
+  shows, so it sits behind the user's work instead of over it, #34), and keys go to the
+  window's own focus item: with no focus window in the process Qt Quick treats the
+  window as focused once it has had a ``FocusIn``, which :meth:`TestDriver.ensure_focus`
+  sends in-process;
 - the clipboard is :mod:`specto_app.clipboard`'s in-memory one, the video view's mpv plays
   into the ``null`` audio output, and launchers (#186) start nothing but this Python (the
   flows' fake programs); every fake call is logged to ``<user data dir>/launches.jsonl``.
@@ -36,7 +38,7 @@ from typing import TYPE_CHECKING, Any
 
 import shiboken6
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, Qt, Slot
-from PySide6.QtGui import QFocusEvent, QGuiApplication, QKeyEvent, QWheelEvent
+from PySide6.QtGui import QFocusEvent, QGuiApplication, QKeyEvent, QWheelEvent, QWindow
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtQuick import QQuickWindow
 from PySide6.QtTest import QTest
@@ -90,6 +92,13 @@ _KEYS = {
     "insert": Qt.Key.Key_Insert,
     "menu": Qt.Key.Key_Menu,
     "apps": Qt.Key.Key_Menu,
+    # a modifier held on its own (``dragxy ... mod=alt`` presses it before the button)
+    "alt": Qt.Key.Key_Alt,
+    "ctrl": Qt.Key.Key_Control,
+    "control": Qt.Key.Key_Control,
+    "shift": Qt.Key.Key_Shift,
+    "meta": Qt.Key.Key_Meta,
+    "win": Qt.Key.Key_Meta,
     "`": Qt.Key.Key_QuoteLeft,
     "backtick": Qt.Key.Key_QuoteLeft,
     "-": Qt.Key.Key_Minus,
@@ -274,7 +283,28 @@ class TestDriver(QObject):
         self.path = user_data_dir() / "drive.json"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(self.info), encoding="utf-8")
+        # a real window (the GPU tier) opens behind the user's work: lowered as it shows
+        # and on its first expose (#34); ``WindowDoesNotAcceptFocus`` alone leaves a new
+        # window on top of the z order, covering what the user looks at
+        self._lowered: set[int] = set()
+        if not offscreen():
+            QGuiApplication.instance().installEventFilter(self)
         print(f"[OK] test driver {self.info['address']} ({self.info['platform']})")
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        t = event.type()
+        if (
+            t in (QEvent.Type.Show, QEvent.Type.Expose)
+            and isinstance(obj, QWindow)
+            and obj.isTopLevel()
+            and obj.type() not in (Qt.WindowType.Popup, Qt.WindowType.ToolTip)
+        ):
+            if t == QEvent.Type.Show:
+                obj.lower()
+            elif id(obj) not in self._lowered:
+                self._lowered.add(id(obj))
+                obj.lower()
+        return False
 
     # -- the channel (slots, as every signal receiver in the app: no per-instance meta
     # object, test_qml_meta_objects) -----------------------------------------------------

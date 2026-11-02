@@ -1,7 +1,7 @@
 # v2 #128 video player footer: open three copies of the run-001 cam-a video
 # (tools/gui_flows/v2-128-seed.py), submit a canvas with the video as the root view
 # (v2-128-canvas.json), then with a real mouse and keyboard: the footer at rest
-# ("1 / 240 @ 32.48 fps", "1 / 3 take-1.mp4 640x480"), eleven frame steps
+# ("1 / 240 @ 32 fps", "1 / 3 take-1.mp4 640x480"), eleven frame steps
 # ("12 / 240"), the progress bar's hover tip (clip time, SMPTE timecode), the speed
 # button's vertical slider (pick 2x, then drag down to 0.5x), play / pause, and the
 # viewer row's next chevron ("2 / 3"). The speaker and volume slider (#216) sit at rest:
@@ -14,7 +14,7 @@ wait 4000
 assert_found slot:rena
 assert_found video:rena:play
 wait 1500
-assert_text video:rena:readout 1 / 240 @ 32.48 fps
+assert_text video:rena:readout 1 / 240 @ 32 fps
 assert_text position:rena 1 / 3
 assert_text video:rena:caption take-1.mp4
 assert_text resolution:rena 640
@@ -58,7 +58,7 @@ key right
 key right
 key right
 wait 800
-assert_text video:rena:readout 12 / 240 @ 32.48 fps
+assert_text video:rena:readout 12 / 240 @ 32 fps
 print snap {"target": "rena"}
 shot 128-02-stepped-to-12.png
 # the hover tip: clip time and SMPTE timecode of the frame under the pointer

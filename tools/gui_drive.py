@@ -119,6 +119,9 @@ Script lines (one per line, # comments):
     spawn <command ...>           start a background process (drip_files.py during a watch test)
     win: <line> / posix: <line>   run the line on that platform only (a crash reads as an
                                   NTSTATUS on Windows, a signal elsewhere)
+    mouse: <line> / driver: <line>  run the line under this executor (the real mouse) or
+                                  the Qt driver only: what the driver fakes differs (mpv
+                                  plays into the null audio output there, #34)
 
 Views by type or label (#101, ``gui_refs.py``): view names are generated, so a flow that
 did not fix a name in a document it submitted names the view instead, anywhere a view
@@ -445,13 +448,17 @@ class Driver:
         words = tokens(line)
         if not words or words[0].startswith("#"):
             return
-        if words[0] in ("win:", "posix:"):
-            if (words[0] == "win:") != (sys.platform == "win32"):
+        while words and words[0] in ("win:", "posix:", "mouse:", "driver:"):
+            if words[0] in ("win:", "posix:") and (words[0] == "win:") != (
+                sys.platform == "win32"
+            ):
+                return
+            if words[0] == "driver:":  # the Qt driver's line, not this executor's
                 return
             line = line.split(None, 1)[1] if len(words) > 1 else ""
             words = words[1:]
-            if not words:
-                return
+        if not words:
+            return
         print(f"> {line}")
         if words[0] in ("wait_until", "wait_while", "assert_missing"):
             parts = words  # a view reference is resolved on every poll: it may not be there yet
