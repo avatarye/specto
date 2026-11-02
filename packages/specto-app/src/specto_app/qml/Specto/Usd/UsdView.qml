@@ -1,6 +1,7 @@
 // The usd view's item (#139; design usd.md rev 2): the native FrameItem (Specto.Native)
 // showing the frames of the view's source process, between the VIEW panel (left: camera
-// speed, World origin, the renderer readout) and the PRIMS outliner (right: the stage's
+// speed, World origin, Frame selected, the Free / Orbit camera mode (#39), the renderer
+// readout) and the PRIMS outliner (right: the stage's
 // prims, read-only, lazy, with a search), over the shared footer (#126: previous / next
 // stage, the frame target (the selection, else all), the stage's name; play / pause, the time readout and the
 // frame's cost on the right). A stage with time samples (#141) also gets the video's
@@ -14,13 +15,17 @@
 // the ground, right-drag looks (held: W A S D fly, Q / E down / up, Shift faster, the
 // wheel sets the speed), middle- or left+right-drag pans, the wheel dollies; with Alt a
 // left-drag orbits the selection or the point under the press, a right-drag dollies, a
-// middle-drag pans; F frames the selection, everything when nothing is; PageUp / PageDown (and the footer's chevrons) step
+// middle-drag pans; in Orbit mode (#39) a left-drag orbits the selection's centre (else
+// the point under the press), a middle-drag pans, a right-drag and the wheel dolly toward
+// it; F (and the panel's Frame selected) frames the selection, each prim's whole
+// subtree, everything when nothing is; PageUp / PageDown (and the footer's chevrons) step
 // through the picked stages, Home / End to the first / last; an animated stage: Space
 // plays / pauses, Left / Right step one timecode. In the outliner a click on a row selects
 // it (Ctrl adds), its chevron opens it, a double-click frames the prim; a selection made
 // anywhere shows on its row, scrolled into view.
 // objectNames: frame, viewport:<viewId>, panel:<viewId>:view|prims (SidePanel's parts),
 // phase:<viewId> (its words: phaseText:<viewId>), speed:<viewId>, origin:<viewId>,
+// frameSelected:<viewId>, cameraMode:<viewId> (its halves cameraMode:<viewId>:free|orbit),
 // renderer:<viewId>, rendererNote:<viewId>, primsFilter:<viewId>, prims:<viewId>,
 // prim:<viewId>:<path>, toggle:<viewId>:<path>, more:<viewId>:<path>,
 // frameAll:<viewId>, stage:<viewId>, play:<viewId>, time:<viewId>, cost:<viewId>,
@@ -123,40 +128,84 @@ Item {
                     }
                 }
             }
-            Rectangle {
-                id: origin
+            PanelButton {
                 objectName: "origin:" + root.viewId
+                icon: "home"
+                text: "World origin"
+                tip: "back to the first look: the world origin, everything in sight"
+                onClicked: root.bridge.worldOrigin()
+            }
+            PanelButton {
+                // F's button (#39): the selected prims and everything under them, else all
+                objectName: "frameSelected:" + root.viewId
+                icon: "target"
+                text: "Frame selected"
+                tip: "frame the selected prims and everything under them, else all (F)"
+                onClicked: { root.forceActiveFocus(); root.bridge.frame() }
+            }
+            Item { width: 1; height: 6 }
+            Column {
+                // the camera mode (#39): Free, Unreal Editor's, or Orbit, around the selection
                 x: 8
-                width: originRow.width + 20
-                height: 22
-                radius: height / 2
-                color: originHover.hovered ? theme.colors.bg : theme.colors.surface
-                border.color: theme.colors.border_strong
-                border.width: 1
-                Row {
-                    id: originRow
-                    anchors.centerIn: parent
-                    spacing: 6
-                    Icon {
-                        anchors.verticalCenter: parent.verticalCenter
-                        name: "home"
-                        size: 12
-                        color: theme.colors.text
-                    }
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "World origin"
-                        font.family: theme.fonts.ui
-                        font.pixelSize: theme.metrics.font_px_small
-                        color: theme.colors.text
-                    }
+                width: parent.width - 16
+                spacing: 4
+                Text {
+                    text: "Camera"
+                    font.family: theme.fonts.ui
+                    font.pixelSize: theme.metrics.font_px_small
+                    color: theme.colors.text
                 }
-                HoverHandler { id: originHover }
-                TapHandler { onTapped: root.bridge.worldOrigin() }
-                Tip {
-                    visible: originHover.hovered
-                    text: "back to the first look: the world origin, everything in sight"
-                    tag: origin.objectName
+                Rectangle {
+                    id: modeSwitch
+                    objectName: "cameraMode:" + root.viewId
+                    readonly property string mode: root.bridge ? root.bridge.cameraMode : "free"
+                    width: segments.width + 2
+                    height: 22
+                    radius: height / 2
+                    color: theme.colors.surface
+                    border.color: theme.colors.border_strong
+                    border.width: 1
+                    Row {
+                        id: segments
+                        anchors.centerIn: parent
+                        spacing: 0
+                        Repeater {
+                            model: [
+                                { mode: "free", label: "Free",
+                                  tip: "free camera: drag turns and walks, right-drag looks and flies, Alt+drag orbits" },
+                                { mode: "orbit", label: "Orbit",
+                                  tip: "orbit camera: drag turns around the selection (else the point under the press), right-drag and wheel dolly toward it" }
+                            ]
+                            Rectangle {
+                                id: segment
+                                required property var modelData
+                                readonly property bool on: modeSwitch.mode === modelData.mode
+                                objectName: "cameraMode:" + root.viewId + ":" + modelData.mode
+                                width: segmentLabel.implicitWidth + 20
+                                height: 20
+                                radius: height / 2
+                                color: on ? theme.colors.accent_soft
+                                     : segmentHover.hovered ? theme.colors.bg : "transparent"
+                                Text {
+                                    id: segmentLabel
+                                    anchors.centerIn: parent
+                                    text: segment.modelData.label
+                                    font.family: theme.fonts.ui
+                                    font.pixelSize: theme.metrics.font_px_small
+                                    color: segment.on ? theme.colors.accent : theme.colors.text
+                                }
+                                HoverHandler { id: segmentHover }
+                                TapHandler {
+                                    onTapped: { root.forceActiveFocus(); root.bridge.setCameraMode(segment.modelData.mode) }
+                                }
+                                Tip {
+                                    visible: segmentHover.hovered
+                                    text: segment.modelData.tip
+                                    tag: segment.objectName
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Item { width: 1; height: 6 }
@@ -739,6 +788,47 @@ Item {
                 text: (frame.frames > 0 ? frame.renderMs.toFixed(1) : "–") + " ms · – GB"
             }
         ]
+    }
+
+    // the VIEW panel's buttons: a pill with an icon and words (World origin, Frame selected)
+    component PanelButton: Rectangle {
+        id: button
+        property string icon: ""
+        property string text: ""
+        property string tip: ""
+        signal clicked()
+        x: 8
+        width: buttonRow.width + 20
+        height: 22
+        radius: height / 2
+        color: buttonHover.hovered ? theme.colors.bg : theme.colors.surface
+        border.color: theme.colors.border_strong
+        border.width: 1
+        Row {
+            id: buttonRow
+            anchors.centerIn: parent
+            spacing: 6
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                name: button.icon
+                size: 12
+                color: theme.colors.text
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: button.text
+                font.family: theme.fonts.ui
+                font.pixelSize: theme.metrics.font_px_small
+                color: theme.colors.text
+            }
+        }
+        HoverHandler { id: buttonHover }
+        TapHandler { onTapped: button.clicked() }
+        Tip {
+            visible: buttonHover.hovered && button.tip !== ""
+            text: button.tip
+            tag: button.objectName
+        }
     }
 
     // the failure's buttons (#155): a pill like World origin's

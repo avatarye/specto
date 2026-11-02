@@ -32,7 +32,8 @@ Methods on top of the lifecycle set (:mod:`.control`):
 - selection (#140), as ``specto-usd-source`` answers it: ``pick {x, y}`` (NDC, -1..1,
   +y up) ``{hit: true, path, position, normal}`` or ``{hit: false}``; ``select {paths, color}``
   (the outline: only recorded); ``properties {path}`` ``{path, name, type, kind,
-  schemas, properties}``; ``bounds {path}`` ``{path, bounds}``; ``reveal {path,
+  schemas, properties}``; ``bounds {path}`` ``{path, bounds}``, the prim's whole
+  subtree's (:func:`fake_bounds`; None where nothing draws); ``reveal {path,
   limit}`` ``{path, levels}``, the ``query_tree`` pages from ``"/"`` down to the prim;
 - view modes (#153), as ``specto-usd-source`` answers them: ``set_view_mode {mode}``
   (``lit``, ``unlit``, ``wireframe``, ``collision``) ``{mode, note}``, an unknown mode an
@@ -121,6 +122,24 @@ def block_x(path: str) -> float | None:
     """The x of the fake block ``path`` is in (or is), else None."""
     m = re.match(r"/World/Blocks/Block_0(\d)(/|$)", path)
     return BLOCK_X[int(m[1]) - 1] if m else None
+
+
+def fake_bounds(path: str) -> list[list[float]] | None:
+    """The fake stage's world bounds of ``path``'s whole subtree, as ``specto-usd-source``
+    answers ``bounds`` (#39): a block is 16 x 12 x 12 at its x, its ``Top`` the upper
+    half, its ``Base`` the lower; ``Blocks`` is the three blocks together and ``World``
+    the stage; the sky, the cameras and the vans draw nothing (None)."""
+    x = block_x(path)
+    if x is not None:
+        lo, hi = [x - 8, -6.0, 0.0], [x + 8, 6.0, 12.0]
+        if path.endswith("/Top"):
+            lo[2] = 6.0
+        elif path.endswith("/Base"):
+            hi[2] = 6.0
+        return [lo, hi]
+    if path == "/World/Blocks":
+        return [[BLOCK_X[0] - 8, -6.0, 0.0], [BLOCK_X[-1] + 8, 6.0, 12.0]]
+    return BOUNDS if path == "/World" else None
 
 
 def fake_pick(x: float, y: float) -> dict:
@@ -242,9 +261,7 @@ class StubUsdSource(StubSource):
             return self.properties(self._prim(params))
         if method == "bounds":
             path = self._prim(params)
-            x = block_x(path)
-            bounds = BOUNDS if x is None else [[x - 8, -6.0, 0.0], [x + 8, 6.0, 12.0]]
-            return {"path": path, "bounds": bounds}
+            return {"path": path, "bounds": fake_bounds(path)}
         if method == "reveal":
             return self.reveal(self._prim(params), max(1, int(params.get("limit", 100))))
         return super().handle(method, params)

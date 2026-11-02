@@ -25,12 +25,19 @@ The host:
   ``TREE_PAGE`` at a time ("n more" row), and the source's own search on ``filter``;
 - drives the camera through :class:`CameraControl`, the seam #138's navigation model
   fills: the viewport's buttons, drags, wheel and keys (Unreal Editor's scheme, #151:
-  ``usd.nav``'s table) and the **VIEW** panel's speed and World origin go in, each
-  camera change comes out as one ``set_camera`` to the source. The orbit's pivot
-  is the selection's picked point, else its centre (``bounds``), else the point under
-  the press (``pick``, not selecting); F frames the selection's bounds (a picked
-  point without any: a small cube), else the whole stage; the speed the
-  wheel sets while RMB is held is one user submit when RMB comes up;
+  ``usd.nav``'s table) and the **VIEW** panel's speed, World origin, camera mode and
+  Frame selected go in, each camera change comes out as one ``set_camera`` to the
+  source. The free camera's Alt+LMB orbit pivots on the selection's picked point, else
+  its centre (``bounds``), else the point under the press (``pick``, not selecting);
+  **orbit mode** (#39, ``params.camera_mode``: ``free`` or ``orbit``, one user submit
+  per change from the panel's control or the agent's param; the camera stays put) turns
+  around the selection's centre, kept on the camera as its anchor while the selection
+  lasts, else the point under the press, else the focus point. F and the panel's Frame
+  selected frame the selection's bounds, the union over each selected prim's whole
+  subtree (the source's ``bounds`` answers a prim's subtree: an Xform with no geometry
+  of its own frames its children; a picked point without any: a small cube), else the
+  whole stage; the speed the wheel sets while RMB is held is one user submit when RMB
+  comes up. The status bar's gesture line follows the mode (``nav_keys``);
 - keeps the side panels' ``{collapsed, width}`` in ``params.panels`` (``view``,
   ``prims``) and the speed in ``params.camera_speed``, each change one user submit;
 - **pauses** the source when the view is culled (off-screen, collapsed) and **kills** it
@@ -106,6 +113,14 @@ BUTTONS = {1: "left", 2: "right", 4: "middle"}
 DEFAULT_SIZE = (640, 360)  # frame size before the viewport reports its own
 MAX_PIXELS = 1920 * 1080  # params.max_pixels by default (the manifest's)
 SPEED_MIN, SPEED_MAX = -3.0, 3.0  # the VIEW panel's slider: log2 of the speed, 1/8x .. 8x
+#: ``params.camera_mode`` (#39): Unreal Editor's free camera, or one turning around a pivot
+CAMERA_MODES = ("free", "orbit")
+#: the status bar's gesture line in orbit mode (free: the canvas controller's NAV_KEYS,
+#: the 3d view's line); the 3d view's style
+ORBIT_KEYS = (
+    "drag orbits the selection or the point under it, middle-drag pans, "
+    "right-drag and wheel dolly toward it, F frames"
+)
 PANELS = ("view", "prims")
 PANEL_WIDTH = {"view": 200, "prims": 240}
 PANEL_MIN, PANEL_MAX = 140, 480
@@ -280,6 +295,11 @@ def speed_of(value: Any) -> float:
     return max(2.0**SPEED_MIN, min(2.0**SPEED_MAX, v)) if v > 0 else 1.0
 
 
+def mode_of(value: Any) -> str:
+    """A camera mode from a param: ``free`` or ``orbit``, anything else free."""
+    return str(value) if value in CAMERA_MODES else "free"
+
+
 def frame_size(width: float, height: float, dpr: float, max_pixels: int) -> tuple[int, int]:
     """The source's frame for a viewport of ``width x height`` logical px: device pixels,
     scaled down to at most ``max_pixels``, never below 1."""
@@ -299,6 +319,7 @@ class CameraControl(Protocol):
     stage's frame). Pixel deltas are logical px since the last call."""
 
     camera_speed: float
+    mode: str  # ``free`` or ``orbit`` (#39); setting it keeps the camera where it is
 
     def load(self, bounds: list[list[float]] | None, up_axis: str) -> None:
         """A stage opened: its world bounds and ``upAxis``; go to the first look."""
@@ -311,10 +332,15 @@ class CameraControl(Protocol):
 
     @property
     def pivoting(self) -> bool:
-        """An orbit (Alt+LMB) is on: it turns around a pivot."""
+        """A gesture that pivots is on: the free camera's orbit (Alt+LMB), orbit mode's
+        orbit (LMB) or its dolly toward the pivot (RMB)."""
 
     def set_pivot(self, point: list[float]) -> None:
-        """The orbit's pivot, in the stage's frame (#151)."""
+        """The gesture's pivot, in the stage's frame (#151)."""
+
+    def set_anchor(self, point: list[float] | None) -> None:
+        """Orbit mode's standing pivot (#39): the selection's centre, in the stage's
+        frame; None when nothing selected draws anything."""
 
     def drag(self, dx: float, dy: float) -> None:
         """The pointer moved with buttons held (``usd.nav``'s table says what it does)."""
@@ -360,6 +386,7 @@ class PlaceholderCamera:
     def __init__(self, on_camera: OnCamera) -> None:
         self._on_camera = on_camera
         self.camera_speed = 1.0
+        self.mode = "free"
         self.bounds: list[list[float]] | None = None
         self.pivoting = False
         self.calls: list[tuple[Any, ...]] = []
@@ -371,7 +398,10 @@ class PlaceholderCamera:
 
     def press(self, button: str, alt: bool) -> None:
         self.calls.append(("press", button, alt))
-        self.pivoting = alt and button == "left"
+        if self.mode == "orbit":
+            self.pivoting = button in ("left", "right")
+        else:
+            self.pivoting = alt and button == "left"
 
     def release(self, button: str) -> None:
         self.calls.append(("release", button))
@@ -379,6 +409,9 @@ class PlaceholderCamera:
 
     def set_pivot(self, point: list[float]) -> None:
         self.calls.append(("pivot", point))
+
+    def set_anchor(self, point: list[float] | None) -> None:
+        self.calls.append(("anchor", point))
 
     def drag(self, dx: float, dy: float) -> None:
         self.calls.append(("drag", dx, dy))
@@ -432,6 +465,7 @@ class UsdBridge(QObject):
     rowsChanged = Signal()
     panelsChanged = Signal()
     speedChanged = Signal()
+    cameraModeChanged = Signal()
     healthChanged = Signal()
     selectionChanged = Signal()
     viewModeChanged = Signal()
@@ -563,6 +597,11 @@ class UsdBridge(QObject):
     def speedLog2(self) -> float:
         return math.log2(self._host.camera_speed)
 
+    # the camera mode (#39): free or orbit, the VIEW panel's control
+    @Property(str, notify=cameraModeChanged)
+    def cameraMode(self) -> str:
+        return self._host.camera_mode
+
     @Property("QVariantList", notify=selectionChanged)
     def selected(self) -> list[str]:
         return list(self._host.selected)
@@ -642,6 +681,11 @@ class UsdBridge(QObject):
         self._host.set_camera_speed(2.0 ** float(value), final=bool(final))
 
     @Slot(str)
+    def setCameraMode(self, mode: str) -> None:
+        """The VIEW panel's Free / Orbit control (#39)."""
+        self._host.set_camera_mode(str(mode))
+
+    @Slot(str)
     def toggleRow(self, path: str) -> None:
         self._host.toggle_row(str(path))
 
@@ -718,6 +762,9 @@ class UsdHost(Stepping, QuickViewHost):
         self._no_frames = False  # the viewport cannot draw frames (no OpenGL)
         self.size = DEFAULT_SIZE
         self.camera_speed = 1.0
+        self.camera_mode = "free"  # params.camera_mode (#39)
+        #: orbit mode's pivot: the selection's centre (stage frame), None without one
+        self._anchor: list[float] | None = None
         self.panels: dict[str, dict[str, Any]] = {}
         self.tree: dict[str, dict[str, Any]] = {}  # prim path -> {path, name, type, count, kids}
         self.expanded: set[str] = set()
@@ -1013,8 +1060,9 @@ class UsdHost(Stepping, QuickViewHost):
             self._fetch("/", depth=2)
             if self._wanted_prims is not None:
                 self._select_wanted()
-            elif self.selected:  # a relaunched source: the outline again
+            elif self.selected:  # a relaunched source: the outline and the anchor again
                 self._send("select", paths=self.selected, color=COLORS["accent"])
+                self._refresh_anchor()
         elif name == "exited":
             src = self.source
             self.source = None
@@ -1260,13 +1308,65 @@ class UsdHost(Stepping, QuickViewHost):
         if final and self._params.get("camera_speed") != speed:
             self._write_params({"camera_speed": speed}, "camera speed")
 
+    # -- the camera mode (#39) -----------------------------------------------------------
+    def set_camera_mode(self, mode: str) -> None:
+        """The VIEW panel's Free / Orbit: ``params.camera_mode``, one submit."""
+        mode = mode_of(mode)
+        if mode == self.camera_mode:
+            return
+        self._apply_camera_mode(mode)
+        self._write_params({"camera_mode": mode}, f"camera mode {mode}")
+
+    def _apply_camera_mode(self, mode: str) -> None:
+        """The mode changes: the camera stays put, the anchor is taken for orbit mode and
+        the status bar's gesture line follows (the health said again refreshes it)."""
+        self.camera_mode = mode
+        self.camera.mode = mode
+        self.bridge.cameraModeChanged.emit()
+        if mode == "orbit":
+            self._refresh_anchor()
+        health = self.ctx.health_of(self.view_id)
+        self.set_health(str(health.get("status", "ok")), str(health.get("message", "")))
+
+    @property
+    def nav_keys(self) -> str:
+        """The status bar's gesture line for the mode (the canvas controller reads it;
+        empty: the view type's own line, Unreal Editor's)."""
+        return ORBIT_KEYS if self.camera_mode == "orbit" else ""
+
+    def _refresh_anchor(self) -> None:
+        """Orbit mode's pivot: the selection's centre (its subtree bounds), None without
+        a selection that draws; asked of the source, dropped if the selection moves on."""
+        if self.camera_mode != "orbit":
+            return
+        if not self.selected or self.source is None or not self.stage:
+            self._set_anchor(None)
+            return
+
+        def take(bounds: list[list[float]] | None) -> None:
+            if bounds:
+                self._set_anchor([(a + b) / 2 for a, b in zip(*bounds, strict=True)])
+            else:
+                self._set_anchor(None)
+
+        self._selection_bounds(take)
+
+    def _set_anchor(self, point: list[float] | None) -> None:
+        self._anchor = point
+        self.camera.set_anchor(point)
+
     # -- viewport input (#151) ----------------------------------------------------------
     def press(self, button: str, alt: bool, x: float, y: float) -> None:
-        """A button went down at NDC ``(x, y)``: an orbit (Alt+LMB) gets its pivot, the
-        selection's picked point, else its bounds' centre, else the point picked under
-        the cursor."""
+        """A button went down at NDC ``(x, y)``: a gesture that pivots gets its pivot. The
+        free camera's orbit (Alt+LMB): the selection's picked point, else its bounds'
+        centre, else the point picked under the cursor. Orbit mode (#39): the anchor (the
+        selection's centre) stands; without one, the point picked under the cursor."""
         self.camera.press(button, alt)
         if not self.camera.pivoting or self.source is None or not self.stage:
+            return
+        if self.camera_mode == "orbit":
+            if self._anchor is None:
+                self._pick_pivot(x, y)
             return
         picked = self._picked_point()
         if picked is not None:
@@ -1280,6 +1380,10 @@ class UsdHost(Stepping, QuickViewHost):
         if self.selected:
             self._selection_bounds(centre)
             return
+        self._pick_pivot(x, y)
+
+    def _pick_pivot(self, x: float, y: float) -> None:
+        """The point under the press (``pick``, selecting nothing) as the gesture's pivot."""
         stage = self.path
 
         def take(result: dict[str, Any]) -> None:
@@ -1301,8 +1405,9 @@ class UsdHost(Stepping, QuickViewHost):
             self.set_camera_speed(self.camera.camera_speed, final=False)
 
     def frame_selection(self) -> None:
-        """F: frame the selected prims' bounds; a selection that draws nothing, the
-        picked point; nothing selected, the whole stage."""
+        """F and the VIEW panel's Frame selected: frame the selected prims' bounds, the
+        union over each one's whole subtree; a selection that draws nothing, the picked
+        point; nothing selected, the whole stage."""
         if not self.selected:
             self.camera.frame_all()
             return
@@ -1327,9 +1432,9 @@ class UsdHost(Stepping, QuickViewHost):
         return None
 
     def _selection_bounds(self, take: Callable[[list[list[float]] | None], None]) -> None:
-        """The world bounds around every selected prim (None: they draw nothing), handed
-        to ``take`` once the source has answered for each; dropped if the stage or the
-        selection changes meanwhile."""
+        """The world bounds around every selected prim, each its whole subtree's (the
+        source's ``bounds``; None: they draw nothing), handed to ``take`` once the source
+        has answered for each; dropped if the stage or the selection changes meanwhile."""
         paths, stage = list(self.selected), self.path
         boxes: dict[str, list[list[float]] | None] = {}
 
@@ -1665,6 +1770,7 @@ class UsdHost(Stepping, QuickViewHost):
         self.selected = list(dict.fromkeys(paths))
         self.bridge.selectionChanged.emit()
         self._send("select", paths=self.selected, color=COLORS["accent"])
+        self._refresh_anchor()
         if reveal and self.selected:
             self._reveal(self.selected[-1])
         if emit:
@@ -1683,6 +1789,7 @@ class UsdHost(Stepping, QuickViewHost):
         self._picks.clear()
         self.hit = None
         self.revealed = None
+        self._set_anchor(None)
         if self._wanted_prims is not None and self._wanted_prims[0] != self.key:
             self._wanted_prims = None
         if not self.selected:
@@ -1790,6 +1897,9 @@ class UsdHost(Stepping, QuickViewHost):
             self.camera_speed = speed
             self.camera.camera_speed = speed
             self.bridge.speedChanged.emit()
+        mode = mode_of(p.get("camera_mode", "free"))
+        if mode != self.camera_mode:
+            self._apply_camera_mode(mode)
         panels = p.get("panels") if isinstance(p.get("panels"), dict) else {}
         if panels != self.panels:
             self.panels = {k: dict(v) for k, v in panels.items() if isinstance(v, dict)}
@@ -1861,6 +1971,7 @@ class UsdHost(Stepping, QuickViewHost):
             "bounds": self.stage.get("bounds"),
             "prims": self.stage.get("prims"),
             "camera_speed": self.camera_speed,
+            "camera_mode": self.camera_mode,
             "panels": {name: self.panel_state(name) for name in PANELS},
             "outliner": {
                 "rows": len(self.outliner_rows()),
@@ -1922,7 +2033,9 @@ def register(registry: Any) -> None:
 
 
 __all__ = [
+    "CAMERA_MODES",
     "IDLE_KILL_S",
+    "ORBIT_KEYS",
     "USD_MANIFEST",
     "USD_QML",
     "CameraControl",
@@ -1934,6 +2047,7 @@ __all__ = [
     "exit_reason",
     "factory",
     "frame_size",
+    "mode_of",
     "register",
     "rtx_launcher",
     "source_command",

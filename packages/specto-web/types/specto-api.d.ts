@@ -455,6 +455,8 @@ step, nothing journaled). */
     look_through?: string | null;
     /** Scales flying, zooming and panning, as in the 3d view. default: 1.0 */
     camera_speed?: number;
+    /** free: Unreal Editor's camera (drag turns and walks, right-drag looks, WASD flies, Alt+drag orbits). orbit: drag orbits the selection's centre, else the point under the press, else the focus point; middle-drag pans; right-drag and the wheel dolly toward it. Switching keeps the camera where it is. default: "free" */
+    camera_mode?: "free" | "orbit";
     /** What the picture shows: lit (the render), unlit (base colour, no lighting), wireframe (edges over black), collision (only the prims with UsdPhysics CollisionAPI, as their collision shapes, in a flat tint). A stage without colliders shows lit. default: "lit" */
     view_mode?: "lit" | "unlit" | "wireframe" | "collision";
     /** The item key of the stage shown (default: the picked item, else the first). */

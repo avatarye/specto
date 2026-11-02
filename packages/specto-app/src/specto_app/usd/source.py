@@ -48,7 +48,8 @@ source's methods (#139), so the usd host drives either one:
   (``color``: ``#rrggbb``, kept until the next one; ``[]`` clears; a renderer without
   outlines ignores it), answered at once; ``state`` reports ``selected``.
   ``properties {path}`` answers the prim as JSON (``{path, name, type, kind, schemas,
-  properties}``) and ``bounds {path}`` its world bounds (``{path, bounds}``); ``reveal
+  properties}``) and ``bounds {path}`` the world bounds of its whole subtree at the
+  current time (``{path, bounds}``; #39: an Xform frames all of its children); ``reveal
   {path, limit}`` the outliner pages down to it (``{path, levels: [query_tree pages]}``);
 - view modes (#153): ``set_view_mode {mode}`` (``lit``, ``unlit``, ``wireframe``,
   ``collision``) answers once the render thread has switched, with the mode in effect and
@@ -234,7 +235,8 @@ class UsdSource:
                 return info.properties(str(params.get("path") or ""))
             if method == "view_modes":
                 return self._view_modes(info)
-            return info.bounds_of(str(params.get("path") or ""))
+            # the prim's subtree bounds at the time the picture shows (#39)
+            return info.bounds_of(str(params.get("path") or ""), self.timecode)
         if method == "pick":
             return self._ask_pick(float(params["x"]), float(params["y"]))
         if method == "set_view_mode":

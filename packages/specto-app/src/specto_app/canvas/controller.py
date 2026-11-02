@@ -157,7 +157,8 @@ GESTURES = (
 )
 #: a view type's own keys, said while it is hovered (the 3D page's in-body hint moved
 #: here with its bar, #129); the usd view navigates as the 3d view does (#139):
-#: Unreal Editor's viewport (#151, #152; the table is web/viewnav.js's header)
+#: Unreal Editor's viewport (#151, #152; the table is web/viewnav.js's header); in orbit
+#: mode it says its own line (``UsdHost.nav_keys``, #39)
 NAV_KEYS = (
     "drag turns and walks, right-drag looks (W A S D Q E fly, wheel sets speed), "
     "middle-drag pans, wheel dollies, Alt+drag orbits, F frames"
@@ -216,9 +217,11 @@ def status_hint(info: dict[str, Any], *, hovered: bool) -> str:
     if hovered and info.get("floating"):
         parts.append(FLOATING_HINT)
     if hovered and health == "ok" and not info.get("hint") and not info.get("approval"):
-        # a healthy view offers its gestures while hovered: a viewer's step keys first
+        # a healthy view offers its gestures while hovered: a viewer's step keys first,
+        # then the host's own line for its state (the usd view's camera mode, #39), else
+        # the type's
         steps = step_hint(str(info.get("stepType") or info.get("type", "")))
-        own = VIEW_KEYS.get(str(info.get("type", "")), "")
+        own = str(info.get("keys") or VIEW_KEYS.get(str(info.get("type", "")), ""))
         parts.extend([h for h in (steps, own) if h] + [GESTURES])
     return f"{info.get('id', '')}: {HINT_SEP.join(parts)}" if parts else ""
 
@@ -1056,6 +1059,8 @@ class CanvasController(QObject):
                 "collapsed": bool(v["layout"].get("collapsed")),
                 # whose step keys the status bar names: a preview's renderer (#106)
                 "stepType": getattr(host, "step_type", None) or v.get("type", ""),
+                # the host's own gesture line for its state (#39), else the type's
+                "keys": getattr(host, "nav_keys", "") or "",
                 "locked": bool(v.get("locked")),
                 # the header's auto-update switch (#102): None when no intaker feeds it,
                 # or the view follows what it is fed (#126: the preview)

@@ -51,11 +51,12 @@ time, read-only, fed the file tree's selected_files by a selection intaker with 
 ["@usd"]. Its time follows the global clock (make it the root view, or time_map a video
 onto it). Params: renderer auto|rtx|storm (auto is rtx on Windows and Linux where `describe
 view:usd` shows machine.ovrtx present, else storm; on macOS always storm; `describe view:usd`
-reports renderer_auto), camera_speed, look_through (a camera prim path, or null), view_mode
+reports renderer_auto), camera_speed, camera_mode (free, Unreal Editor's, or orbit: drag
+turns around the selection), look_through (a camera prim path, or null), view_mode
 (lit|unlit|wireframe|collision; collision shows only the UsdPhysics colliders) and
 max_pixels. Set its camera through the camera port (a follow link from a 3d view's camera)
-or params, never by running code. `snap` reports its stage path, renderer, frame size and
-camera. Specto only views USD: never edit USD files."""
+or params, never by running code. `snap` reports its stage path, renderer, frame size,
+camera and camera_mode. Specto only views USD: never edit USD files."""
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, open_world_hint=False)
 ADDITIVE = ToolAnnotations(

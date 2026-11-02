@@ -343,6 +343,184 @@ def test_alt_right_dollies_along_the_view():
     assert close(nav.camera_value()["position"], (0.0, 0.0, 10.0), 1e-9)
 
 
+# -- orbit mode (#39) ---------------------------------------------------------------------------
+def orbiting(anchor: tuple[float, float, float] | None = (0.0, 0.0, 0.0)) -> Nav:
+    """The camera of ``looking_down_minus_z`` in orbit mode, anchored (the selection's
+    centre) at ``anchor``, the origin it looks at by default."""
+    nav = looking_down_minus_z()
+    nav.set_mode("orbit")
+    nav.set_anchor(anchor)
+    return nav
+
+
+@pytest.mark.parametrize(
+    ("buttons", "alt", "gesture"),
+    [
+        ("l", False, "orbit"),
+        ("r", False, "zoom"),
+        ("m", False, "pan"),
+        ("lr", False, "pan"),
+        ("rl", False, "pan"),
+        ("l", True, "orbit"),  # Alt changes nothing
+        ("r", True, "zoom"),
+        ("m", True, "pan"),
+        ("", False, None),
+    ],
+)
+def test_orbit_mode_chooses_its_gestures_with_or_without_alt(buttons, alt, gesture):
+    nav = orbiting()
+    for b in buttons:
+        nav.press({"l": "left", "r": "right", "m": "middle"}[b], alt)
+    assert nav.gesture == gesture
+    assert nav.pivoting == (gesture in ("orbit", "zoom"))
+
+
+def test_switching_the_mode_keeps_the_camera_where_it_is():
+    nav = looking_down_minus_z()
+    drag(nav, "r", 70, -30)  # looked somewhere
+    nav.take_change()
+    before = nav.camera_value()
+    nav.set_mode("orbit")
+    assert nav.mode == "orbit" and same_camera(nav.camera_value(), before)
+    assert nav.take_change() is None  # nothing for the renderer, no cut
+    nav.set_mode("free")
+    assert nav.mode == "free" and same_camera(nav.camera_value(), before)
+    nav.set_mode("sideways")  # not a mode: free
+    assert nav.mode == "free"
+
+
+def test_switching_the_mode_lets_go_of_buttons_and_keys():
+    nav = looking_down_minus_z()
+    nav.press("right")
+    nav.set_key("w", True)
+    nav.set_mode("orbit")
+    assert nav.gesture is None and not nav.moving
+
+
+def test_in_orbit_mode_a_left_drag_turns_around_the_anchor_about_world_up():
+    nav = orbiting()
+    drag(nav, "l", 90, 0)  # right: a yaw about world up through the anchor
+    v = nav.camera_value()
+    assert math.dist(v["position"], (0.0, 0.0, 0.0)) == pytest.approx(10.0)  # the same reach
+    assert v["position"][1] == pytest.approx(0.0)  # no climb: a turn about Y
+    assert v["position"][0] < 0  # turned right: the eye swung left around it
+    assert close(v["target"], (0.0, 0.0, 0.0), 1e-9)  # still looking at the anchor
+    assert nav.yaw == pytest.approx(90 * ROTATE) and nav.pitch == 0
+    drag(nav, "l", 0, -50)  # up: the eye swings under the anchor, looking up at it
+    v = nav.camera_value()
+    assert math.dist(v["position"], (0.0, 0.0, 0.0)) == pytest.approx(10.0)
+    assert v["position"][1] < 0 and nav.pitch == pytest.approx(50 * ROTATE)
+    assert close(v["target"], (0.0, 0.0, 0.0), 1e-9)
+    assert close(nav.state().up, (0.0, 1.0, 0.0))  # never a roll
+
+
+def test_an_orbit_stops_short_of_straight_up_and_down():
+    nav = orbiting()
+    drag(nav, "l", 0, 5000)
+    assert nav.pitch == -nav_mod.PITCH_LIMIT
+    assert math.dist(nav.camera_value()["position"], (0.0, 0.0, 0.0)) == pytest.approx(10.0)
+    drag(nav, "l", 0, -9000)
+    assert nav.pitch == nav_mod.PITCH_LIMIT
+
+
+def test_an_orbit_keeps_an_off_axis_anchor_where_it_is_on_screen():
+    nav = orbiting((3.0, 1.0, -2.0))
+
+    def seen(n: Nav) -> tuple[float, ...]:
+        forward, right, up = n._axes()
+        rel = [p - e for p, e in zip((3.0, 1.0, -2.0), n.position, strict=True)]
+        axes = (right, up, forward)
+        return tuple(sum(a * b for a, b in zip(rel, axis, strict=True)) for axis in axes)
+
+    before = seen(nav)
+    drag(nav, "l", 80, 25)
+    assert seen(nav) == pytest.approx(before)
+    # the focus point sits at the anchor's depth, so the camera port's target is there
+    assert nav.focus == pytest.approx(before[2])
+
+
+def test_the_orbit_pivot_is_the_anchor_else_the_press_point_else_the_focus_point():
+    nav = orbiting(None)  # nothing selected
+    assert close(nav.pivot, nav.target)
+    nav.press("left")
+    nav.set_pivot((2.0, 0.0, 0.0))  # the point under the press, from the source
+    assert close(nav.pivot, (2.0, 0.0, 0.0))
+    nav.release("left")
+    assert close(nav.pivot, nav.target)  # gone with the gesture
+    nav.set_anchor((0.0, 0.0, 4.0))  # a selection: its centre stands
+    assert close(nav.pivot, (0.0, 0.0, 4.0))
+    nav.press("right")  # a dolly pivots too: the host asks for a point only without one
+    nav.set_pivot((2.0, 0.0, 0.0))
+    assert close(nav.pivot, (2.0, 0.0, 0.0))  # the gesture's point wins while it lasts
+    nav.release("right")
+    assert close(nav.pivot, (0.0, 0.0, 4.0))
+    nav.set_anchor(None)
+    assert close(nav.pivot, nav.target)
+
+
+def test_the_anchor_comes_in_the_stages_frame_and_the_free_camera_ignores_it():
+    nav = Nav(BOUNDS, up_axis="Z")
+    nav.set_mode("orbit")
+    nav.set_anchor((1.0, 2.0, 3.0))
+    assert close(nav.pivot, (1.0, 3.0, -2.0))  # the nav frame's (x, z, -y)
+    nav.set_mode("free")
+    assert close(nav.pivot, nav.target)
+    nav.press("left", alt=True)  # the free camera's orbit starts at the focus point
+    assert close(nav.pivot, nav.target)
+
+
+def test_in_orbit_mode_the_right_drag_dollies_toward_the_pivot_and_stops_at_it():
+    nav = orbiting()
+    drag(nav, "r", 100, 0)  # right: closer
+    d = 100 * DOLLY * U
+    assert close(nav.camera_value()["position"], (0.0, 0.0, 10 - d), 1e-9)
+    assert close(nav.camera_value()["target"], (0.0, 0.0, 0.0), 1e-9)  # the focus follows
+    drag(nav, "r", 0, 100)  # down: back
+    assert close(nav.camera_value()["position"], (0.0, 0.0, 10.0), 1e-9)
+    drag(nav, "r", 0, -100000)  # up, far: never past the pivot
+    assert close(nav.camera_value()["position"], (0.0, 0.0, nav_mod.LOWER_RADIUS_LIMIT), 1e-9)
+    drag(nav, "r", 0, 100)  # and back out again, along the same line
+    assert close(nav.camera_value()["position"], (0.0, 0.0, 100 * DOLLY * U + 0.01), 1e-9)
+
+
+def test_in_orbit_mode_the_wheel_dollies_toward_the_pivot():
+    nav = orbiting((3.0, 0.0, 0.0))  # off to the right of the view
+    nav.wheel(2)  # away: closer, along the line to the anchor, not the view
+    reach = math.dist((0.0, 0.0, 10.0), (3.0, 0.0, 0.0))
+    got = 2 * nav_mod.WHEEL * U
+    p = nav.camera_value()["position"]
+    assert math.dist(p, (3.0, 0.0, 0.0)) == pytest.approx(reach - got)
+    assert p[0] > 0 and nav.yaw == 0  # moved toward it, without turning
+    assert nav.focus == pytest.approx(10 - 10 * got / reach)  # the anchor's depth
+    nav.wheel(-2)
+    assert close(nav.camera_value()["position"], (0.0, 0.0, 10.0), 1e-9)
+    nav.wheel(1000)
+    assert math.dist(nav.camera_value()["position"], (3.0, 0.0, 0.0)) == pytest.approx(
+        nav_mod.LOWER_RADIUS_LIMIT
+    )
+
+
+def test_orbit_mode_pans_as_the_free_camera_and_flies_nothing():
+    nav = orbiting()
+    drag(nav, "m", 100, 0)
+    free = looking_down_minus_z()
+    drag(free, "m", 100, 0)
+    assert same_camera(nav.camera_value(), free.camera_value())
+    nav.press("right")  # RMB: a dolly, not a look
+    nav.set_key("w", True)
+    assert not nav.flying and not nav.moving and nav.tick(1 / 60) is False
+    nav.wheel(4)  # and the wheel dollies rather than setting the speed
+    assert nav.camera_speed == 1.0
+    assert nav.camera_value()["position"][2] < 10.0
+    nav.release("right")
+
+
+def test_a_new_stage_drops_the_anchor_but_keeps_the_mode():
+    nav = orbiting((1.0, 1.0, 1.0))
+    nav.load(BOUNDS, "Y")
+    assert nav.mode == "orbit" and close(nav.pivot, nav.target)
+
+
 @pytest.mark.parametrize(
     ("keys", "step"),
     [

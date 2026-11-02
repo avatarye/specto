@@ -468,6 +468,22 @@ SUITE: dict[str, dict] = {
             }
         ],
     },
+    "usd-39": {
+        # #39 on the stub USD source: the VIEW panel's Free / Orbit control (one submit,
+        # the status bar's line follows), a drag in orbit mode turns around the selected
+        # block keeping its distance, F and Frame selected on a parent prim frame its
+        # whole subtree (the Blocks scope: the three blocks together)
+        "seed": seed("v2-139-seed.py", "{project}"),
+        "sessions": [
+            {
+                "flows": ["v2-39-usd-orbit.txt"],
+                "env": {
+                    "SPECTO_USD_STUB_PHASE_MS": "200",
+                    "SPECTO_DISABLE_CAPABILITIES": "ovrtx,storm",
+                },
+            }
+        ],
+    },
     "usd-137": {
         # #137: the usd view renders the depot world with RTX (needs the rtx
         # extra and the user's depot world): start phases, a non-black frame, orbit, fly, F
@@ -758,6 +774,7 @@ TIERS: dict[str, tuple[str, str]] = {
     "v2-139-usd-chrome.txt": (GPU, _FRAME),
     "v2-155-usd-crash-load.txt": (GPU, _FRAME),
     "v2-180-usd-aspect.txt": (GPU, _FRAME),
+    "v2-39-usd-orbit.txt": (GPU, _FRAME),
     # -- GPU: mpv video
     "v2-42-video-time-links.txt": (GPU, _MPV),
     "v2-128-video-footer.txt": (GPU, _MPV),

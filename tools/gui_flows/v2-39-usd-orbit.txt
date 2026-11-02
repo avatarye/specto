@@ -1,0 +1,72 @@
+# #39 the usd view's orbit camera and F on a parent prim, on the stub USD source: the VIEW
+# panel's Free / Orbit control switches the camera mode (one submit, params.camera_mode,
+# snap reports it, the status bar's line follows); a block selected in the outliner and
+# framed, a drag in Orbit turns around it keeping its distance (the snaps' source.camera:
+# the target stays on the block), the wheel dollies toward it; F and the panel's Frame
+# selected on a parent prim (the Blocks scope, no geometry of its own) frame its whole
+# subtree, the three blocks together; back in Free the camera stays where it was.
+# Project: tools/gui_flows/v2-139-seed.py makes it. The suite sets
+# SPECTO_USD_STUB_PHASE_MS=200 and disables the renderers so the stub answers.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-139-canvas.json usd view of the picked stages
+wait 2000
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/depot_world.usda 15000
+click treeRow:fege:worlds/depot_world.usda
+wait_while cover:kobi 30000
+wait 1500
+assert_text stage:kobi depot_world.usda
+assert_painted viewport:kobi 0.75
+assert_found cameraMode:kobi:free
+assert_found frameSelected:kobi
+assert_host kobi camera_mode "free"
+hover viewport:kobi 0.5 0.5
+wait 400
+assert_text statusHint right-drag looks
+shot 39-01-free.png
+# Orbit: the param, the snap and the status bar's line follow
+click cameraMode:kobi:orbit
+wait 600
+assert_host kobi camera_mode "orbit"
+hover viewport:kobi 0.5 0.5
+wait 400
+assert_text statusHint drag orbits the selection
+shot 39-02-orbit-mode.png
+print snap {"target": "kobi"}
+# a block selected in the outliner, framed with the panel's button; a drag turns around it
+click toggle:kobi:/World/Blocks
+wait 800
+assert_found prim:kobi:/World/Blocks/Block_02
+click prim:kobi:/World/Blocks/Block_02
+wait 800
+click frameSelected:kobi
+wait 1500
+print snap {"target": "kobi"}
+dragxy viewport:kobi 200 0 0.5 0.5
+wait 1500
+shot 39-03-orbited.png
+print snap {"target": "kobi"}
+# the wheel dollies toward it
+wheel viewport:kobi 3 0.5 0.5
+wait 1500
+print snap {"target": "kobi"}
+# F on the parent scope frames the three blocks together (x -48 .. 48)
+click prim:kobi:/World/Blocks
+wait 800
+key f
+wait 1500
+shot 39-04-framed-parent.png
+print snap {"target": "kobi"}
+# back to Free: the camera stays where it is
+click cameraMode:kobi:free
+wait 600
+assert_host kobi camera_mode "free"
+hover viewport:kobi 0.5 0.5
+wait 400
+assert_text statusHint right-drag looks
+print snap {"target": "kobi"}

@@ -167,14 +167,15 @@ when nothing else plays, or map a video's time onto it with a time_map. Params: 
 auto|rtx|storm (auto is rtx on Windows and Linux where the reference's machine.ovrtx is \
 present, else storm, which runs on any GPU without the RTX look; on macOS auto is always \
 storm; describe view:usd reports renderer_auto; one live rtx view per canvas), \
-camera_speed, look_through (a camera prim path of the stage, or null for the free \
-camera), view_mode (lit|unlit|wireframe|collision; collision shows only the UsdPhysics \
-colliders) and max_pixels (the cap on rendered pixels; lower it to speed RTX up). Set its \
-camera through the camera port (a follow link from a 3D view's camera shares one \
-viewpoint) or through params, never by running code (no \
+camera_speed, camera_mode (free, Unreal Editor's camera, or orbit, which turns around the \
+selected prims; F frames their whole subtrees), look_through (a camera prim path of the \
+stage, or null for the free camera), view_mode (lit|unlit|wireframe|collision; collision \
+shows only the UsdPhysics colliders) and max_pixels (the cap on rendered pixels; lower it to \
+speed RTX up). Set its camera through the camera port (a follow link from a 3D view's camera \
+shares one viewpoint) or through params, never by running code (no \
 python link for it). snap on a usd view reports the stage path, the renderer running, the frame \
-size and the camera. Specto only views USD: never edit USD files, and say so when asked to \
-change a stage.
+size, the camera and the camera mode. Specto only views USD: never edit USD files, and say so \
+when asked to change a stage.
 
 All files come from the project source: the fixed node "project" at the canvas origin, left of the \
 file tree, with one output, project.all_files. Nobody moves, resizes, deletes or locks it, and \

@@ -15,6 +15,17 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The usd view gets an orbit camera and F frames the whole selected hierarchy (#39). The
+  VIEW panel's Free / Orbit control (`params.camera_mode`, one user submit per change,
+  reported by `snap` and `describe view:usd`, settable by the agent) switches between
+  Unreal Editor's free camera and one that turns around a pivot: drag orbits the
+  selection's centre, else the point under the press, else the point ahead; middle-drag
+  pans; right-drag and the wheel dolly toward the pivot; Alt changes nothing and a click
+  still picks. Switching keeps the camera where it is, and the status bar's line follows
+  the mode. F and the panel's new Frame selected button frame the union of each selected
+  prim's whole subtree (the source's `bounds` answers a prim's subtree at the stage's
+  current time, visibility and purpose honoured), so an Xform or Scope frames all of its
+  children; prims without bounds keep the picked-point cube.
 - A folder row's details line is never empty (#38): with details on it shows the folder's
   own modified time, coloured by age like a file's, and once the folder is listed how many
   items it shows (`12 items`, `empty`); an archive shows its file's size; a folder whose

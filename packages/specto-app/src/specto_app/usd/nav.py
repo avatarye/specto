@@ -47,7 +47,33 @@ at the Alt+LMB press: the selection's picked point (where the click that selecte
 else the centre of its bounds, else the point under the cursor (the host answers these
 from the source and hands them to :meth:`Nav.set_pivot`, a moment after the press), else,
 until then or when nothing is there, the focus point (``focus`` ahead). F frames a
-selection that has no bounds but a picked point as a cube POINT_FRAME x reach across.
+selection that has no bounds but a picked point as a cube POINT_FRAME x reach across. The
+bounds of a selected prim are its whole subtree's (#39): an Xform or Scope frames all of
+its children, not only its own geometry.
+
+**Orbit mode** (#39; ``mode``, the view param ``camera_mode``: ``free`` is the table
+above, the default) turns the camera around a pivot. The same rates; Alt changes nothing;
+a click still picks; RMB flies nothing and the wheel never sets the speed.
+
+====================  ==============================================================
+input                 motion
+====================  ==============================================================
+LMB drag              orbit the pivot: yaw by dx x ROTATE about world up, pitch by
+                      -dy x ROTATE within +-PITCH_LIMIT, no roll; the pivot keeps its
+                      place on screen and the eye keeps its distance
+MMB, LMB+RMB drag     pan, as the table above
+RMB drag              dolly toward the pivot by (dx - dy) x DOLLY x u (right or up:
+                      closer), never past LOWER_RADIUS_LIMIT of it
+wheel                 dolly toward the pivot by notches x WHEEL x u (away: closer), the
+                      same stop
+====================  ==============================================================
+
+The pivot is the selection's centre, the centre of its subtree bounds, which the host
+keeps on the camera as the **anchor** (:meth:`Nav.set_anchor`) while the selection
+lasts; without one, the point under the press (``set_pivot``, as the free camera's orbit
+takes it); else the focus point. The focus point follows the pivot's depth, so the
+``camera`` port value's ``target`` is where the camera turns. Switching mode keeps the
+camera where it is.
 """
 
 from __future__ import annotations
@@ -61,7 +87,9 @@ Vec3 = tuple[float, float, float]
 Bounds = tuple[Sequence[float], Sequence[float]]
 UpAxis = Literal["Y", "Z"]
 Button = Literal["left", "right", "middle"]
-Gesture = Literal["walk", "look", "pan", "orbit", "dolly"]
+Gesture = Literal["walk", "look", "pan", "orbit", "dolly", "zoom"]
+Mode = Literal["free", "orbit"]
+MODES: tuple[Mode, ...] = ("free", "orbit")
 
 # the 3d view's constants (web/3d/main.js and views/scene3d_view.py)
 DEFAULT_FOV_Y = 0.8  # Babylon's ArcRotateCamera default (radians)
@@ -169,8 +197,9 @@ def _right(yaw: float) -> Vec3:
 
 
 class Nav:
-    """One view's camera: a free eye with a yaw and a pitch, driven by the gestures of the
-    module docstring, and jumps (first look, World origin, frame all, frame bounds, look
+    """One view's camera: an eye with a yaw and a pitch, free (Unreal Editor's scheme) or
+    in orbit mode (turning around a pivot), driven by the gestures of the module
+    docstring, and jumps (first look, World origin, frame all, frame bounds, look
     through, a ``camera`` port value)."""
 
     def __init__(self, bounds: Bounds | None = None, up_axis: UpAxis = "Y") -> None:
@@ -184,10 +213,12 @@ class Nav:
         self.near = 0.05
         self.far = 5000.0
         self._speed = 1.0
+        self.mode: Mode = "free"
         self._keys: set[str] = set()
         self._buttons: set[Button] = set()
         self._alt = False
-        self._pivot: Vec3 | None = None
+        self._pivot: Vec3 | None = None  # the gesture's pivot, from the press to the release
+        self._anchor: Vec3 | None = None  # orbit mode's standing pivot: the selection's centre
         self.looking_through: str | None = None  # the stage camera's prim path
         self._through: CameraState | None = None  # its pose, in the stage's frame
         self._taken: CameraState | None = None  # the state take_change last handed out
@@ -200,8 +231,15 @@ class Nav:
         self.bounds = bounds
         self.up_axis = "Z" if str(up_axis).upper() == "Z" else "Y"
         self._nav_bounds = _bounds_to_nav(bounds, self.up_axis) if bounds else None
+        self._anchor = None
         self.stop()
         self.world_origin()
+
+    def set_mode(self, mode: object) -> None:
+        """``free`` or ``orbit`` (the view param ``camera_mode``; anything else is free):
+        the camera stays where it is, held buttons and keys let go."""
+        self.mode = mode if mode in MODES else "free"  # type: ignore[assignment]
+        self.stop()
 
     def look_through(
         self,
@@ -332,6 +370,10 @@ class Nav:
         b = self._buttons
         if not b:
             return None
+        if self.mode == "orbit":  # Alt changes nothing
+            if "middle" in b or {"left", "right"} <= b:
+                return "pan"
+            return "orbit" if "left" in b else "zoom"
         if self._alt:
             return "pan" if "middle" in b else "orbit" if "left" in b else "dolly"
         if "middle" in b or {"left", "right"} <= b:
@@ -344,16 +386,33 @@ class Nav:
         speed."""
         return self.gesture == "look"
 
+    @property
+    def pivoting(self) -> bool:
+        """The gesture on turns around, or closes on, the pivot: the free camera's
+        Alt+LMB orbit, or orbit mode's LMB orbit and RMB dolly."""
+        return self.gesture in ("orbit", "zoom")
+
     def set_pivot(self, point: Sequence[float]) -> None:
-        """The orbit's pivot (stage frame): the selection's centre or the point picked
-        under the cursor at the press. Ignored unless an orbit is on."""
-        if self.gesture == "orbit":
+        """The gesture's pivot (stage frame): the selection's centre or the point picked
+        under the cursor at the press. Ignored unless a gesture that pivots is on."""
+        if self.pivoting:
             self._pivot = to_nav(point, self.up_axis)
+
+    def set_anchor(self, point: Sequence[float] | None) -> None:
+        """Orbit mode's standing pivot (stage frame): the selection's centre, the centre
+        of its subtree bounds; None when nothing selected draws anything. Kept across
+        gestures (the wheel turns toward it without a press); a free camera ignores it."""
+        self._anchor = None if point is None else to_nav(point, self.up_axis)
 
     @property
     def pivot(self) -> Vec3:
-        """What Alt+LMB orbits (nav frame)."""
-        return self._pivot if self._pivot is not None else self.target
+        """What an orbit turns around and a zoom closes on (nav frame): the gesture's
+        pivot, else in orbit mode the anchor, else the focus point."""
+        if self._pivot is not None:
+            return self._pivot
+        if self.mode == "orbit" and self._anchor is not None:
+            return self._anchor
+        return self.target
 
     def drag(self, dx: float, dy: float) -> None:
         """The pointer moved ``dx, dy`` pixels with buttons held."""
@@ -380,8 +439,22 @@ class Nav:
             forward, right, up = self._axes()
             seen = _add(_scale(right, local[0]), _scale(up, local[1]))
             self.position = _sub(pivot, _add(seen, _scale(forward, local[2])))
+            if self.mode == "orbit":  # the focus point sits at the pivot's depth
+                self.focus = max(LOWER_RADIUS_LIMIT, local[2])
+        elif gesture == "zoom":  # orbit mode's RMB: dolly toward the pivot
+            self._zoom((dx - dy) * DOLLY * self._u())
         else:  # Alt+RMB: dolly along the view
             self._move(_scale(self.forward, (dx - dy) * DOLLY * self._u()))
+
+    def _zoom(self, step: float) -> None:
+        """Orbit mode: the eye moves ``step`` toward the pivot (back when negative), never
+        closer than LOWER_RADIUS_LIMIT; the focus point follows the pivot's depth."""
+        pivot = self.pivot
+        rel = _sub(pivot, self.position)
+        n = _norm(rel)
+        toward = _scale(rel, 1 / n) if n >= 1e-12 else self.forward  # on it: ahead
+        self.position = _sub(pivot, _scale(toward, max(LOWER_RADIUS_LIMIT, n - step)))
+        self.focus = max(LOWER_RADIUS_LIMIT, _dot(_sub(pivot, self.position), self.forward))
 
     def _turn(self, d_yaw: float, d_pitch: float) -> None:
         self.yaw += d_yaw
@@ -390,13 +463,16 @@ class Nav:
     def wheel(self, notches: float) -> None:
         """The wheel turned ``notches`` (+ away from the user, Qt's angleDelta / 120):
         RMB held (a look), the camera speed changes; else the eye and the focus point
-        dolly forward or back."""
+        dolly forward or back; in orbit mode the eye closes on the pivot."""
         if not notches:
             return
         if self.flying:
             self.camera_speed = 2.0 ** (math.log2(self._speed) + notches * SPEED_STEP)
             return
         self._release()
+        if self.mode == "orbit":
+            self._zoom(notches * WHEEL * self._u())
+            return
         self._move(_scale(self.forward, notches * WHEEL * self._u()))
 
     # -- held keys and the tick -----------------------------------------------------------------

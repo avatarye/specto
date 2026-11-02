@@ -346,11 +346,14 @@ BUILTIN_VIEWS: list[ViewManifest] = [
         doc="One OpenUSD stage (.usd, .usda, .usdc, .usdz), read-only: the picked item "
         "of its collection (or the first), stepping through the rest. Rendered out of "
         "process: RTX (ovrtx) when this machine has the ovrtx capability, otherwise Hydra "
-        "Storm. Navigation as in the 3d view (drag orbits, right-drag pans, wheel zooms, "
-        "WASD flies, F frames all); a click selects the prim under the cursor and sends "
-        "<item key>#<prim path> out; content is the selected prim's properties. Time is "
-        "the stage's timecodes in seconds; camera is shared with the 3d view. Nothing is "
-        "written to the file.",
+        "Storm. Navigation as in the 3d view: camera_mode free (Unreal Editor's: drag "
+        "turns and walks, right-drag looks and WASD flies, middle-drag pans, wheel "
+        "dollies, Alt+drag orbits) or orbit (drag orbits the selection or the point under "
+        "it, middle-drag pans, right-drag and wheel dolly toward it); F frames the "
+        "selected prims' whole subtrees, else everything; a click selects the prim under "
+        "the cursor and sends <item key>#<prim path> out; content is the selected prim's "
+        "properties. Time is the stage's timecodes in seconds; camera is shared with the "
+        "3d view. Nothing is written to the file.",
         accepts=["usd_stage_ref"],
         # rtx_views drops out when params.renderer is storm (quotas.view_cost_of)
         cost=ViewCost(viewports3d=1, rtx_views=1),
@@ -360,6 +363,7 @@ BUILTIN_VIEWS: list[ViewManifest] = [
             "mode": "rt",
             "look_through": None,
             "camera_speed": 1.0,
+            "camera_mode": "free",
             "max_pixels": 1920 * 1080,
             "spp": 1,
             "view_mode": "lit",
@@ -393,6 +397,15 @@ BUILTIN_VIEWS: list[ViewManifest] = [
                     "maximum": 8,
                     "default": 1.0,
                     "description": "Scales flying, zooming and panning, as in the 3d view.",
+                },
+                "camera_mode": {
+                    "enum": ["free", "orbit"],
+                    "default": "free",
+                    "description": "free: Unreal Editor's camera (drag turns and walks, "
+                    "right-drag looks, WASD flies, Alt+drag orbits). orbit: drag orbits "
+                    "the selection's centre, else the point under the press, else the "
+                    "focus point; middle-drag pans; right-drag and the wheel dolly toward "
+                    "it. Switching keeps the camera where it is.",
                 },
                 "view_mode": {
                     "enum": ["lit", "unlit", "wireframe", "collision"],

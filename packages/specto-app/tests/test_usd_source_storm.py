@@ -166,6 +166,13 @@ def test_a_pick_names_the_prim_under_a_point_with_where_it_was_hit(source, stage
     assert source.call("pick", x=0.0, y=0.9) == {"hit": False}  # the clear above
 
 
+def test_bounds_of_a_parent_is_its_whole_subtrees(source, stage_file):
+    # #39: World has no geometry of its own; its box and ball together span x -1 .. 7
+    load(source, stage_file).close()
+    assert source.call("bounds", path="/World")["bounds"] == [[-1, -1, -1], [7, 1, 1]]
+    assert source.call("bounds", path="/World/Ball")["bounds"] == [[5, -1, -1], [7, 1, 1]]
+
+
 def test_select_highlights_the_prims_in_the_colour_asked_for(source, stage_file):
     # #140: Storm's own selection highlight, tinted with the host's colour
     reader = load(source, stage_file)

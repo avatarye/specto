@@ -67,6 +67,7 @@ def test_the_agent_schema_names_each_param_with_its_choices(engine: Engine):
         "mode": "rt",
         "look_through": None,
         "camera_speed": 1.0,
+        "camera_mode": "free",
         "max_pixels": 1920 * 1080,
         "spp": 1,
         "view_mode": "lit",
@@ -75,6 +76,7 @@ def test_the_agent_schema_names_each_param_with_its_choices(engine: Engine):
     assert props["renderer"]["enum"] == ["auto", "rtx", "storm"]
     assert props["mode"]["enum"] == ["rt", "pt", "minimal"]
     assert props["view_mode"]["enum"] == ["lit", "unlit", "wireframe", "collision"]  # #153
+    assert props["camera_mode"]["enum"] == ["free", "orbit"]  # #39
     assert (props["camera_speed"]["minimum"], props["camera_speed"]["maximum"]) == (0.125, 8)
     assert {"look_through", "selected", "max_pixels", "spp", "panels"} <= set(props)
 

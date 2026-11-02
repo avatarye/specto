@@ -1,6 +1,8 @@
 /* Unreal Editor's perspective-viewport controls for the web 3D views (#152), one scheme
  * for every view that shows a 3D world; the usd view mirrors it in Python
- * (specto_app/usd/nav.py, #151), so keep this table and its rates in step with it.
+ * (specto_app/usd/nav.py, #151), so keep this table and its rates in step with it. The
+ * usd view's orbit mode (#39: LMB orbits the pivot, RMB and the wheel dolly toward it,
+ * at the rates below) is nav.py's alone; this module has no mode.
  *
  * Renderer-free: the view hands over its camera as {position, target} (the target is the
  * focus point straight ahead) in a right-handed, Y-up world (Babylon's frame; z-up data

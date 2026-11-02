@@ -10,7 +10,7 @@ process never loads pxr.
 - selection (#140): :meth:`StageInfo.reveal` (the outliner's way down to a prim),
   :meth:`StageInfo.gprims_under` (what an outline draws),
   :meth:`StageInfo.properties` (the ``content`` port's JSON), :meth:`StageInfo.bounds_of`
-  (framing one prim);
+  (framing one prim: its whole subtree's world bounds, #39);
 - the collision view (#153): :meth:`StageInfo.collider_count` and
   :meth:`StageInfo.collision`, the overlay of :mod:`.collision`, built once a stage;
 - lighting (#148): :class:`Lighting`, the stage's UsdLux lights and those Kit authored,
@@ -223,10 +223,14 @@ class StageInfo:
             self._colliders = self._collision.colliders
         return self._collision
 
-    def bounds_of(self, path: str) -> dict[str, Any]:
-        """``{path, bounds}``: the prim's world bounds, None when it draws nothing."""
+    def bounds_of(self, path: str, timecode: float | None = None) -> dict[str, Any]:
+        """``{path, bounds}``: the world bounds of the prim's whole subtree (#39: an Xform
+        or Scope with no geometry of its own is the union of its descendants', as
+        ``UsdGeom.BBoxCache`` computes it, the default and render purposes, invisible
+        prims left out), at ``timecode`` (None: the default time); None when nothing
+        under it draws."""
         prim = self._prim(path)
-        box = _bbox_cache().ComputeWorldBound(prim).ComputeAlignedRange()
+        box = _bbox_cache(timecode).ComputeWorldBound(prim).ComputeAlignedRange()
         bounds = None if box.IsEmpty() else [list(box.GetMin()), list(box.GetMax())]
         return {"path": str(prim.GetPath()), "bounds": bounds}
 
@@ -256,10 +260,12 @@ def plain(value: Any) -> Any:
     return str(value)
 
 
-def _bbox_cache() -> UsdGeom.BBoxCache:
-    return UsdGeom.BBoxCache(
-        Usd.TimeCode.Default(), [UsdGeom.Tokens.default_, UsdGeom.Tokens.render]
-    )
+def _bbox_cache(timecode: float | None = None) -> UsdGeom.BBoxCache:
+    """A fresh bound cache at ``timecode`` (None: the default time) over the default and
+    render purposes, honouring visibility (a hierarchical bound: a prim's is its
+    subtree's)."""
+    t = Usd.TimeCode.Default() if timecode is None else Usd.TimeCode(timecode)
+    return UsdGeom.BBoxCache(t, [UsdGeom.Tokens.default_, UsdGeom.Tokens.render])
 
 
 def world_bounds(stage: Usd.Stage) -> list[list[float]] | None:

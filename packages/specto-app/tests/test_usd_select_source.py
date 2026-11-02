@@ -157,6 +157,13 @@ def test_bounds_answers_a_prims_world_bounds(source, stage_file):
     }
 
 
+def test_bounds_of_a_parent_without_geometry_is_its_subtrees(source, stage_file):
+    # #39: the Props scope draws nothing itself; its ball (radius 1 at the origin) does
+    load(source, stage_file)
+    assert source.call("bounds", path="/World/Props")["bounds"] == [[-1, -1, -1], [1, 1, 1]]
+    assert source.call("bounds", path="/World")["bounds"] == [[-1, -1, -1], [11, 1, 2]]
+
+
 def test_reveal_pages_each_ancestor_down_to_the_prim(source, stage_file):
     load(source, stage_file)
     # a page of `limit` children from the start, longer when the way down is further on

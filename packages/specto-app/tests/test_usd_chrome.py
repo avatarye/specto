@@ -236,8 +236,9 @@ def test_f_frames_the_selection_else_the_whole_stage(app, spin, usd):
     QTest.mouseClick(app.window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, at)
     spin(until=lambda: usd.selected == ["/World/Blocks/Block_01/Base"], timeout=10)
     QTest.keyClick(app.window, Qt.Key.Key_F)
-    # the stub's first block is 16 x 12 x 12 around x = -40 (Z-up)
-    spin(until=lambda: source_target(usd) == [-40.0, 0.0, 6.0], timeout=10)
+    # the stub's first block is 16 x 12 x 12 around x = -40 (Z-up); its base, the lower
+    # half (#39: a prim's own subtree), is centred at z 3
+    spin(until=lambda: source_target(usd) == [-40.0, 0.0, 3.0], timeout=10)
 
     usd.select([])
     QTest.keyClick(app.window, Qt.Key.Key_F)

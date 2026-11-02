@@ -122,6 +122,18 @@ install it from voidtools.com and leave it running; a checkout also needs the SD
 once (`uv run python tools/fetch_everything_sdk.py`). The search does not look inside
 archives (zip, tar), while the tree lists their members.
 
+**The 3D and usd views.** Both navigate as the Unreal Editor viewport does: drag turns
+the camera and walks it along the ground, right-drag looks around (hold it and W A S D
+fly, Q and E go down and up, Shift is faster, the wheel sets the speed), middle-drag
+pans, the wheel dollies, Alt+drag orbits the selection or the point under the pointer,
+and a click picks what is under it. The usd view's VIEW panel also offers an **Orbit**
+camera: drag then turns around the selected prims (their centre), else the point you
+pressed on, else the point ahead; middle-drag pans; right-drag and the wheel dolly
+toward it. The mode is kept with the view. **F** and the panel's **Frame selected**
+frame the selected prims and everything under them (an Xform or Scope frames all of its
+children), or the whole stage when nothing is selected; the status bar lists the keys
+while the pointer is over the view.
+
 **The overworld.** Tab toggles the zoomed-out level: every view pauses and shows its
 snapshot as a card, the links are drawn as wires with a node each, and you move and
 resize freely; positions resolve, snapped, when you come back. Clicking a link node opens

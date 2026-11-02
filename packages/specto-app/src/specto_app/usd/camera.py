@@ -1,6 +1,6 @@
 """The usd view's camera (#137): the navigation model (:class:`.nav.Nav`, Unreal Editor's
-viewport scheme since #151, driven by :class:`.ticker.NavTicker`) behind the host's
-``CameraControl`` seam (#139). Every change
+viewport scheme since #151, orbit mode since #39, driven by :class:`.ticker.NavTicker`)
+behind the host's ``CameraControl`` seam (#139). Every change
 reaches the host as one ``on_camera(set_camera params, cut)`` call, in the stage's frame,
 which the host sends to the source."""
 
@@ -44,6 +44,14 @@ class NavCamera:
     def camera_speed(self, value: float) -> None:
         self.nav.camera_speed = value
 
+    @property
+    def mode(self) -> str:
+        return self.nav.mode
+
+    @mode.setter
+    def mode(self, value: str) -> None:
+        self.nav.set_mode(value)
+
     def load(self, bounds: list[list[float]] | None, up_axis: str) -> None:
         self.nav.load((bounds[0], bounds[1]) if bounds else None, up_axis)  # type: ignore[arg-type]
         self.ticker.kick()
@@ -58,10 +66,13 @@ class NavCamera:
 
     @property
     def pivoting(self) -> bool:
-        return self.nav.gesture == "orbit"
+        return self.nav.pivoting
 
     def set_pivot(self, point: list[float]) -> None:
         self.nav.set_pivot(point)
+
+    def set_anchor(self, point: list[float] | None) -> None:
+        self.nav.set_anchor(point)
 
     def drag(self, dx: float, dy: float) -> None:
         self.nav.drag(dx, dy)
