@@ -1,10 +1,10 @@
 """The Specto mark, the S character (#170), read from its design files. No Qt.
 
-``assets/logo/`` holds the designer's export verbatim (Figma page 04 "Logo final: S
-character"): to change the art,
-replace those files. Everything the app draws comes from them: the agent icon
-(``AgentIcon.qml`` / ``SMark.qml`` through the ``logoArt`` context property), the panel
-and welcome marks, and the window icon (``tools/make_icon.py``).
+``assets/logo/`` holds the mark's design files (rev 4.0: the E4 redraw of #32, traced
+into clean paths; the earlier revs were the Figma page 04 "Logo final: S character"
+export): to change the art, replace those files. Everything the app draws comes from
+them: the agent icon (``AgentIcon.qml`` / ``SMark.qml`` through the ``logoArt`` context
+property), the panel and welcome marks, and the window icon (``tools/make_icon.py``).
 
 The parts share one 100-unit grid, placed on each file's canvas by the ``#mark`` group's
 ``translate(o o) scale(s)``:
