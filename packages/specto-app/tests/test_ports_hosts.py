@@ -715,8 +715,9 @@ def test_a_view_on_a_selection_intaker_hints_to_pick_files_then_fills_on_a_pick(
 def test_file_tree_details_give_each_rows_time_and_size_and_its_age(engine: Engine, tmp_path: Path):
     """Details mode (#115): under each name the file's local modified time to the second
     and its size (``2026-10-22 18:49:03`` and ``1.5 MB``), from the stat values the
-    intaker already recorded (no stat on the GUI thread); a folder gives its newest file
-    and the total under it. The age (0: under 10 min, 1: under an hour, 2: under a day,
+    intaker already recorded (no stat on the GUI thread); a folder of a tree handed whole
+    (no folder stat) gives its newest file, its item count and the total under it (#38).
+    The age (0: under 10 min, 1: under an hour, 2: under a day,
     3: older) is judged against the tree's clock, read again on ``refresh_ages`` (the
     view's once-a-minute timer), which tells the list the ages changed and nothing else."""
     data = tmp_path / "data"
@@ -745,7 +746,7 @@ def test_file_tree_details_give_each_rows_time_and_size_and_its_age(engine: Engi
     assert rows["runs/b.bin"] == ("2026-10-22 18:19:03", "3.2 MB", 1)
     assert rows["c.txt"] == ("2026-10-22 13:49:03", "12 B", 2)
     assert rows["old.md"] == ("2026-10-19 18:49:03", "2.0 GB", 3)
-    assert rows["runs"] == ("2026-10-22 18:44:03", "3.2 MB", 0)  # newest under it, total
+    assert rows["runs"] == ("2026-10-22 18:44:03", "2 items · 3.2 MB", 0)  # newest, count, total
 
     changed: list[list[int]] = []
     host.model.dataChanged.connect(lambda _a, _b, roles: changed.append(list(roles)))
