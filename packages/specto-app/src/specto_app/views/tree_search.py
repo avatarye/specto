@@ -1,11 +1,13 @@
-"""The file tree's type-to-search (#232, ADR 0022): a query per keystroke through
+"""The file tree's type-to-search (#232, #36, ADR 0022): a query per keystroke through
 ``specto_intake.search`` on the tree's worker, a flat list of hits while there is text,
 and hits that behave like rows.
 
 ``TreeSearch`` belongs to one ``FileTreeHost``. ``query(text)`` cancels the query in
 flight and runs the new one (Everything on Windows when it can answer for the root,
 else a walk); only the latest query's answer lands in :class:`SearchHitsModel`, the
-QML's ``searchModel``. Hits pass the tree's lister (its sources, pattern and screener),
+QML's ``searchModel``. Every word of the text matches anywhere in a file's path under
+the tree's root (``notes readme`` finds ``docs/notes/readme.md``), name matches first.
+Hits pass the tree's lister (its sources, pattern and screener),
 so the index is asked for more than the limit. A click picks a hit: ``selected_files``
 carries that file (with the stat the search saw) and ``params.selected`` remembers it,
 as a pick in the tree does; Ctrl toggles more hits in; a double-click opens it in a

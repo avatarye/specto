@@ -1,6 +1,8 @@
 """Seed the project folder for the v2 #232 scripted flow (type-to-search): a few readme
 files at three depths among frames and notes, so one word finds hits in folders the
-collapsed tree has not listed. No ``.specto/``: the app initialises the project on open.
+collapsed tree has not listed, and a ``docs-list`` note outside ``docs/``, so the word
+``docs`` has a name match to rank above the path matches (#36). No ``.specto/``: the
+app initialises the project on open.
 
     uv run python tools/gui_flows/v2-232-seed.py <folder>
 """
@@ -14,6 +16,7 @@ from pathlib import Path
 FILES = {
     "notes/readme.md": "# notes\n",
     "notes/plan.md": "# plan\n",
+    "notes/docs-list.md": "# the docs\n",
     "docs/readme.txt": "docs\n",
     "docs/deep/er/readme-draft.md": "# draft\n",
     "docs/deep/er/other.md": "# other\n",

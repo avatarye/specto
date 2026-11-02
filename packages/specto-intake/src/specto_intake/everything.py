@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ctypes
 import os
+import re
 import sys
 import threading
 from collections.abc import Callable
@@ -188,13 +189,18 @@ class Everything:
         query: str,
         *,
         limit: int,
+        offset: int = 0,
         cancelled: Callable[[], bool] | None = None,
         sort: int = SORT_PATH_ASCENDING,
+        keep: Callable[[str], bool] | None = None,
     ) -> tuple[list[Hit], int]:
         """Run ``query`` (Everything's own syntax), files and folders alike, with the
-        full path, size and modified time of up to ``limit`` results; returns the hits
-        and the total number of matches. Raises ``OSError`` naming the SDK error when
-        the service is not there."""
+        full path, size and modified time of up to ``limit`` results from ``offset`` on
+        (a page of the sorted matches); returns the hits and the total number of
+        matches. ``keep`` is asked about each result's full path first, and a result it
+        refuses is left out without reading its size and time (two more calls into the
+        DLL each, which is most of the cost of a big page). Raises ``OSError`` naming
+        the SDK error when the service is not there."""
         with self._lock:
             lib = self._lib
             lib.Everything_Reset()
@@ -203,6 +209,7 @@ class Everything:
             lib.Everything_SetSort(sort)
             lib.Everything_SetRequestFlags(REQUEST_FULL_PATH | REQUEST_SIZE | REQUEST_DATE_MODIFIED)
             lib.Everything_SetMax(max(1, int(limit)))
+            lib.Everything_SetOffset(max(0, int(offset)))
             if not lib.Everything_QueryW(True):
                 raise OSError(self.last_error() or "Everything query failed")
             n = int(lib.Everything_GetNumResults())
@@ -217,6 +224,8 @@ class Everything:
                 if not got:
                     continue
                 path = self._buf.value
+                if keep is not None and not keep(path):
+                    continue
                 if not lib.Everything_GetResultSize(i, ctypes.byref(size)):
                     size.value = 0
                 mtime_ns = 0
@@ -229,6 +238,25 @@ class Everything:
 def quote(text: str) -> str:
     """A search term as one quoted Everything token (its syntax takes ``"..."``)."""
     return '"' + text.replace('"', "") + '"'
+
+
+def path_term(word: str) -> str:
+    """A search word as a term matched against each result's full path (Everything's
+    ``path:`` modifier), with the word's slashes in Everything's own separator: it
+    reads ``docs\\setup`` as a path fragment and ``docs/setup`` as nothing."""
+    return "path:" + quote(word.replace("/", "\\"))
+
+
+def below_term(root: str, word: str) -> str:
+    """A search word as a term matched against the part of each result's path below
+    ``root`` only: a regular expression anchored at the root's own path (escaped), the
+    word after it. For a word that also occurs in the root's path, where
+    :func:`path_term` would match every file under the root. Everything's regex is
+    case-insensitive like the rest of its syntax; with the root term beside it, it
+    runs over the files under the root alone (about 1.5 µs a file)."""
+    native = os.path.abspath(root).replace("/", "\\").rstrip("\\") + "\\"
+    pattern = "^" + re.escape(native) + ".*" + re.escape(word.replace("/", "\\"))
+    return "regex:" + quote(pattern)
 
 
 def under(root: str) -> str:
@@ -245,8 +273,10 @@ __all__ = [
     "VENDOR_DIR",
     "Everything",
     "Hit",
+    "below_term",
     "dll_candidates",
     "find_dll",
+    "path_term",
     "quote",
     "under",
 ]

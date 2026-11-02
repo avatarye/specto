@@ -21,6 +21,7 @@ The file tree read every file under the project before it showed a row (`project
 6. **Counts only where known.** A closed folder shows its file count once every folder below it has been listed; the footer says the file count when it is known, else the rows listed or the files picked; details mode shows a folder's size and newest time only where known. Never a scan for a count.
 7. **Auto-update is the tree's own and covers the loaded folders only.** While its intaker says `watch`, the tree lists the folders it has loaded again every watch interval and applies what changed in place; the runtime runs no watcher for that link. A refresh hands the tree its root again, which does the same once.
 8. **Type-to-search (#232) is a separate seam, `FileSearch`:** a query for a root, text and limit, cancellable, on the worker, with two implementations: Everything on Windows (its SDK DLL over `ctypes`, talking to the running service; no process per keystroke) and a cancellable walk everywhere else, and on Windows when Everything is not running or the root is not indexed. Hits pass through the tree's screener (the index knows nothing of it), so the query asks for more than the limit. Everything is for search only, never the source of a collection: it does not see inside archives and may miss files its settings exclude, so it cannot back `all_files`.
+9. **A search word matches anywhere in the path below the root (#36), never above it.** Both backends check every word against the relative tree path, case-insensitively, a slash in a word matching across the separator; names holding every word rank above files reached only through their folders, then the order of #232. Everything matches `path:` terms against the absolute path, so a word that occurs in the root's own path goes to it as a regex anchored at the root instead (a pass over the files under the root, about 1.5 µs each); every candidate is checked against the relative path locally; when the first page leaves the limit unfilled the candidates are read through up to a bound (`INDEX_BOUND`, 50k; two pages at most), past which the walk answers the query, so `more` is only said when it is true.
 
 ## Measured (2026-10-31, warm, `tools/bench_tree_open.py`)
 
@@ -31,6 +32,12 @@ The file tree read every file under the project before it showed a row (`project
 
 A name search under the 15k-file folder through the Everything DLL: about 20 ms from
 query to hits (es.exe: 150-180 ms).
+
+Path search (#36, 2026-11-01, the same 15k-file folder, query to hits, median of 7):
+18-21 ms for a word in no folder above the root (`readme`, `notes readme`, `attachments/img`);
+24-35 ms for a word that also occurs in the root's own path, which goes as the anchored
+regex (a single letter, the folder's own name); the slowest of 70 runs 48 ms. The walk of
+the same folder, warm: 85-105 ms.
 
 Why Everything counts fewer files than a walk (#232): entirely archive members and the
 `es` console. On the 150k-file folder about a quarter of the walk's files are on disk

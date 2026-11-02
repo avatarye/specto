@@ -108,9 +108,12 @@ Right-click (or Shift+F10) opens the context menu for what is under the pointer.
 **The file tree.** It lists a folder when you open it, so a big project shows at once;
 everything starts closed except a chain of single folders from the top. Picking a folder
 still picks every file under it. To find a file, type in the box at the top of the tree
-(or just start typing with the tree focused): the hits replace the tree, best first, with
-their folder under the name; click one to pick it, double-click to preview it, the target
-button at its right to show it in the tree; Escape returns to the tree. On Windows the
+(or just start typing with the tree focused): every word you type must occur somewhere
+in the file's path below the project folder (`notes readme` finds `docs/notes/readme.md`;
+`docs/read` works too), case does not matter, and the hits replace the tree, best first
+(files whose name holds every word before files reached only through their folders),
+with their folder under the name; click one to pick it, double-click to preview it, the
+target button at its right to show it in the tree; Escape returns to the tree. On Windows the
 search uses [Everything](https://www.voidtools.com/) when it is running and the project's
 drive is indexed, which answers in a few milliseconds whatever the project's size; without
 it (and on Linux and macOS) the search walks the project folder, which takes longer on a
@@ -200,8 +203,9 @@ user dir to forget recents, approvals and settings.
   one it shows a test pattern. The video view needs libmpv built in.
 - Nothing loads from the network except the map's basemap tiles (when a view has the
   `net:tiles` capability) and pages the html view is allowed to reach.
-- The file tree's search finds files on disk by name, not archive members; with
-  Everything, only what its index holds (its exclude settings apply). The project node
+- The file tree's search finds files on disk by their path under the project, not
+  archive members; with Everything, only what its index holds (its exclude settings
+  apply). The project node
   shows no file count until a view pinned to the whole folder has scanned it; the tree
   never scans the whole project.
 - The seam-3 GUI tests take over the mouse and keyboard; do not run them while using the

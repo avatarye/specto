@@ -106,8 +106,14 @@ The file tree's type-to-search (#232) asks [Everything](https://www.voidtools.co
 its service is running and the project's drive is indexed; otherwise it walks the project
 folder (always the case on Linux and macOS). The query goes over the Everything SDK's
 DLL through `ctypes` (`specto_intake.everything`), no `es.exe` and no process per
-keystroke: a name search under a 15k-file folder answers in about 20 ms. Install
-Everything 1.4 from voidtools.com and leave it running, then fetch the SDK once:
+keystroke: a search under a 15k-file folder answers in about 20 ms. Every word matches
+anywhere in the path below the root (#36): the index is asked for each word as a `path:`
+term, or, for a word that occurs in the root's own path (where `path:` would match every
+file), as a regex anchored at the root (about 25 ms more on 15k files); each candidate is
+checked against its relative path; when the candidates outrun the first page and the
+hits do not fill the limit, they are read in one more page up to `INDEX_BOUND`, past
+which the walk answers. Install Everything 1.4 from voidtools.com and leave it running,
+then fetch the SDK once:
 
 ```text
 uv run python tools/fetch_everything_sdk.py     # -> ~/specto-build/everything-sdk, DLL copied beside the search

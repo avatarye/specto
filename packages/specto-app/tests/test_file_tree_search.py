@@ -7,6 +7,7 @@ Escape returns to the tree. Headless hosts and the offscreen shell over the real
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from pathlib import Path
@@ -53,7 +54,7 @@ class Index:
     def available(self) -> bool:
         return self.up
 
-    def search(self, query: str, *, limit: int, cancelled=None, sort=0):
+    def search(self, query: str, *, limit: int, offset: int = 0, cancelled=None, sort=0, keep=None):
         self.queries.append(query)
         base = query.split('"')[1]
         if self.delay:
@@ -63,11 +64,20 @@ class Index:
                 if cancelled is not None and cancelled():
                     break
             self.cancelled.append(bool(cancelled and cancelled()))
-        if query.endswith("file:"):  # the probe: is the root indexed at all?
-            return [], len(self.hits)
-        word = query.rsplit('"', 2)[-2].lower()
-        out = [Hit(base + p.replace("/", "\\"), 7, 1) for p in self.hits if word in p.lower()]
-        return out[:limit], len(out)
+        # every path:"..." term against the whole path and every regex:"..." searched
+        # in it, as Everything does; a query without either (the probe: is the root
+        # indexed at all?) matches every file
+        terms = [t.lower() for t in re.findall(r'path:"([^"]*)"', query)]
+        regexes = re.findall(r'regex:"([^"]*)"', query)
+        out = [
+            Hit(full, 7, 1)
+            for p in self.hits
+            for full in [base + p.replace("/", "\\")]
+            if all(t in full.lower() for t in terms)
+            and all(re.search(r, full, re.IGNORECASE) for r in regexes)
+        ]
+        page = out[offset : offset + limit]
+        return [h for h in page if keep is None or keep(h.path)], len(out)
 
 
 def everything(index: Index) -> fs.EverythingSearch:
@@ -139,7 +149,11 @@ def test_hits_pass_the_trees_screener_and_the_note_says_when_there_are_more(proj
 
     host.search.query("f3")
     assert hits_of(host) == ["a/deep/f3.txt"]  # the jpg hit was screened out
-    assert index.queries[-1].endswith(' file: "f3"')
+    assert index.queries[-1].endswith(' file: path:"f3"')
+    host.search.query("deep")  # a folder's name finds the files under it (#36)
+    assert hits_of(host) == ["a/deep/f3.txt"]
+    host.search.query("sub/x")
+    assert hits_of(host) == ["b/sub/x.txt"]
     host.search.query("hit")
     assert len(hits_of(host)) == 200 and host.search.result.more
     host.search.query("nothing-here")

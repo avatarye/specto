@@ -15,6 +15,14 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The file tree's search matches the path, not only the name (#36): every word must occur
+  somewhere in the file's path below the project folder (`notes readme` finds
+  `docs/notes/readme.md`; `docs/read` and `docs\read` match across the separator), never
+  in the folders above it; files whose name holds every word rank above those reached
+  only through their folders. Both backends agree. Everything is asked for a word that
+  also occurs in the project's own path as a regex anchored below the project (as a plain
+  term it would match every file), and its candidates are read through up to a bound,
+  past which the walk answers rather than an unfinished list.
 - The mark is the E4 redraw (#32): the same S on the same grid, its tail now hooking back
   under the bowl and tapering to a point, the eyes r 6 where E4 places them; every asset
   follows (the body, its centre line, the 16 px drawing, the eye poses, the app icon,

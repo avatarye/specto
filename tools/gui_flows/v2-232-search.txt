@@ -1,10 +1,11 @@
 # v2 #232: type-to-search in the file tree. The tree starts collapsed (#231), so the
 # readmes two and three folders down are not listed; typing in the search box finds them
-# by name anyway: the hits replace the tree, best first (exact name, then prefix, then
-# the rest; shallower first among equals), the footer counts them. A click picks a hit
-# (selected_files carries it), Ctrl adds another; a word nothing matches says which
-# backend looked; Escape returns to the tree with the picks kept; the reveal button on a
-# hit goes back to the tree at that file, its folders listed and opened, the row selected.
+# anyway: the hits replace the tree, best first (exact name, then prefix, then the rest;
+# shallower first among equals), the footer counts them. A click picks a hit
+# (selected_files carries it), Ctrl adds another; a word may match the folders above the
+# file, with name matches ranked first (#36); a word nothing matches says which backend
+# looked; Escape returns to the tree with the picks kept; the reveal button on a hit goes
+# back to the tree at that file, its folders listed and opened, the row selected.
 # The session runs with SPECTO_SEARCH_BACKEND=scan, so the flow is the same on a machine
 # with Everything as on one without it. Project: tools/gui_flows/v2-232-seed.py <folder>.
 resize 1600 900
@@ -39,6 +40,24 @@ type readme draft
 wait_until searchHitName:@file_tree:docs/deep/er/readme-draft.md 10000
 assert_host @file_tree search.hits ["docs/deep/er/readme-draft.md"]
 assert_text fileTreeCaption:@file_tree 1 hit
+# a word matches the folders above a file too (#36): "docs" finds everything under
+# docs/, with the one file named after it first, then shallower paths first
+key ctrl+a
+type docs
+wait_until searchHit:@file_tree:docs/deep/er/other.md 10000
+assert_host @file_tree search.hits ["notes/docs-list.md","docs/readme.txt","docs/deep/er/other.md","docs/deep/er/readme-draft.md"]
+assert_text fileTreeCaption:@file_tree 4 hits
+assert_text searchHitFolder:@file_tree:docs/readme.txt docs
+shot v2-232-07-path-match-names-first.png
+# two words across folder and name; a word with a slash matches across the separator
+key ctrl+a
+type er draft
+wait_until searchHitName:@file_tree:docs/deep/er/readme-draft.md 10000
+assert_host @file_tree search.hits ["docs/deep/er/readme-draft.md"]
+key ctrl+a
+type deep/er/oth
+wait_until searchHitName:@file_tree:docs/deep/er/other.md 10000
+assert_host @file_tree search.hits ["docs/deep/er/other.md"]
 # a miss says which backend looked
 key ctrl+a
 type zzz
