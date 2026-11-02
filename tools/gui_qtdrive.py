@@ -383,13 +383,17 @@ class QtFlow:
         words = tokens(line)
         if not words or words[0].startswith("#"):
             return
-        if words[0] in ("win:", "posix:"):
-            if (words[0] == "win:") != (sys.platform == "win32"):
+        while words and words[0] in ("win:", "posix:", "mouse:", "driver:"):
+            if words[0] in ("win:", "posix:") and (words[0] == "win:") != (
+                sys.platform == "win32"
+            ):
+                return
+            if words[0] == "mouse:":  # the real-mouse executor's line (gui_drive.py)
                 return
             line = line.split(None, 1)[1] if len(words) > 1 else ""
             words = words[1:]
-            if not words:
-                return
+        if not words:
+            return
         print(f"> {line}", flush=True)
         if words[0] in ("wait_until", "wait_while", "assert_missing"):
             parts = words

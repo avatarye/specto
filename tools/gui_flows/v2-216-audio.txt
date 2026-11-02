@@ -23,7 +23,7 @@ assert_host siba has_audio true 15000
 assert_host rena muted true
 assert_host rena volume 1.0
 assert_host rena mpv_mute true
-assert_text video:rena:readout 1 / 240 @ 32.48 fps
+assert_text video:rena:readout 1 / 240 @ 32 fps
 shot 216-01-footer-muted.png
 # the speaker turns sound on for A: the view is unmuted, mpv still muted while paused
 click video:rena:mute
@@ -36,7 +36,9 @@ print snap {"target": "rena"}
 click video:rena:play
 wait 1200
 assert_host rena mpv_mute false
-win: assert_host rena audio_output "wasapi"
+# the platform output under the real mouse; the Qt driver plays into the null output
+mouse: win: assert_host rena audio_output "wasapi"
+driver: assert_host rena audio_output "null"
 shot 216-02-sound-on-playing.png
 # a held scrub: silent while the bar is pressed, and after release (paused)
 mousedown video:rena:track 0.4 0.5
@@ -92,4 +94,4 @@ assert_host siba muted true
 assert_meta siba params.muted true
 print snap {"target": "siba"}
 # undo is untouched by any of this: the two submits (the canvas, the params) only
-print canvas.undo_info {}
+print canvas.state {}
