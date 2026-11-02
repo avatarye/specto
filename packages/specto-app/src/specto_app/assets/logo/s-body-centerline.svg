@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="52" height="52" viewBox="0 0 52 52">
-  <!-- Rev 3.3 centre line (tail 14 units, tip 2.5, angled 18 deg down-left), for reference only; starts at the tail tip. Stroking it at width 9 gives the body WITHOUT the taper. -->
+  <!-- Rev 4.0 (e4: the tail hooks back under the bowl and tapers over about 20 units to a tip pointing down-left) centre line, for reference only; starts at the tail tip. Stroking it at width 9 gives the body WITHOUT the taper and the line's own swells. -->
   <g id="mark" transform="translate(6.24 6.24) scale(0.3952)">
-    <path id="s-centerline" d="M 25.69 87.83 C 30.12 86.38 34.33 83.5 39 83.5 C 43.69 83.5 47.5 80.03 47.5 75.75 C 47.5 71.47 43.69 68 39 68 C 26.3 68 16 57.26 16 44 C 16 27.43 34.8 14 58 14 C 72.36 14 84 25.64 84 40 C 84 50 76 61.5 69 63" fill="none" stroke="#3A3630" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+    <path id="s-centerline" d="M 26.7 88.69 C 28.91 86.2 31.42 83.9 34.67 82.88 C 39.43 81.38 48.7 83.27 48.19 74.54 C 47.63 64.96 33.51 66.54 25.77 61.65 C 22.08 59.32 19.14 55.94 17.48 51.9 C 12.11 38.91 21.39 25.8 32.44 19.54 C 44.43 12.76 64.27 9.71 75.46 19.49 C 85.38 28.16 87.23 45.2 78.22 55.13 C 76.87 56.63 75.07 58.39 73.21 59.23 C 71.76 59.89 70.03 60.21 68.51 60.67" fill="none" stroke="#3A3630" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>

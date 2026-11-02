@@ -13,6 +13,13 @@ under `.specto/`), a patch bump (0.2.0 -> 0.2.1) for fixes alone. The per-plugin
 `PluginManifest.version` values and the `api_level` in `api-info.json` are independent of
 the release and move on their own schedule.
 
+## Unreleased
+
+- The mark is the E4 redraw (#32): the same S on the same grid, its tail now hooking back
+  under the bowl and tapering to a point, the eyes r 6 where E4 places them; every asset
+  follows (the body, its centre line, the 16 px drawing, the eye poses, the app icon,
+  `specto.svg`, `specto.ico`).
+
 ## 0.2.0 - 2026-11-01
 
 The first numbered release: Specto v2 as it stands on the mainline. Versioning starts

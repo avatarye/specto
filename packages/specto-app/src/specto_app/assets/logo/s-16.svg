@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-  <!-- 16 px drawing, rev 3.3: a STROKE (the taper would vanish at this size), stroke 11 of 100, a short blunt pointer (round cap, angled down-left), the right side ending at (72, 59.5) for the gap, eyes r 9. Mark fills 90 %. -->
+  <!-- 16 px drawing, rev 4.0 (E4: the tail hooks back under the bowl and tapers over about 20 units to a tip pointing down-left): a STROKE (the taper would vanish at this size), stroke 11 of 100, a short blunt pointer (round cap, the tail cut 11 units short of the tip) ending at (35.7, 82.6), eyes r 9. Mark fills 90 %. -->
   <g id="mark" transform="translate(0.8 0.8) scale(0.144)">
-    <path id="s-body" d="M 35.2 85 C 36.5 84.3 37.6 83.5 39 83.5 C 43.69 83.5 47.5 80.03 47.5 75.75 C 47.5 71.47 43.69 68 39 68 C 26.3 68 16 57.26 16 44 C 16 27.43 34.8 14 58 14 C 72.36 14 84 25.64 84 40 C 84 48.5 78.5 57.5 72 59.5" fill="none" stroke="#3A3630" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle id="eye-left" cx="44" cy="40" r="9" fill="#B86A2B"/>
-    <circle id="eye-right" cx="66" cy="40" r="9" fill="#B86A2B"/>
+    <path id="s-body" d="M 35.65 82.63 C 41.41 81.43 49.83 82.22 48.03 73.31 C 47.78 72.08 47.23 70.93 46.39 69.99 C 42.75 65.91 35.93 65.5 31.02 63.95 C 23.39 61.53 17.54 55.45 16.19 47.42 C 15.74 44.77 15.85 42.05 16.44 39.44 C 17.22 35.99 18.81 32.76 20.85 29.89 C 23.51 26.17 26.95 22.99 30.8 20.53 C 42.89 12.8 63.78 9.3 75.46 19.49 C 85.41 28.18 87.2 45.14 78.22 55.13 C 76.96 56.53 75.58 57.91 73.93 58.86 C 72.26 59.82 70.33 60.12 68.51 60.67" fill="none" stroke="#3A3630" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle id="eye-left" cx="45.5" cy="40" r="9" fill="#B86A2B"/>
+    <circle id="eye-right" cx="67.5" cy="40" r="9" fill="#B86A2B"/>
   </g>
 </svg>
