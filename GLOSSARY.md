@@ -177,7 +177,7 @@ The context viewer: a view type with the viewer role that renders the selected i
 _Avoid_: quick look (for the view), generic viewer, inspector
 
 **Dedicated view**:
-A view opened for one file (a double-click on it in the file tree, the context menu's "Open in its own view", the agent's `canvas.open_file` in dedicated mode): a view of the type that shows the file's kind, fed that one file by a pinned link from the project source, so later picks never change it; titled `<name> · <folder>`. A file has at most one: opening it again reveals that view. A file no view type shows opens a text view saying "Not supported".
+A view opened for one file (a double-click on it in the file tree, the context menu's "Open in its own view", the agent's `canvas.open_file` in dedicated mode): a view of the type that shows the file's kind, fed that one file by a pinned link from the project source, so later picks never change it; labelled `<name> · <folder>`. A file has at most one: opening it again reveals that view. A file no view type shows opens a text view saying "Not supported".
 _Avoid_: pinned view (a pinned intaker is the mechanism, not the view), own view (in prose), fixed preview
 
 **Contextual view**:

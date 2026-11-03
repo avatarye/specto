@@ -99,8 +99,8 @@ Claude login").
 video, markdown, json, html, pdf, map, 3D and usd viewers, previews and the scratch pad.
 Views connect by links: picking files in the tree feeds the views linked to it, a gallery's
 pick drives an image view, a video's time drives galleries linked on time. Double-click a
-file in the tree to open it in a view of its own (an image view, a markdown view, the usd
-view, whatever shows its kind), titled with its name and folder; it stays on that file
+file in the tree to open it in a dedicated view (an image view, a markdown view, the usd
+view, whatever shows its kind), labelled with its name and folder; it stays on that file
 whatever you pick next, and double-clicking the file again brings that view back instead
 of opening another. Ctrl+double-click opens the contextual preview instead: one view that
 follows your picks in the tree, marked "Contextual · follows selection" in its header. A

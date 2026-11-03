@@ -158,7 +158,12 @@ live.events: EventStream                 # doc.patched, canvas.submitted|squashe
   tries again (`[OK] ... saved again`).
 - Human gestures are submits with `origin="user"`, one undo step each
   (`specto_core.gestures`: `move_view`, `resize_view(position=)`, `close_view`,
-  `delete_link`, `set_locked`, `open_image_view`, `set_window_frame`).
+  `delete_link`, `set_locked`, `open_image_view`, `set_window_frame`, `open_file(tree,
+  path, mode=, plugins=)` with `mode` `dedicated` (a view of the file's kind fed that one
+  file by a pinned link; an existing one is `focused`, not duplicated; a kind no view
+  shows opens a `text` view) or `contextual` (the preview on the tree's picks, the file
+  picked first; a kind the preview cannot render falls back to dedicated), SPEC-32, ADR
+  0023).
 - Journal entries: `JournalEntry {seq, ts, kind: txn|undo|redo|navigate|squash, txn,
   txn_no, origin, label, patch, inverse, touched}`; `journal.replay` applies them.
 
@@ -216,6 +221,7 @@ Two-way links only on `time` and `selection`. Per view type (`VIEW_PORTS`):
 | `pdf` | `data`, `selection` | | |
 | `preview` | `data`, `selection` | `selection` | |
 | `scratch` | `selection` | `items: collection`, `selection` | |
+| `text` | `data` | | |
 
 The project source `project` has one output, `all_files: files` (the whole folder). The
 intaker from it into a file tree is never walked (#231, ADR 0022): the tree receives a
@@ -503,7 +509,10 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
 - `HostContext` (one per shell): `engine`, `live`, `links`, `qml_engine`, `notices`,
   `project_root`, `view(view_id)`, `manifest_for(type)`, `emit(view_id, port, value)`,
   `submit(document, label)` (a user gesture; errors become notices), `call`/`try_call`
-  (project-scoped commands as the user), `set_health`, `health_of`, `create_item`.
+  (project-scoped commands as the user), `set_health`, `health_of`, `create_item`,
+  `selected_views()` (the shell's selection, newest first) and `reveal_view(view_id)`
+  (the shell selects the view, pans it into the viewport and focuses it; SPEC-32: a
+  file whose dedicated view is open already; headless: nothing).
   `QuickViewHost` wraps them as `self.emit/set_health` and exposes `self.view` /
   `self.params` (read-only, never cached). Picks go through `ctx.live.remember`.
 - `HostBridge(host)` is handed to QML as `host` so an item can `host.emit(port, value)`,

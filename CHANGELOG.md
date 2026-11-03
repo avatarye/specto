@@ -18,7 +18,7 @@ the release and move on their own schedule.
 - A double-click on a file in the file tree opens a dedicated view; Ctrl+double-click the
   contextual preview (SPEC-32, ADR 0023). The dedicated view is of the type that shows the
   file's kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed that one file
-  by a pinned link from the project source, titled `<name> · <folder>`; the same file
+  by a pinned link from the project source, labelled `<name> · <folder>`; the same file
   again reveals it (selected, panned into view) instead of opening another, and a file no
   view shows opens a new `text` view saying "Not supported: <name> (<ext>)". The preview
   on the tree's picks now says "Contextual · follows selection" in its header and on its
