@@ -20,7 +20,7 @@ pytest.importorskip("pxr", reason="usd-core comes with the rtx extra")
 
 from specto_app.frames import control
 from specto_app.usd import skies
-from specto_app.usd.environment import HDRI_MISSING, ROOT, SHADER, SUN, sky_missing
+from specto_app.usd.environment import ROOT, SHADER, SUN, hdri_missing, sky_missing
 
 FAKE = Path(__file__).resolve().parent / "fake_ovrtx"
 NO_LIGHTS_NOTE = "no lights in the stage: a default dome light"
@@ -72,7 +72,7 @@ def assets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     stage.write_text(SKY_WORLD, encoding="utf-8", newline="\n")
     with zipfile.ZipFile(cache / "ClearSky.usdz", "w") as zf:
         zf.write(stage, "Dynamic/ClearSky.usd")
-    pins = {rel: skies.FILES[rel][0] for rel in skies.sky_files("ClearSky")}
+    pins = skies.sky_pins("ClearSky")
     (cache / "ClearSky.json").write_text(json.dumps({"files": pins}), "utf-8")
     hdr = tmp_path / "sunny.hdr"
     hdr.write_bytes(b"#?RADIANCE\n")
@@ -169,7 +169,11 @@ def test_switching_at_runtime_swaps_the_reference_and_answers_what_shows(source,
     wait_health(src, "ok")
     until(lambda: calls(log, "add_usd_reference_from_string"))
     answer = src.call("set_environment", environment="hdri", timeout=10)
-    assert (answer["environment"], answer["note"], answer["renderer_note"]) == ("hdri", "", "")
+    assert (answer["environment"], answer["environment_note"], answer["renderer_note"]) == (
+        "hdri",
+        "",
+        "",
+    )
     assert answer["sky_controls"]["time_of_day"] == 6.93  # ClearSky's own, as fetched
     assert calls(log, "remove_usd")
     _sky, dome = calls(log, "add_usd_reference_from_string")
@@ -183,7 +187,7 @@ def test_switching_at_runtime_swaps_the_reference_and_answers_what_shows(source,
     assert len(calls(log, "add_usd_reference_from_string")) == 2
     # back to the stage's own light: the fallback dome and auto exposure return, and the note
     answer = src.call("set_environment", environment="stage", timeout=10)
-    assert (answer["environment"], answer["note"]) == ("stage", "")
+    assert (answer["environment"], answer["environment_note"]) == ("stage", "")
     assert answer["renderer_note"] == NO_LIGHTS_NOTE
     assert len(calls(log, "remove_usd")) == 2
     assert writes(log, "visibility")[-1]["value"] == ["inherited"]
@@ -225,7 +229,7 @@ def test_without_the_hdri_either_the_stage_lights_itself_and_both_notes_say_so(
         src.send("load", path=str(stage_file(tmp_path)), environment="sky")
         loaded = src.wait_event("loaded", timeout=30)
         assert loaded["environment"] == "stage"
-        assert loaded["environment_note"] == f"{sky_missing('ClearSky')}; {HDRI_MISSING}"
+        assert loaded["environment_note"] == f"{sky_missing('ClearSky')}; {hdri_missing('sunny')}"
         assert loaded["renderer_note"] == NO_LIGHTS_NOTE
         wait_health(src, "ok")
         assert not calls(log, "add_usd_reference_from_string")
@@ -283,5 +287,19 @@ def test_the_sky_layer_sets_the_sun_from_the_time_of_day_and_the_controls_write_
     assert state["sky"] == "ClearSky" and state["sky_controls"]["time_of_day"] == 8.0
     # another sky named: another reference (its package is not fetched here: the HDRI, said)
     answer = src.call("set_environment", sky="Overcast", timeout=10)
-    assert answer["environment"] == "hdri" and answer["note"] == sky_missing("Overcast")
+    assert answer["environment"] == "hdri" and answer["environment_note"] == sky_missing("Overcast")
     assert len(calls(log, "add_usd_reference_from_string")) == 2
+
+
+def test_the_ground_toggle_swaps_the_reference_for_one_with_the_floor(source, tmp_path, assets):
+    src, log = source
+    src.send("load", path=str(stage_file(tmp_path)), environment="sky")
+    src.wait_event("loaded", timeout=30)
+    wait_health(src, "ok")
+    until(lambda: calls(log, "add_usd_reference_from_string"))
+    assert 'def Xform "Ground"' not in calls(log, "add_usd_reference_from_string")[0]["text"]
+    src.call("set_environment", ground=True, timeout=10)
+    _, with_floor = calls(log, "add_usd_reference_from_string")
+    package = assets["sky"].split("[", 1)[0]
+    assert f"@{package}[Sky_Elements/PreviewScene.usda]@" in with_floor["text"]
+    assert src.call("state")["ground"] is True

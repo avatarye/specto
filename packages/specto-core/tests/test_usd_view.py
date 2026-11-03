@@ -77,6 +77,7 @@ def test_the_agent_schema_names_each_param_with_its_choices(engine: Engine):
         "time_of_day": None,
         "cloudiness": None,
         "haze": None,
+        "ground": False,
     }
     props = info["state_schema"]["properties"]
     assert props["renderer"]["enum"] == ["auto", "rtx", "storm"]
@@ -87,7 +88,11 @@ def test_the_agent_schema_names_each_param_with_its_choices(engine: Engine):
     assert props["environment"]["default"] == "stage"
     assert "Storm shows the HDRI" in props["environment"]["description"]
     assert props["sky"]["enum"][0] == "ClearSky" and len(props["sky"]["enum"]) == 7
-    assert props["hdri"]["enum"] == ["studio", "overcast", "sunny", "indoor", "urban"]
+    import specto_web  # the enum is the 3d view's manifest, in its order
+
+    names = [e["name"] for e in specto_web.environments()]
+    assert props["hdri"]["enum"] == names and "sunny" in names
+    assert (props["ground"]["type"], props["ground"]["default"]) == ("boolean", False)
     for name, top in (("time_of_day", 24), ("cloudiness", 1), ("haze", 1)):
         assert props[name]["type"] == ["number", "null"] and props[name]["maximum"] == top
     assert (props["camera_speed"]["minimum"], props["camera_speed"]["maximum"]) == (0.125, 8)

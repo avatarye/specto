@@ -59,18 +59,18 @@ source's methods (#139), so the usd host drives either one:
   the loaded stage; ``state`` reports ``view_mode``. In collision a pick names the
   collider, not the overlay prim that draws it;
 - the environment light (SPEC-31, :mod:`.environment`): ``load {path, environment, sky,
-  hdri, sky_controls}`` takes the choice (``stage``, ``sky``, ``hdri``), the sky and
-  HDRI names and the sky's controls (``{time_of_day, cloudiness, haze}``, each null for
-  the sky's own value; the last ones asked when left out) and ``loaded`` carries
-  ``environment``, what shows, ``environment_note`` when it is not what was asked (Storm
-  cannot render the sky's MDL and shows the HDRI; a sky not fetched yet or an HDRI not
-  built fall back the same way) and ``sky_controls``, the values in effect;
-  ``set_environment {environment, sky, hdri, sky_controls}`` switches without a reload
-  and answers ``{environment, note, renderer_note, sky_controls}``; ``set_sky_controls
-  {time_of_day, cloudiness, haze}`` moves the sun, the clouds and the haze of the sky
-  shown, live, answering ``{sky_controls}``; ``state`` reports ``environment``, ``sky``,
-  ``hdri`` and ``sky_controls``. The assets are looked up at each load and switch, so a
-  fetch made meanwhile is seen.
+  hdri, sky_controls, ground}`` takes the choice (``stage``, ``sky``, ``hdri``), the sky
+  and HDRI names, the sky's controls (``{time_of_day, cloudiness, haze}``, each null for
+  the sky's own value) and the sky's ground (the last ones asked when left out) and
+  ``loaded`` carries ``environment``, what shows, ``environment_note`` when it is not
+  what was asked (Storm cannot render the sky's MDL and shows the HDRI; a sky or an HDRI
+  not fetched yet fall back the same way) and ``sky_controls``, the values in effect;
+  ``set_environment {environment, sky, hdri, sky_controls, ground}`` switches without a
+  reload and answers ``{environment, environment_note, renderer_note, sky_controls}``;
+  ``set_sky_controls {time_of_day, cloudiness, haze}`` moves the sun, the clouds and the
+  haze of the sky shown, live, answering ``{sky_controls}``; ``state`` reports
+  ``environment``, ``sky``, ``hdri``, ``sky_controls`` and ``ground``. The assets are
+  looked up at each load and switch, so a fetch made meanwhile is seen.
 
 Frames: two steps in flight (48 fps against 39 synchronous at 1080p in the spike), each
 mapped to the CPU (Storm: read into a PBO) and copied into the ring's free slot in place.
@@ -225,6 +225,7 @@ class UsdSource:
         self.sky = skies.DEFAULT_SKY  # the sky and HDRI named, and the sky's controls
         self.hdri = env.DEFAULT_HDRI
         self.sky_controls = env.SkyControls()
+        self.ground = False  # the sky's preview floor
         self.assets = env.Assets(sky=None, hdri=None)
         self.authored: dict[str, Any] = {}  # what the sky shown authors (skies.authored)
         self._want_select: list[str] | None = None
@@ -368,7 +369,8 @@ class UsdSource:
                 "environment": self.environment_shown,
                 "sky": self.sky,
                 "hdri": self.hdri,
-                "sky_controls": env.effective(self.sky_controls, self.authored),
+                "sky_controls": self._controls_in_effect(),
+                "ground": self.ground,
             }
         if method == "shutdown":
             self._stop = True
@@ -541,6 +543,27 @@ class UsdSource:
             self.hdri = env.hdri_of(params["hdri"])
         if isinstance(params.get("sky_controls"), dict):
             self.sky_controls = env.SkyControls.of(params["sky_controls"])
+        if "ground" in params:
+            self.ground = bool(params["ground"])
+
+    @property
+    def _textured(self) -> bool:
+        return skies.SKIES[self.sky].textured
+
+    def _controls_in_effect(self) -> dict[str, float]:
+        return env.effective(self.sky_controls, self.authored, self._textured)
+
+    def _show_environment(self, shown: str, up_axis: str) -> None:
+        """Hand the renderer what shows, with the sky's controls and ground."""
+        self.renderer.set_environment(
+            shown,
+            up_axis,
+            self.assets,
+            self.sky_controls,
+            self.authored,
+            textured=self._textured,
+            ground=self.ground,
+        )
 
     def _resolve_environment(self) -> tuple[str, str]:
         """What shows for the environment asked, with this renderer and the assets on this
@@ -548,14 +571,16 @@ class UsdSource:
         self.assets = env.find_assets(self.sky, self.hdri)
         self.authored = skies.authored(self.sky) if self.assets.sky else {}
         renders_mdl = bool(getattr(self.renderer, "renders_mdl", False))
-        return env.resolve(self.environment, self.assets, renders_mdl=renders_mdl, sky=self.sky)
+        return env.resolve(
+            self.environment, self.assets, renders_mdl=renders_mdl, sky=self.sky, hdri=self.hdri
+        )
 
     def _environment_answer(self) -> dict:
         return {
             "environment": self.environment_shown,
-            "note": self.environment_note,
+            "environment_note": self.environment_note,
             "renderer_note": self._renderer_note(),
-            "sky_controls": env.effective(self.sky_controls, self.authored),
+            "sky_controls": self._controls_in_effect(),
         }
 
     def _set_sky_controls(self) -> dict:
@@ -564,11 +589,11 @@ class UsdSource:
             raise ValueError("no stage is rendering")
         if self.environment_shown == "sky" and hasattr(self.renderer, "set_sky_controls"):
             self.renderer.set_sky_controls(
-                env.shader_inputs(self.sky_controls, self.authored),
+                env.shader_inputs(self.sky_controls, self.authored, self._textured),
                 env.sun_matrix(env.sun_for(self.sky_controls, self.authored), self.info.up_axis),
             )
             self._budget = self.settle_steps
-        return {"sky_controls": env.effective(self.sky_controls, self.authored)}
+        return {"sky_controls": self._controls_in_effect()}
 
     def _renderer_note(self) -> str:
         """The readout's note: what the renderer cannot show, and how the stage is lit."""
@@ -586,9 +611,7 @@ class UsdSource:
             raise ValueError("no stage is rendering")
         shown, note = self._resolve_environment()
         if hasattr(self.renderer, "set_environment"):
-            self.renderer.set_environment(
-                shown, self.info.up_axis, self.assets, self.sky_controls, self.authored
-            )
+            self._show_environment(shown, self.info.up_axis)
             self._budget = self._environment_budget(shown)
             self._sky_compiling(shown)
         self.environment_shown, self.environment_note = shown, note
@@ -601,7 +624,7 @@ class UsdSource:
             return
         self._compiled_skies.add(self.assets.sky)
         self._compiling_sky = True
-        self.health("compiling sky", skies.SKIES.get(self.sky, self.sky))
+        self.health("compiling sky", skies.label(self.sky))
 
     def _environment_budget(self, shown: str) -> int:
         """The steps after an environment switch: a sky's MDL compiles for some seconds."""
@@ -676,7 +699,7 @@ class UsdSource:
             **info.loaded_event(self.renderer_name),
             environment=self.environment_shown,
             environment_note=self.environment_note,
-            sky_controls=env.effective(self.sky_controls, self.authored),
+            sky_controls=self._controls_in_effect(),
             **extra,
         )
         if self.renderer is None:
@@ -694,9 +717,7 @@ class UsdSource:
             lighting=info.lighting,
         )
         if self.environment_shown != "stage" and hasattr(self.renderer, "set_environment"):
-            self.renderer.set_environment(
-                self.environment_shown, info.up_axis, self.assets, self.sky_controls, self.authored
-            )
+            self._show_environment(self.environment_shown, info.up_axis)
             self._sky_compiling(self.environment_shown)  # under the loading label
         self.failed = False
         self._first_frame = True

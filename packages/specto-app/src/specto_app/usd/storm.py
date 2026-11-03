@@ -247,19 +247,20 @@ class StormRenderer:
 
     # -- the environment light (SPEC-31) -----------------------------------------------------
     def set_environment(
-        self, environment: str, up_axis: str, assets: Assets, *_controls: Any
+        self, environment: str, up_axis: str, assets: Assets, *_controls: Any, **_sky: Any
     ) -> None:
         """Draw ``environment`` (``stage`` or ``hdri``; the sky never reaches Storm, nor
-        its controls) from the next frame: the dome light composed in a sublayer of the
-        session layer (:func:`.environment.author`), the stage's own lights hidden under
-        it, scene lights on and the headlight off; ``stage`` clears all of that."""
+        its controls or ground) from the next frame: the dome light composed in a
+        sublayer of the session layer (:func:`.environment.author`) beside the stage's own
+        lights, scene lights on (the stage's and the dome) and the headlight off;
+        ``stage`` clears all of that."""
         if (environment, assets.hdri) == (self._environment, self._environment_hdri):
             return
         self._environment_hdri = assets.hdri
         if self._environment_layer is None:
             self._environment_layer = self.Sdf.Layer.CreateAnonymous("specto-environment")
             self.stage.GetSessionLayer().subLayerPaths.insert(0, self._environment_layer.identifier)
-        author_environment(self._environment_layer, environment, up_axis, assets, self.stage)
+        author_environment(self._environment_layer, environment, up_axis, assets)
         self._environment = environment
         self.params.enableSceneLights = environment != "stage"
 

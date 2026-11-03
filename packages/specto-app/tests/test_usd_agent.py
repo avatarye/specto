@@ -143,6 +143,15 @@ def test_snap_of_a_usd_view_reports_the_stage_renderer_frame_and_camera():
         },
         "look_through": "/World/Cameras/Front",
         "camera_speed": 1.0,
+        # the environment light (SPEC-31): the params' choice before the source says
+        "environment": "stage",
+        "environment_note": "",
+        "sky": "ClearSky",
+        "hdri": "sunny",
+        "sky_controls": {},
+        "ground": False,
+        "sky_fetch": {},
+        "hdri_fetch": {},
     }
 
 

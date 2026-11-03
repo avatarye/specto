@@ -1,4 +1,4 @@
-"""The dynamic skies' fetch (SPEC-31): a sky's files come from the bucket pinned by
+"""The environment assets' fetch (SPEC-31): a sky's files come from the bucket pinned by
 sha256 into the user's cache, packed as one stored ``.usdz`` with the stage first; a hash
 mismatch is refused and nothing kept, offline is said in words, a cached sky is never
 fetched again; the worker fetches the sky asked for first, then the rest, CloudySky
@@ -66,7 +66,7 @@ def bucket(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A local bucket with fake bytes for every file, the pins replaced to match;
     yields ``(base_url, root)``."""
     root = tmp_path / "bucket"
-    pins: dict[str, tuple[str, int]] = {}
+    pins: dict[str, skies.Pin] = {}
     for rel in skies.FILES:
         if rel.endswith(".usd") and rel.startswith("Dynamic/"):
             data = WORLD.encode()
@@ -80,7 +80,7 @@ def bucket(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        pins[rel] = (hashlib.sha256(data).hexdigest(), len(data))
+        pins[rel] = skies.Pin(hashlib.sha256(data).hexdigest(), len(data))
     monkeypatch.setattr(skies, "FILES", pins)
     Hits.count = 0
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), partial(Hits, directory=str(root)))
@@ -96,13 +96,15 @@ def test_the_catalogue_names_seven_skies_with_their_files_and_sizes():
     assert list(skies.SKIES) == [
         "ClearSky", "Cirrus", "CumulusLight", "CumulusHeavy", "Overcast", "NightSky", "CloudySky",
     ]  # fmt: skip
-    assert skies.SKIES["ClearSky"] == "Clear sky" and skies.DEFAULT_SKY == "ClearSky"
+    assert skies.label("ClearSky") == "Clear sky" and skies.DEFAULT_SKY == "ClearSky"
+    assert skies.PROCEDURAL == tuple(list(skies.SKIES)[:6]) and skies.TEXTURED == ("CloudySky",)
     files = skies.sky_files("ClearSky")
     assert files[0] == "Dynamic/ClearSky.usd"  # the usdz's default layer
     assert "Sky_Elements/materials/procedural/ProceduralSky.mdl" in files
     assert "Sky_Elements/materials/procedural/ClearSky.mdl" in files
     assert set(skies.SHARED) <= set(files)
-    assert skies.sky_bytes("ClearSky") < 400_000
+    assert skies.PREVIEW_SCENE in files and "Sky_Elements/uvsphere.usd" in files  # the ground
+    assert skies.sky_bytes("ClearSky") < 1_100_000
     cloudy = skies.sky_files("CloudySky")
     assert "Sky_Elements/materials/cloudy/SunsetSkyMat.mdl" in cloudy
     assert 60_000_000 < skies.sky_bytes("CloudySky") < 70_000_000  # its textures
@@ -126,7 +128,8 @@ def test_a_sky_is_fetched_once_checked_and_packed_as_a_stored_usdz(tmp_path, buc
         assert set(names) == set(skies.sky_files("ClearSky"))
         assert all(i.compress_type == zipfile.ZIP_STORED for i in zf.infolist())
     manifest = json.loads((cache / "ClearSky.json").read_text(encoding="utf-8"))
-    assert manifest["files"] == {rel: skies.FILES[rel][0] for rel in skies.sky_files("ClearSky")}
+    assert manifest["files"] == skies.sky_pins("ClearSky")
+    assert skies.preview_reference("ClearSky", cache) == f"{pkg.as_posix()}[{skies.PREVIEW_SCENE}]"
     assert manifest["entry"] == "Dynamic/ClearSky.usd"
     notice = (cache / skies.NOTICE).read_text(encoding="utf-8")
     assert "stand-alone" in notice and "publicly accessible software repositories" in notice
@@ -203,8 +206,8 @@ def test_the_worker_fetches_the_sky_asked_first_then_the_rest_cloudy_last(tmp_pa
         order.append(name)
         return real(name, folder, url, progress)
 
-    fetcher = skies.SkyFetcher(lambda: changes.append("x"), cache, base, fetch=fetch)
-    assert fetcher.status("Overcast")["cached"] is False
+    fetcher = skies.AssetFetcher(lambda: changes.append("x"), cache, base, fetch=fetch)
+    assert fetcher.status("Overcast") == skies.FetchStatus(cached=False)
     fetcher.ask("Overcast")
     wait(lambda: not fetcher.busy and fetcher.cached("CloudySky"))
     assert order[0] == "Overcast" and order[-1] == "CloudySky"
@@ -222,14 +225,14 @@ def test_the_panels_note_says_fetching_queued_or_why_it_failed(tmp_path, bucket)
 
     def fetch(name, folder, url, progress):
         if name == "ClearSky":
-            progress(1000, 300_000)
+            progress(1000, 1_000_000)
             gate.wait(10)
         return real(name, folder, url, progress)
 
-    fetcher = skies.SkyFetcher(None, cache, base, fetch=fetch)
+    fetcher = skies.AssetFetcher(None, cache, base, fetch=fetch)
     fetcher.ask("ClearSky")
-    wait(lambda: fetcher.status("ClearSky")["done"] == 1000)
-    assert fetcher.note("ClearSky") == "fetching Clear sky 0.0 of 0.3 MB"
+    wait(lambda: fetcher.status("ClearSky").done == 1000)
+    assert fetcher.note("ClearSky") == "fetching Clear sky 0.0 of 1.0 MB"
     assert fetcher.note("Cirrus") == "Cirrus is queued to fetch"
     gate.set()
     wait(lambda: not fetcher.busy and fetcher.cached("CloudySky"))
@@ -240,3 +243,115 @@ def test_the_panels_note_says_fetching_queued_or_why_it_failed(tmp_path, bucket)
     assert fetcher.busy and fetcher.note("NightSky").startswith("fetching Night")
     wait(lambda: not fetcher.busy)
     assert "not kept" in fetcher.note("NightSky")
+
+
+def test_a_download_past_its_pinned_size_is_cut_off_and_nothing_kept(tmp_path, bucket):
+    base, root = bucket
+    (root / "Dynamic/Cirrus.usd").write_bytes(b"x" * 400_000)  # far past its pin
+    cache = tmp_path / "cache"
+    with pytest.raises(skies.SkyFetchError) as e:
+        skies.fetch_sky("Cirrus", cache, base)
+    assert "larger than" in str(e.value) and "not kept" in str(e.value)
+    src = cache / "src" / "Dynamic"
+    assert not (src / "Cirrus.usd").exists() and not (src / "Cirrus.usd.part").exists()
+
+
+def test_the_part_file_is_checked_before_it_is_moved_into_place(tmp_path, bucket, monkeypatch):
+    """The stream's hash and the file on disk must both match: a .part changed under the
+    writer (a disk error, another process) is refused, never renamed."""
+    base, _ = bucket
+    real_replace = Path.replace
+    seen: list[str] = []
+
+    def replace(self, target):
+        seen.append(skies._sha256(self))  # what is renamed has the pinned hash
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", replace)
+    skies.fetch_sky("ClearSky", tmp_path / "cache", base)
+    pins = {pin.sha256 for pin in skies.FILES.values()}
+    part_hashes = seen[: len(skies.sky_files("ClearSky"))]
+    assert part_hashes and all(h in pins for h in part_hashes)
+
+
+def test_two_fetchers_of_one_folder_take_turns_under_its_lock(tmp_path, bucket):
+    base, _ = bucket
+    cache = tmp_path / "cache"
+    results: list[Path] = []
+    errors: list[Exception] = []
+
+    def one():
+        try:
+            results.append(skies.fetch_sky("Overcast", cache, base))
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=one) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert not errors and len(results) == 3 and len(set(results)) == 1
+    assert Hits.count == len(skies.sky_files("Overcast"))  # each file downloaded once
+    assert (cache / skies.LOCK).exists()
+
+
+@pytest.fixture
+def hdri_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A local server for the HDRIs and a manifest naming its files; the build cache off."""
+    import specto_web
+
+    root = tmp_path / "hdri-bucket"
+    root.mkdir()
+    data = b"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 1\n" + b"\x80" * 4
+    (root / "sunny_1k.hdr").write_bytes(data)
+    manifest = [{
+        "name": "sunny", "label": "Sunny",
+        "url": "https://dl.example.invalid/hdr/sunny_1k.hdr",
+        "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
+    }]  # fmt: skip
+    monkeypatch.setattr(specto_web, "environments", lambda root=None: manifest)
+    monkeypatch.setattr(specto_web, "hdri_source", lambda name, root=None: None)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), partial(Hits, directory=str(root)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv(skies.HDRI_BASE_URL_ENV, f"http://127.0.0.1:{server.server_address[1]}")
+    try:
+        yield root
+    finally:
+        server.shutdown()
+
+
+def test_an_hdri_is_fetched_into_the_users_folder_pinned_and_found_there(tmp_path, hdri_server):
+    folder = tmp_path / "hdri"
+    assert skies.hdri_path("sunny", folder) is None
+    path = skies.fetch_hdri("sunny", folder)
+    assert path == folder / "sunny_1k.hdr" and skies.hdri_path("sunny", folder) == path
+    assert (folder / skies.HDRI_NOTICE).is_file()
+    hits = Hits.count
+    assert skies.fetch_hdri("sunny", folder) == path and Hits.count == hits  # cached
+    (hdri_server / "sunny_1k.hdr").write_bytes(b"tampered")
+    path.unlink()
+    with pytest.raises(skies.SkyFetchError) as e:
+        skies.fetch_hdri("sunny", folder)
+    assert "not kept" in str(e.value) and not path.exists()
+
+
+def test_the_build_cache_is_used_when_a_checkout_has_one(tmp_path, monkeypatch):
+    import specto_web
+
+    built = tmp_path / "built.hdr"
+    built.write_bytes(b"#?RADIANCE\n")
+    monkeypatch.setattr(specto_web, "hdri_source", lambda name, root=None: built)
+    assert skies.hdri_path("sunny", tmp_path / "hdri") == built
+    assert skies.fetch_hdri("sunny", tmp_path / "hdri") == built  # nothing fetched
+
+
+def test_the_worker_fetches_an_hdri_by_its_key(tmp_path, hdri_server):
+    folder = tmp_path / "hdri"
+    fetcher = skies.AssetFetcher(None, tmp_path / "skies", hdri_folder=folder)
+    key = skies.hdri_key("sunny")
+    assert not fetcher.cached(key)
+    fetcher.ask(key)
+    wait(lambda: not fetcher.busy)
+    assert fetcher.cached(key) and fetcher.note(key) == ""
+    assert not fetcher.cached("ClearSky")  # an HDRI asked does not sweep the skies

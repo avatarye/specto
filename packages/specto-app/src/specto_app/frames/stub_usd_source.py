@@ -41,9 +41,11 @@ Methods on top of the lifecycle set (:mod:`.control`):
   available (the fake bases are colliders); every load starts lit. Only recorded: the
   picture stays the test pattern;
 - the environment light (SPEC-31), as ``specto-usd-source`` answers it: ``load`` takes
-  ``environment``, ``loaded`` carries ``environment`` and ``environment_note``,
-  ``set_environment {environment}`` answers ``{environment, note, renderer_note}`` and
-  ``state`` reports ``environment``. Every choice shows as asked, unless
+  ``environment``, ``sky``, ``hdri``, ``sky_controls`` and ``ground``; ``loaded`` carries
+  ``environment``, ``environment_note`` and ``sky_controls``; ``set_environment``
+  answers ``{environment, environment_note, renderer_note, sky_controls}``,
+  ``set_sky_controls`` ``{sky_controls}``; ``state`` reports ``environment``, ``sky``,
+  ``hdri``, ``sky_controls`` and ``ground``. Every choice shows as asked, unless
   ``SPECTO_USD_STUB_NO_MDL`` is set: then the sky falls back to the HDRI with Storm's
   note, for the flows and tests of that path. Only recorded;
 - ``crash {code, stderr}`` (tests only, #155): writes the ``stderr`` lines to stderr and
@@ -86,7 +88,7 @@ from ..usd.environment import (
     hdri_of,
     sky_of,
 )
-from ..usd.skies import DEFAULT_SKY
+from ..usd.skies import DEFAULT_SKY, SKIES
 from .stub_source import StubSource
 
 RENDERER = "stub"
@@ -226,6 +228,7 @@ class StubUsdSource(StubSource):
         self.environment = "stage"  # the environment asked (SPEC-31); what shows follows
         self.sky, self.hdri = DEFAULT_SKY, DEFAULT_HDRI
         self.sky_controls = SkyControls()
+        self.ground = False
         self.renders_mdl = not os.environ.get("SPECTO_USD_STUB_NO_MDL")
         self.start_phase = START_PHASE.get(args.renderer)
         self.crash_after_s = max(0.0, args.crash_after_ms / 1000.0)
@@ -251,7 +254,7 @@ class StubUsdSource(StubSource):
             shown, note = self.environment_shown()
             return {
                 "environment": shown,
-                "note": note,
+                "environment_note": note,
                 "renderer_note": "",
                 "sky_controls": self.sky_controls_shown(),
             }
@@ -281,6 +284,7 @@ class StubUsdSource(StubSource):
                 "sky": self.sky,
                 "hdri": self.hdri,
                 "sky_controls": self.sky_controls_shown(),
+                "ground": self.ground,
             }
         stage_methods = ("pick", "properties", "bounds", "reveal", "set_view_mode", "view_modes")
         if method in stage_methods and self.loaded is None:
@@ -419,6 +423,8 @@ class StubUsdSource(StubSource):
             self.hdri = hdri_of(params["hdri"])
         if isinstance(params.get("sky_controls"), dict):
             self.sky_controls = SkyControls.of(params["sky_controls"])
+        if "ground" in params:
+            self.ground = bool(params["ground"])
 
     def environment_shown(self) -> tuple[str, str]:
         """What shows for the environment asked, and why it differs: as asked, except the
@@ -429,7 +435,8 @@ class StubUsdSource(StubSource):
 
     def sky_controls_shown(self) -> dict[str, float]:
         """The controls in effect: the params, else the fake sky's own (ClearSky's)."""
-        return effective(self.sky_controls, AUTHORED | {"cumulus": False, "haze": 0.001})
+        textured = SKIES[self.sky].textured
+        return effective(self.sky_controls, AUTHORED | {"cumulus": False, "haze": 0.001}, textured)
 
     def _load(self, path: str) -> None:
         self.loaded = None

@@ -107,7 +107,7 @@ def test_the_hdri_lights_the_stage_the_sky_falls_back_to_it_and_the_file_is_unto
 
             seq = reader.latest().seq
             answer = src.call("set_environment", environment="hdri", timeout=60)
-            assert (answer["environment"], answer["note"]) == ("hdri", "")
+            assert (answer["environment"], answer["environment_note"]) == ("hdri", "")
             hdri = rgb(frame_after(reader, seq + 2))
             assert np.abs(hdri - plain).mean() > 10, "the dome is another picture"
             top = hdri[: hdri.shape[0] // 6]
@@ -116,7 +116,7 @@ def test_the_hdri_lights_the_stage_the_sky_falls_back_to_it_and_the_file_is_unto
 
             # the sky: Storm cannot render MDL, the HDRI stays and the note says why
             answer = src.call("set_environment", environment="sky", timeout=60)
-            assert (answer["environment"], answer["note"]) == ("hdri", env.STORM_NOTE)
+            assert (answer["environment"], answer["environment_note"]) == ("hdri", env.STORM_NOTE)
             assert answer["renderer_note"] == "MDL materials show grey; no sky"
             state = src.call("state")
             assert state["environment"] == "hdri" and state["loaded"] == str(path)

@@ -16,6 +16,28 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .ports import CONTEXT_VIEWER, VIEW_ROLES
 
+
+def _hdri_names() -> list[str]:
+    """The 3d view's HDRI environments (specto-web's ``web/3d/environments.json``), in
+    its order; none where specto-web is not installed."""
+    try:
+        import specto_web
+    except ImportError:  # pragma: no cover - the workspace installs it
+        return []
+    return [str(e["name"]) for e in specto_web.environments()]
+
+
+_HDRI_NAMES = _hdri_names()
+_HDRI_DEFAULT = "sunny" if "sunny" in _HDRI_NAMES else (_HDRI_NAMES[0] if _HDRI_NAMES else None)
+#: the usd view's ``hdri`` param (SPEC-31): one of the 3d view's HDRIs
+_HDRI_SCHEMA: dict[str, Any] = {
+    **({"enum": _HDRI_NAMES} if _HDRI_NAMES else {"type": ["string", "null"]}),
+    "default": _HDRI_DEFAULT,
+    "description": "The HDRI when environment is hdri (and what stands in for the sky "
+    "under Storm or while the sky is fetched): one of the 3d view's Poly Haven "
+    "environments (web/3d/environments.json).",
+}
+
 DATA_KINDS: tuple[str, ...] = (
     "image2d",
     "image_seq",
@@ -390,10 +412,11 @@ BUILTIN_VIEWS: list[ViewManifest] = [
             "view_mode": "lit",
             "environment": "stage",
             "sky": "ClearSky",
-            "hdri": "sunny",
+            "hdri": _HDRI_DEFAULT,
             "time_of_day": None,
             "cloudiness": None,
             "haze": None,
+            "ground": False,
         },
         state_schema={
             "type": "object",
@@ -451,9 +474,9 @@ BUILTIN_VIEWS: list[ViewManifest] = [
                     "only: Storm shows the HDRI instead) or hdri (an image-based light, "
                     "one of the 3d view's HDRIs, named by hdri). Composed over the stage "
                     "in the viewer, never written to the file; kept across stages. The "
-                    "skies are fetched on first use into the user's Specto folder; snap "
-                    "reports what shows, the fetch's progress and a note when it is not "
-                    "the choice (the sky not fetched yet, the HDRI not built).",
+                    "skies and the HDRIs are fetched on first use into the user's Specto "
+                    "folder; snap reports what shows, the fetch's progress and a note "
+                    "when it is not the choice (the sky or the HDRI not fetched yet).",
                 },
                 "sky": {
                     "enum": [
@@ -470,11 +493,13 @@ BUILTIN_VIEWS: list[ViewManifest] = [
                     "light or heavy cumulus, overcast, night, or the textured cloudy sky "
                     "(67 MB of textures, fetched last).",
                 },
-                "hdri": {
-                    "enum": ["studio", "overcast", "sunny", "indoor", "urban"],
-                    "default": "sunny",
-                    "description": "The HDRI when environment is hdri (and what Storm "
-                    "shows for the sky): the 3d view's five Poly Haven environments.",
+                "hdri": _HDRI_SCHEMA,
+                "ground": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "With a sky: the floor of the preview scene the skies "
+                    "ship with (10 x 20 m, its top at height 0, in the stage's units), "
+                    "under the stage. Off by default.",
                 },
                 "time_of_day": {
                     "type": ["number", "null"],

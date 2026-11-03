@@ -108,6 +108,7 @@ from ..usd.environment import (
     ENVIRONMENTS,
     HDRIS,
     SkyControls,
+    controls_of,
     environment_of,
     hdri_of,
     sky_of,
@@ -664,7 +665,7 @@ class UsdBridge(QObject):
 
     @Property("QVariantList", constant=True)
     def skies(self) -> list[dict[str, Any]]:
-        return [{"sky": name, "label": label} for name, label in skies.SKIES.items()]
+        return [{"sky": name, "label": sky.label} for name, sky in skies.SKIES.items()]
 
     @Property("QVariantList", constant=True)
     def hdris(self) -> list[dict[str, Any]]:
@@ -676,7 +677,7 @@ class UsdBridge(QObject):
 
     @Property(str, notify=environmentChanged)
     def skyLabel(self) -> str:
-        return skies.SKIES.get(self._host.sky, self._host.sky)
+        return skies.label(self._host.sky)
 
     @Property(str, notify=environmentChanged)
     def hdri(self) -> str:
@@ -688,8 +689,30 @@ class UsdBridge(QObject):
 
     @Property(bool, notify=environmentChanged)
     def skyControlsOn(self) -> bool:
-        """The sliders act: a sky shows (Storm and the textured sky have none to move)."""
-        return self._host.environment_shown == "sky" and self._host.sky in skies.PROCEDURAL
+        """The sky shows, so its controls (those it takes) act; under Storm none do."""
+        return bool(self._host.sky_controls_offered())
+
+    @Property(bool, notify=environmentChanged)
+    def timeOfDayOn(self) -> bool:
+        return "time_of_day" in self._host.sky_controls_offered()
+
+    @Property(bool, notify=environmentChanged)
+    def cloudinessOn(self) -> bool:
+        return "cloudiness" in self._host.sky_controls_offered()
+
+    @Property(bool, notify=environmentChanged)
+    def hazeOn(self) -> bool:
+        return "haze" in self._host.sky_controls_offered()
+
+    @Property(bool, notify=environmentChanged)
+    def ground(self) -> bool:
+        return self._host.ground
+
+    @Property(bool, notify=environmentChanged)
+    def hdriStandsIn(self) -> bool:
+        """The HDRI shows for the sky (Storm, or the sky on its way): the panel offers
+        the HDRI list beside the sky's."""
+        return self._host.hdri_stands_in
 
     @Property(float, notify=environmentChanged)
     def timeOfDay(self) -> float:
@@ -720,6 +743,10 @@ class UsdBridge(QObject):
     @Slot(str)
     def setHdri(self, name: str) -> None:
         self._host.set_hdri(str(name))
+
+    @Slot(bool)
+    def setGround(self, on: bool) -> None:
+        self._host.set_ground(bool(on))
 
     @Slot(float, bool)
     def setTimeOfDay(self, value: float, final: bool) -> None:
@@ -842,7 +869,7 @@ class UsdHost(Stepping, QuickViewHost):
         source: SourceCommand = source_command,
         camera_factory: CameraFactory = PlaceholderCamera,
         idle_kill_s: float = IDLE_KILL_S,
-        fetcher_factory: Callable[..., Any] = skies.SkyFetcher,
+        fetcher_factory: Callable[..., Any] = skies.AssetFetcher,
     ) -> None:
         super().__init__(ctx, view_id, manifest)
         self.source_command = source
@@ -911,8 +938,9 @@ class UsdHost(Stepping, QuickViewHost):
         self.sky_controls = SkyControls()  # params.time_of_day, cloudiness, haze
         self.sky_shown: dict[str, float] = {}  # the controls in effect (the source's answer)
         self.sky_fetch_note = ""  # the fetch of the sky chosen: progress, or why it failed
-        self._fetcher: Any = None  # skies.SkyFetcher, made on the first sky not cached
-        self._fetching: set[str] = set()  # the skies asked of it, applied once they land
+        self.ground = False  # params.ground: the sky's preview floor
+        self._fetcher: Any = None  # skies.AssetFetcher, made on the first asset not here
+        self._fetching: set[str] = set()  # the keys asked of it, applied once they land
         self._controls_out = QTimer(self)  # the sliders' live changes, coalesced
         self._controls_out.setSingleShot(True)
         self._controls_out.setInterval(CONTROLS_SEND_MS)
@@ -1271,16 +1299,26 @@ class UsdHost(Stepping, QuickViewHost):
             return
         self.sky = name
         self.bridge.environmentChanged.emit()
-        self._write_params({"sky": name}, f"sky {skies.SKIES[name]}")
+        self._write_params({"sky": name}, f"sky {skies.label(name)}")
         self._apply_environment()
 
     def set_hdri(self, name: str) -> None:
-        """The panel's HDRI list: ``params.hdri``, one submit."""
+        """The panel's HDRI list: ``params.hdri``, one submit; one not here is fetched."""
         if name not in HDRIS or name == self.hdri:
             return
         self.hdri = name
         self.bridge.environmentChanged.emit()
         self._write_params({"hdri": name}, f"HDRI {HDRIS[name]}")
+        self._apply_environment()
+
+    def set_ground(self, on: bool) -> None:
+        """The panel's Ground toggle: ``params.ground``, one submit."""
+        on = bool(on)
+        if on == self.ground:
+            return
+        self.ground = on
+        self.bridge.environmentChanged.emit()
+        self._write_params({"ground": on}, "ground on" if on else "ground off")
         self._apply_environment()
 
     def _environment_params(self) -> dict[str, Any]:
@@ -1290,14 +1328,15 @@ class UsdHost(Stepping, QuickViewHost):
             "sky": self.sky,
             "hdri": self.hdri,
             "sky_controls": self.sky_controls.as_dict(),
+            "ground": self.ground,
         }
 
     def _take_environment(self, result: dict[str, Any]) -> None:
         """The source's answer: what shows, why, and the controls in effect."""
-        shown = str(result.get("environment") or "stage")
-        note = str(result.get("note") or result.get("environment_note") or "")
+        if "environment" in result:
+            self.environment_shown = str(result.get("environment") or "stage")
+            self.environment_note = str(result.get("environment_note") or "")
         controls = result.get("sky_controls")
-        self.environment_shown, self.environment_note = shown, note
         if isinstance(controls, dict):
             self.sky_shown = {k: float(v) for k, v in controls.items()}
         self.bridge.environmentChanged.emit()
@@ -1308,15 +1347,15 @@ class UsdHost(Stepping, QuickViewHost):
     def _stage_environment(self, params: dict[str, Any]) -> None:
         """A stage loaded with the choice sent along: the source says what shows."""
         self._take_environment(params)
-        self._ensure_sky()
+        self._ensure_assets()
         if self.environment_shown != self.environment:  # a fallback, or an old source
             self._apply_environment()
 
     def _apply_environment(self) -> None:
         """Ask the source for the environment chosen on the stage shown; what shows is its
         answer (the choice, or the fallback with its note), and the readout's note follows.
-        A sky not cached yet is fetched meanwhile and applied when it lands."""
-        self._ensure_sky()
+        A sky or an HDRI not here yet is fetched meanwhile and applied when it lands."""
+        self._ensure_assets()
         if self.source is None or not self.stage:
             return
         path, want = self.path, self._environment_params()
@@ -1327,59 +1366,95 @@ class UsdHost(Stepping, QuickViewHost):
 
         self._request("set_environment", take, **want, timeout=MODE_TIMEOUT_S)
 
-    # the dynamic skies' fetch: on first use, off the GUI thread, said in the panel
-    def _ensure_sky(self) -> None:
-        if self.environment != "sky" or skies.package(self.sky) is not None:
-            self._refresh_fetch_note()
-            return
-        if self._fetcher is None:
-            self._fetcher = self._fetcher_factory(self._fetch_changed.emit)
-        self._fetching.add(self.sky)
-        self._fetcher.ask(self.sky)
+    # the environment's assets: fetched on first use, off the GUI thread, said in the panel
+    def _wanted_assets(self) -> list[str]:
+        """The fetcher keys the choice needs: the sky (and the HDRI that stands in for it
+        meanwhile, or under Storm), or the HDRI."""
+        if self.environment == "sky":
+            return [self.sky, skies.hdri_key(self.hdri)]
+        if self.environment == "hdri":
+            return [skies.hdri_key(self.hdri)]
+        return []
+
+    def _ensure_assets(self) -> None:
+        for key in self._wanted_assets():
+            if self._asset_cached(key):
+                continue
+            if self._fetcher is None:
+                self._fetcher = self._fetcher_factory(self._fetch_changed.emit)
+            self._fetching.add(key)
+            self._fetcher.ask(key)
         self._refresh_fetch_note()
+
+    def _asset_cached(self, key: str) -> bool:
+        if self._fetcher is not None:
+            return bool(self._fetcher.cached(key))
+        if key.startswith(skies.HDRI_PREFIX):
+            return skies.hdri_path(key[len(skies.HDRI_PREFIX) :]) is not None
+        return skies.package(key) is not None
 
     @Slot()
     def _on_fetch_changed(self) -> None:
-        """The fetcher moved (on the GUI thread): the note, and a sky that landed applies."""
+        """The fetcher moved (on the GUI thread): the note, and an asset the choice needs
+        that landed applies."""
         if self.disposed or self._fetcher is None:
             return
-        landed = [name for name in self._fetching if self._fetcher.cached(name)]
-        for name in landed:
-            self._fetching.discard(name)
+        landed = {key for key in self._fetching if self._fetcher.cached(key)}
+        self._fetching -= landed
         self._refresh_fetch_note()
-        if self.sky in landed and self.environment == "sky":
+        if landed & set(self._wanted_assets()):
             self._apply_environment()
 
     def _refresh_fetch_note(self) -> None:
+        """The fetch's line: the sky's while it is on its way, else the HDRI's when the
+        HDRI is what is asked for (or stands in for the sky)."""
         note = ""
-        if self.environment == "sky" and self._fetcher is not None:
-            note = self._fetcher.note(self.sky)
+        if self._fetcher is not None:
+            for key in self._wanted_assets():
+                note = self._fetcher.note(key)
+                if note:
+                    break
         if note != self.sky_fetch_note:
             self.sky_fetch_note = note
             self.bridge.environmentChanged.emit()
 
     @property
     def environment_words(self) -> str:
-        """The panel's line under the control: the fetch's progress or failure while the
-        sky chosen is on its way, else the source's note on what shows instead."""
+        """The panel's line under the control: an asset's fetch while it is on its way,
+        else the source's note on what shows instead."""
         return self.sky_fetch_note or self.environment_note
+
+    def _fetch_state(self, key: str) -> dict[str, Any]:
+        if self._fetcher is None:
+            return {"cached": self._asset_cached(key)}
+        return self._fetcher.status(key).as_dict()
 
     def sky_fetch_state(self) -> dict[str, Any]:
         """``snap``: the sky chosen and its fetch (cached, fetching, done, total, error)."""
-        if self._fetcher is None:
-            return {"sky": self.sky, "cached": skies.package(self.sky) is not None}
-        return {"sky": self.sky, **self._fetcher.status(self.sky)}
+        return {"sky": self.sky, **self._fetch_state(self.sky)}
+
+    def hdri_fetch_state(self) -> dict[str, Any]:
+        """``snap``: the HDRI chosen and its fetch."""
+        return {"hdri": self.hdri, **self._fetch_state(skies.hdri_key(self.hdri))}
+
+    @property
+    def hdri_stands_in(self) -> bool:
+        """The HDRI shows for the sky chosen (Storm, or the sky not here yet)."""
+        return self.environment == "sky" and self.environment_shown == "hdri"
+
+    def sky_controls_offered(self) -> tuple[str, ...]:
+        """The sky's controls that act now: those the sky takes, while it shows."""
+        if self.environment_shown != "sky":
+            return ()
+        return controls_of(self.sky)
 
     # the sky's controls: live while a slider moves, one user submit on release
     def set_sky_control(self, name: str, value: float | None, *, final: bool = True) -> None:
-        """``time_of_day``, ``cloudiness`` or ``haze``: the sky follows at once; the
-        param is written on ``final`` (a slider's release, the agent's value)."""
-        if name not in ("time_of_day", "cloudiness", "haze"):
+        """One of :data:`SkyControls.NAMES`: the sky follows at once; the param is written
+        on ``final`` (a slider's release, the agent's value)."""
+        if name not in SkyControls.NAMES:
             return
-        if value is not None:
-            value = round(float(value), 4)  # a slider's step arithmetic, not its noise
-        params = {**self.sky_controls.as_dict(), name: value}
-        controls = SkyControls.of(params)
+        controls = self.sky_controls.with_value(name, value)
         if controls != self.sky_controls:
             self.sky_controls = controls
             self.bridge.environmentChanged.emit()
@@ -1395,21 +1470,17 @@ class UsdHost(Stepping, QuickViewHost):
 
         def take(result: dict[str, Any]) -> None:
             if path == self.path and want == self.sky_controls:
-                self._take_environment({**result, "environment": self.environment_shown,
-                                        "note": self.environment_note})  # fmt: skip
+                self._take_environment({"sky_controls": result.get("sky_controls")})
 
         self._request("set_sky_controls", take, **want.as_dict(), timeout=MODE_TIMEOUT_S)
 
     def sky_values(self) -> dict[str, float]:
-        """The controls as the sliders show them: the values in effect (the source's), the
-        params before a stage says."""
-        shown = dict(self.sky_shown)
+        """The controls as the sliders show them: the params, else the values in effect
+        (the source's), else where a slider rests before a sky says."""
+        shown = {**SkyControls.SLIDER_DEFAULTS, **self.sky_shown}
         for key, value in self.sky_controls.as_dict().items():
             if value is not None:
                 shown[key] = value
-        shown.setdefault("time_of_day", 12.0)
-        shown.setdefault("cloudiness", 0.0)
-        shown.setdefault("haze", 0.0)
         return shown
 
     def _on_phase(self, state: str, message: str, seq: int | None = None) -> None:
@@ -2192,9 +2263,10 @@ class UsdHost(Stepping, QuickViewHost):
             self._apply_view_mode()
         environment = environment_of(p.get("environment", "stage"))
         sky, hdri = sky_of(p.get("sky")), hdri_of(p.get("hdri"))
-        controls = SkyControls.of(p)
-        if (environment, sky, hdri) != (self.environment, self.sky, self.hdri):
-            self.environment, self.sky, self.hdri = environment, sky, hdri
+        controls, ground = SkyControls.of(p), bool(p.get("ground", False))
+        choice = (environment, sky, hdri, ground)
+        if choice != (self.environment, self.sky, self.hdri, self.ground):
+            self.environment, self.sky, self.hdri, self.ground = choice
             self.sky_controls = controls
             self.bridge.environmentChanged.emit()
             self._apply_environment()
@@ -2281,7 +2353,10 @@ class UsdHost(Stepping, QuickViewHost):
             "sky": self.sky,
             "hdri": self.hdri,
             "sky_controls": self.sky_values(),
+            "sky_controls_offered": list(self.sky_controls_offered()),
+            "ground": self.ground,
             "sky_fetch": self.sky_fetch_state(),
+            "hdri_fetch": self.hdri_fetch_state(),
             "time": self.time_snapshot(),
             "source": source,
             "failure": self.failure,

@@ -46,12 +46,14 @@ def test_a_sky_not_fetched_falls_back_to_the_hdri_and_an_hdri_not_built_to_the_s
     missing = env.sky_missing("Overcast")
     assert resolve("sky", no_sky, renders_mdl=True, sky="Overcast") == ("hdri", missing)
     assert missing == "Overcast is not fetched yet: the HDRI instead"
-    assert resolve("hdri", no_hdr, renders_mdl=True) == ("stage", env.HDRI_MISSING)
-    assert "packages/specto-web/build.py" in env.HDRI_MISSING
+    missing_hdri = env.hdri_missing("urban")
+    assert resolve("hdri", no_hdr, renders_mdl=True, hdri="urban") == ("stage", missing_hdri)
+    assert missing_hdri == "the Urban HDRI is not fetched yet: the stage's own light"
     shown, note = resolve("sky", NONE, renders_mdl=True)
-    assert shown == "stage" and note == f"{env.sky_missing('ClearSky')}; {env.HDRI_MISSING}"
+    hdri_note = env.hdri_missing(env.DEFAULT_HDRI)
+    assert shown == "stage" and note == f"{env.sky_missing('ClearSky')}; {hdri_note}"
     shown, note = resolve("sky", NONE, renders_mdl=False)
-    assert shown == "stage" and note == f"{env.STORM_NOTE}; {env.HDRI_MISSING}"
+    assert shown == "stage" and note == f"{env.STORM_NOTE}; {hdri_note}"
 
 
 def test_the_assets_are_found_through_the_users_cache_and_the_web_build(tmp_path, monkeypatch):
@@ -189,10 +191,10 @@ def stage(tmp_path: Path):
     return st, layer, path
 
 
-def test_the_hdri_composes_a_dome_over_the_stage_and_hides_its_own_lights(stage):
+def test_the_hdri_composes_a_dome_beside_the_stages_own_lights(stage):
     st, layer, path = stage
     before = path.read_bytes()
-    env.author(layer, "hdri", "Z", ALL, st)
+    env.author(layer, "hdri", "Z", ALL)
     dome = st.GetPrimAtPath(f"{env.ROOT}/Dome")
     assert dome and dome.IsA(UsdLux.DomeLight)
     assert dome.GetAttribute("inputs:texture:file").Get().path == HDR
@@ -201,9 +203,9 @@ def test_the_hdri_composes_a_dome_over_the_stage_and_hides_its_own_lights(stage)
     root = UsdGeom.Xformable(st.GetPrimAtPath(env.ROOT))
     ops = root.GetOrderedXformOps()
     assert [op.GetOpName() for op in ops] == ["xformOp:rotateX"] and ops[0].Get() == 90
-    # the stage's own lights are out of the picture while the dome lights it
-    assert UsdGeom.Imageable(st.GetPrimAtPath("/World/Sun")).ComputeVisibility() == "invisible"
-    assert UsdGeom.Imageable(st.GetPrimAtPath("/World/Bulb")).ComputeVisibility() == "invisible"
+    # the stage's own lights stay: the dome adds to them
+    assert UsdGeom.Imageable(st.GetPrimAtPath("/World/Sun")).ComputeVisibility() == "inherited"
+    assert UsdGeom.Imageable(st.GetPrimAtPath("/World/Bulb")).ComputeVisibility() == "inherited"
     assert UsdGeom.Imageable(st.GetPrimAtPath("/World/Box")).ComputeVisibility() == "inherited"
     # in the session, never in the file
     assert not st.GetRootLayer().dirty and path.read_bytes() == before
@@ -212,8 +214,8 @@ def test_the_hdri_composes_a_dome_over_the_stage_and_hides_its_own_lights(stage)
 
 def test_back_to_the_stage_choice_clears_the_composition(stage):
     st, layer, _ = stage
-    env.author(layer, "hdri", "Z", ALL, st)
-    env.author(layer, "stage", "Z", ALL, st)
+    env.author(layer, "hdri", "Z", ALL)
+    env.author(layer, "stage", "Z", ALL)
     assert not st.GetPrimAtPath(env.ROOT)
     assert UsdGeom.Imageable(st.GetPrimAtPath("/World/Sun")).ComputeVisibility() == "inherited"
     assert layer.ExportToString().strip().endswith("#usda 1.0") or not layer.rootPrims
@@ -225,7 +227,7 @@ def test_a_y_up_stage_leaves_storms_dome_as_it_is(tmp_path):
     st = Usd.Stage.Open(str(path))
     layer = Sdf.Layer.CreateAnonymous()
     st.GetSessionLayer().subLayerPaths.insert(0, layer.identifier)
-    env.author(layer, "hdri", "Y", ALL, st)
+    env.author(layer, "hdri", "Y", ALL)
     root = UsdGeom.Xformable(st.GetPrimAtPath(env.ROOT))
     assert root.GetOrderedXformOps() == []
 
@@ -235,3 +237,50 @@ def test_each_renderer_turns_the_environment_onto_the_stages_up_axis_from_its_ow
     assert env.rotation_x("Z") == 0 and env.rotation_x("Y") == -90
     assert env.rotation_x("Z", "Z") == 0 and env.rotation_x("Y", "Y") == 0
     assert env.rotation_x("Z", "Y") == 90 and env.rotation_x("Y", "Z") == -90
+
+
+def test_the_controls_own_their_names_ranges_and_slider_rests():
+    assert env.SkyControls.NAMES == ("time_of_day", "cloudiness", "haze")
+    assert env.SkyControls.RANGES["time_of_day"] == (0.0, 24.0)
+    assert env.SkyControls.SLIDER_DEFAULTS == {"time_of_day": 12.0, "cloudiness": 0.0, "haze": 0.0}
+    c = env.SkyControls().with_value("cloudiness", 0.8500000000000001)
+    assert c == env.SkyControls(cloudiness=0.85)  # a slider's step arithmetic rounded away
+    assert (
+        c.with_value("haze", 2.0).haze == 1.0
+        and c.with_value("cloudiness", None) == env.SkyControls()
+    )
+    with pytest.raises(KeyError):
+        c.with_value("wind", 1.0)
+
+
+def test_the_textured_sky_takes_the_time_of_day_and_its_cloud_bias_but_no_haze():
+    assert env.controls_of("ClearSky") == env.SkyControls.NAMES
+    assert env.controls_of("CloudySky") == ("time_of_day", "cloudiness")
+    authored = {"time_of_day": 6.93, "latitude": 51.426, "longitude": -0.985, "day_of_year": 100.0}
+    inputs = env.shader_inputs(env.SkyControls(time_of_day=19.0), authored, textured=True)
+    az, el = env.sun_angles(19.0, 51.426, 100)
+    assert inputs == {"Elevation": el, "Azimuth": az}  # its material has no sun maths
+    inputs = env.shader_inputs(env.SkyControls(cloudiness=1.0), authored, textured=True)
+    assert (inputs["CloudsEnabled"], inputs["CloudBias"]) == (True, -2.0)
+    assert (
+        env.shader_inputs(env.SkyControls(cloudiness=0.0), authored, True)["CloudsEnabled"] is False
+    )
+    shown = env.effective(env.SkyControls(haze=0.7), authored, textured=True)
+    assert shown["haze"] == 0.0 and shown["cloudiness"] == 0.5  # its own CloudBias 0.5
+
+
+def test_the_ground_is_the_preview_floor_in_the_skys_package_scaled_to_the_stage():
+    ground = "C:/build/skies/ClearSky.usdz[Sky_Elements/PreviewScene.usda]"
+    assets = Assets(sky=SKY, hdri=HDR, ground=ground)
+    assert "Ground" not in env.usda("sky", "Z", assets)  # off by default
+    text = env.usda("sky", "Z", assets, ground=True, meters_per_unit=1.0)
+    floor = text.split('def Xform "Ground"', 1)[1]
+    assert f"prepend references = @{ground}@" in floor
+    assert "float3 xformOp:scale = (0.01, 0.01, 0.01)" in floor  # its cm in metres
+    # flat: the sky's root turns its rig 90 degrees about X; the floor under it turns back
+    assert "float xformOp:rotateX = -90" in floor
+    assert 'xformOpOrder = ["xformOp:rotateX", "xformOp:scale"]' in floor
+    assert 'over "MetalBalls" (\n            active = false' in floor
+    assert 'over "PlasticBalls" (\n            active = false' in floor
+    assert env.ground_scale(0.01) == 1.0
+    assert "Ground" not in env.usda("hdri", "Z", assets, ground=True)  # the sky's alone

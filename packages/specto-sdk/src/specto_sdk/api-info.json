@@ -4116,7 +4116,8 @@
     "hdri": "sunny",
     "time_of_day": null,
     "cloudiness": null,
-    "haze": null
+    "haze": null,
+    "ground": false
    },
    "state_schema": {
     "type": "object",
@@ -4179,7 +4180,7 @@
        "hdri"
       ],
       "default": "stage",
-      "description": "What lights the stage beyond its own lights: stage (its own lights; a stage without any gets a plain dome), sky (one of NVIDIA's dynamic procedural skies with a sun, named by sky; RTX only: Storm shows the HDRI instead) or hdri (an image-based light, one of the 3d view's HDRIs, named by hdri). Composed over the stage in the viewer, never written to the file; kept across stages. The skies are fetched on first use into the user's Specto folder; snap reports what shows, the fetch's progress and a note when it is not the choice (the sky not fetched yet, the HDRI not built)."
+      "description": "What lights the stage beyond its own lights: stage (its own lights; a stage without any gets a plain dome), sky (one of NVIDIA's dynamic procedural skies with a sun, named by sky; RTX only: Storm shows the HDRI instead) or hdri (an image-based light, one of the 3d view's HDRIs, named by hdri). Composed over the stage in the viewer, never written to the file; kept across stages. The skies and the HDRIs are fetched on first use into the user's Specto folder; snap reports what shows, the fetch's progress and a note when it is not the choice (the sky or the HDRI not fetched yet)."
      },
      "sky": {
       "enum": [
@@ -4203,7 +4204,12 @@
        "urban"
       ],
       "default": "sunny",
-      "description": "The HDRI when environment is hdri (and what Storm shows for the sky): the 3d view's five Poly Haven environments."
+      "description": "The HDRI when environment is hdri (and what stands in for the sky under Storm or while the sky is fetched): one of the 3d view's Poly Haven environments (web/3d/environments.json)."
+     },
+     "ground": {
+      "type": "boolean",
+      "default": false,
+      "description": "With a sky: the floor of the preview scene the skies ship with (10 x 20 m, its top at height 0, in the stage's units), under the stage. Off by default."
      },
      "time_of_day": {
       "type": [

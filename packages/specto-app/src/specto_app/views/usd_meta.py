@@ -1,8 +1,8 @@
 """What ``snap`` reports of a usd view (#142): the stage shown, the renderer running, the
-frame size and the camera. Qt-free; the usd view's host (#137, #139) merges it into its
-``snapshot``, filled from its params, the machine's capabilities and what its source
-reported. Stage facts the source reads (up axis, bounds, prim count) and selection and
-time stay the host's own keys.
+frame size, the camera and the environment light (SPEC-31). Qt-free; the usd view's host
+(#137, #139) merges it into its ``snapshot``, filled from its params, the machine's
+capabilities and what its source reported. Stage facts the source reads (up axis,
+bounds, prim count) and selection and time stay the host's own keys.
 
 ``renderer`` is what runs: the source's word once it reported one (an ``auto`` that
 fell back to storm says storm), else ``params.renderer`` resolved against the machine
@@ -31,6 +31,18 @@ class UsdSnapMeta(BaseModel):
     camera: CameraValue | None
     look_through: str | None
     camera_speed: float
+    #: the environment light (SPEC-31): what shows (the source's answer, ``params`` before
+    #: it says), why it is not the choice, the sky and HDRI named, the sky's controls in
+    #: effect (hours; 0-1), its ground, and the fetch of the sky and the HDRI
+    #: (``{cached, fetching, queued, done, total, error}``)
+    environment: Literal["stage", "sky", "hdri"] = "stage"
+    environment_note: str = ""
+    sky: str = "ClearSky"
+    hdri: str = "sunny"
+    sky_controls: dict[str, float] = {}
+    ground: bool = False
+    sky_fetch: dict[str, Any] = {}
+    hdri_fetch: dict[str, Any] = {}
 
 
 def usd_snap_meta(
@@ -41,10 +53,16 @@ def usd_snap_meta(
     renderer: str | None = None,
     frame_size: tuple[int, int] | None = None,
     camera: CameraValue | Mapping[str, Any] | None = None,
+    environment: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """``UsdSnapMeta`` as JSON for a usd view with ``params`` on a machine with ``caps``;
-    the keyword arguments are what the host and its source know (None: not yet)."""
+    the keyword arguments are what the host and its source know (None: not yet;
+    ``environment``: the host's environment keys, else the params' choice)."""
     running = renderer or usd_renderer(params, caps)
+    env = dict(environment or {})
+    for key in ("environment", "sky", "hdri", "ground"):
+        if key not in env and params.get(key) is not None:
+            env[key] = params[key]
     meta = UsdSnapMeta(
         path=path,
         renderer=running,  # type: ignore[arg-type]
@@ -54,6 +72,7 @@ def usd_snap_meta(
         camera=CameraValue.model_validate(camera) if camera is not None else None,
         look_through=params.get("look_through"),
         camera_speed=float(params.get("camera_speed", 1.0)),
+        **{k: v for k, v in env.items() if k in UsdSnapMeta.model_fields},
     )
     return meta.model_dump(mode="json")
 

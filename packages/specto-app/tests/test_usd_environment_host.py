@@ -35,22 +35,23 @@ class FakeFetcher:
         self.errors: dict[str, str] = {}
 
     def cached(self, name: str) -> bool:
+        if name.startswith(skies.HDRI_PREFIX):
+            return skies.hdri_path(name[len(skies.HDRI_PREFIX) :]) is not None
         return skies.package(name, self.cache) is not None
 
     def ask(self, name: str) -> None:
         self.asked.append(name)
         self.progress[name] = (0, 300_000)
 
-    def status(self, name: str) -> dict:
+    def status(self, name: str) -> skies.FetchStatus:
         done, total = self.progress.get(name, (0, 0))
-        return {
-            "cached": self.cached(name),
-            "fetching": name in self.progress and not self.cached(name),
-            "queued": False,
-            "done": done,
-            "total": total,
-            "error": self.errors.get(name, ""),
-        }
+        return skies.FetchStatus(
+            cached=self.cached(name),
+            fetching=name in self.progress and not self.cached(name),
+            done=done,
+            total=total,
+            error=self.errors.get(name, ""),
+        )
 
     def note(self, name: str) -> str:
         if self.cached(name):
@@ -58,7 +59,7 @@ class FakeFetcher:
         if name in self.errors:
             return self.errors[name]
         if name in self.progress:
-            return f"fetching {skies.SKIES[name]} {self.progress[name][0] / 1e6:.1f} of 0.3 MB"
+            return f"fetching {skies.label(name)} {self.progress[name][0] / 1e6:.1f} of 0.3 MB"
         return ""
 
     def advance(self, name: str, done: int) -> None:
@@ -82,7 +83,7 @@ def cache_sky(cache: Path, name: str) -> None:
     stage.write_text("#usda 1.0\n", encoding="utf-8")
     with zipfile.ZipFile(cache / f"{name}.usdz", "w") as zf:
         zf.write(stage, f"Dynamic/{name}.usd")
-    pins = {rel: skies.FILES[rel][0] for rel in skies.sky_files(name)}
+    pins = skies.sky_pins(name)
     (cache / f"{name}.json").write_text(json.dumps({"files": pins}), encoding="utf-8")
 
 
@@ -294,3 +295,71 @@ def test_a_choice_restored_from_the_document_applies_before_the_first_load(
         assert not fetchers  # cached: nothing to fetch
     finally:
         h.dispose()
+
+
+def test_the_ground_toggle_is_one_submit_sent_to_the_source(host, cache, tmp_path, spin):
+    cache_sky(cache, "ClearSky")
+    loaded(host, tmp_path, spin)
+    host.set_environment("sky")
+    spin(until=lambda: host.bridge.environmentShown == "sky")
+    assert host.bridge.ground is False and source_state(host)["ground"] is False
+    undo_depth = host.ctx.live.undo_info()["depth"]
+    host.bridge.setGround(True)
+    assert host.params["ground"] is True
+    assert host.ctx.live.undo_info()["depth"] == undo_depth + 1
+    spin(until=lambda: source_state(host)["ground"] is True)
+    assert host.snapshot()["ground"] is True
+    host.bridge.setGround(True)  # the same again: nothing
+    assert host.ctx.live.undo_info()["depth"] == undo_depth + 1
+
+
+def test_each_control_acts_where_the_sky_shown_takes_it(host, cache, tmp_path, spin):
+    cache_sky(cache, "ClearSky")
+    cache_sky(cache, "CloudySky")
+    loaded(host, tmp_path, spin)
+    assert not (host.bridge.timeOfDayOn or host.bridge.cloudinessOn or host.bridge.hazeOn)
+    host.set_environment("sky")
+    spin(until=lambda: host.bridge.environmentShown == "sky")
+    assert host.bridge.timeOfDayOn and host.bridge.cloudinessOn and host.bridge.hazeOn
+    host.set_sky("CloudySky")  # the textured sky: the time of day and its clouds, no haze
+    spin(until=lambda: source_state(host).get("sky") == "CloudySky")
+    assert host.bridge.timeOfDayOn and host.bridge.cloudinessOn and not host.bridge.hazeOn
+    assert host.snapshot()["sky_controls_offered"] == ["time_of_day", "cloudiness"]
+
+
+def test_on_storm_the_hdri_standing_in_for_the_sky_is_shown_and_can_be_picked(
+    cache, fetchers, tmp_path, monkeypatch, qapp, spin
+):
+    monkeypatch.setenv("SPECTO_USD_STUB_NO_MDL", "1")
+    cache_sky(cache, "ClearSky")
+    host = make_host(cache, fetchers)
+    try:
+        loaded(host, tmp_path, spin)
+        assert not host.bridge.hdriStandsIn
+        host.bridge.setEnvironment("sky")
+        spin(until=lambda: host.bridge.environmentShown == "hdri")
+        assert host.bridge.hdriStandsIn and host.bridge.hdriLabel == "Sunny"
+        assert not host.bridge.skyControlsOn  # no sky shows: its controls rest
+        host.bridge.setHdri("urban")  # picked from the stand-in's list
+        spin(until=lambda: source_state(host).get("hdri") == "urban")
+        assert host.bridge.environment == "sky" and host.bridge.hdriLabel == "Urban"
+    finally:
+        host.dispose()
+
+
+def test_an_hdri_not_here_is_fetched_and_its_progress_said(
+    cache, fetchers, tmp_path, monkeypatch, qapp, spin
+):
+    import specto_web
+
+    monkeypatch.setattr(specto_web, "hdri_source", lambda name, root=None: None)
+    host = make_host(cache, fetchers)
+    try:
+        loaded(host, tmp_path, spin)
+        host.bridge.setEnvironment("hdri")
+        assert fetchers and fetchers[0].asked == [skies.hdri_key("sunny")]
+        spin(until=lambda: host.bridge.environmentNote.startswith("fetching"))
+        snap = host.snapshot()
+        assert snap["hdri_fetch"]["hdri"] == "sunny" and snap["hdri_fetch"]["fetching"]
+    finally:
+        host.dispose()

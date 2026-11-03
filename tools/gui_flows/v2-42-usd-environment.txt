@@ -4,7 +4,8 @@
 # Sky (NVIDIA's dynamic skies, fetched on first use: Clear sky, then Overcast from the Sky
 # list, each compiling its material for some seconds first, the phase label saying so; a
 # click on the time of day slider's evening end moves the sun, one on the cloudiness
-# slider thickens the clouds), HDRI (the 3d view's sunny HDRI behind and lighting, then
+# slider thickens the clouds, one on the haze slider hazes it, the Ground toggle brings the
+# sky's floor in), HDRI (the 3d view's sunny HDRI behind and lighting, then
 # Urban from the HDRI list), each one submit of its param reported by snap; back to Stage
 # brings the dome back.
 resize 1600 900
@@ -51,6 +52,21 @@ click cloudiness:kobi:track 0.8 0.5
 wait 3000
 assert_meta kobi params.cloudiness 0.85
 shot 42-04-clouds.png
+print snap {"target": "kobi", "image": true}
+# the haze: half way, milkier
+click haze:kobi:track 0.5 0.5
+wait 3000
+assert_meta kobi params.haze 0.5
+assert_host kobi sky_controls.haze 0.5
+shot 42-04b-haze.png
+print snap {"target": "kobi", "image": true}
+# the ground: the floor the sky ships with, under the stage, one submit
+assert_found ground:kobi:on
+click ground:kobi:on
+wait 4000
+assert_meta kobi params.ground true
+assert_host kobi ground true
+shot 42-04c-ground.png
 print snap {"target": "kobi", "image": true}
 # another sky from the list: Overcast (fetched with the first), the controls stay
 click sky:kobi

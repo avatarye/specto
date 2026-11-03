@@ -287,14 +287,27 @@ class RtxRenderer:
         assets: Assets,
         controls: SkyControls | None = None,
         authored: Mapping[str, Any] | None = None,
+        *,
+        textured: bool = False,
+        ground: bool = False,
     ) -> None:
         """Show ``environment`` (``stage``, ``sky`` or ``hdri``, as :func:`.environment.
         resolve` answered) from the next step: the reference under ``/__specto/Environment``
-        swapped (another sky is another reference), the fallback dome hidden or shown and
-        the camera's auto exposure set for the stage's own lights under it, in one commit
-        with a history reset. ``controls`` and ``authored`` place the sky's sun and set
-        its inputs as the reference is added."""
-        text = environment_usda(environment, up_axis, assets, controls, authored)
+        swapped (another sky, or the ground toggled, is another reference), the fallback
+        dome hidden or shown and the camera's auto exposure set for the stage's own lights
+        under it (the textured sky is brighter than Kit's scale: auto exposure), in one
+        commit with a history reset. ``controls`` and ``authored`` place the sky's sun and
+        set its inputs as the reference is added; ``ground`` brings the preview floor."""
+        text = environment_usda(
+            environment,
+            up_axis,
+            assets,
+            controls,
+            authored,
+            textured=textured,
+            ground=ground,
+            meters_per_unit=self._meters_per_unit,
+        )
         if (environment, text) == (self._environment, self._environment_text):
             return
         writes: list[Callable[[], None]] = []
@@ -311,7 +324,7 @@ class RtxRenderer:
                 writes.append(
                     lambda: self._write_tokens(self._query([FALLBACK_PATH]), "visibility", [value])
                 )
-            auto = lighting.auto_exposure_with(lit)
+            auto = lighting.auto_exposure_with(lit) or (environment == "sky" and textured)
             if auto != self._auto_exposure:
                 self._auto_exposure = auto
                 flag = np.asarray([[auto]], np.bool_)

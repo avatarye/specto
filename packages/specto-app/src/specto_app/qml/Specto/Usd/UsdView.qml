@@ -31,7 +31,8 @@
 // environment:<viewId> (its segments environment:<viewId>:stage|sky|hdri), sky:<viewId>
 // and hdri:<viewId> (the list pills; their menus' rows menu:sky-<name>, menu:hdri-<name>),
 // environmentNote:<viewId>, skyControls:<viewId> with timeOfDay:<viewId>,
-// cloudiness:<viewId> and haze:<viewId> (sliders; their tracks <name>:track), renderer:<viewId>, rendererNote:<viewId>, primsFilter:<viewId>, prims:<viewId>,
+// cloudiness:<viewId> and haze:<viewId> (sliders; their tracks <name>:track),
+// ground:<viewId> (its segments ground:<viewId>:off|on), renderer:<viewId>, rendererNote:<viewId>, primsFilter:<viewId>, prims:<viewId>,
 // prim:<viewId>:<path>, toggle:<viewId>:<path>, more:<viewId>:<path>,
 // frameAll:<viewId>, stage:<viewId>, play:<viewId>, time:<viewId>, cost:<viewId>,
 // footer:<viewId>, usd:<viewId>:track|cursor|tip (the scrubber's); a renderer that died
@@ -214,12 +215,15 @@ Item {
                     onClicked: root.openSkyMenu()
                 }
                 DropPill {
-                    // the 3d view's HDRIs (menu rows menu:hdri-<name>)
+                    // the 3d view's HDRIs (menu rows menu:hdri-<name>); with Sky chosen,
+                    // the HDRI that stands in for it (Storm, or the sky on its way)
                     id: hdriPill
                     objectName: "hdri:" + root.viewId
-                    visible: environmentCol.choice === "hdri"
-                    text: root.bridge ? root.bridge.hdriLabel : ""
-                    tip: "which HDRI lights the stage: the 3d view's five"
+                    readonly property bool standsIn: root.bridge !== null && root.bridge.hdriStandsIn
+                    visible: environmentCol.choice === "hdri" || standsIn
+                    text: root.bridge ? (standsIn ? "In its place: " : "") + root.bridge.hdriLabel : ""
+                    tip: standsIn ? "the HDRI that lights the stage while the sky cannot show; pick another"
+                                  : "which HDRI lights the stage: the 3d view's"
                     onClicked: root.openHdriMenu()
                 }
                 Text {
@@ -233,16 +237,18 @@ Item {
                     color: theme.colors.text_muted
                 }
                 Column {
-                    // the sky's controls, live: the sun by the time of day, the cumulus
-                    // cover, the haze; at rest while no sky shows (Storm, the textured sky)
+                    // the sky's controls, live: the sun by the time of day, the cloud
+                    // cover, the haze, each at rest where the sky shown lacks it (the
+                    // textured sky has no haze) or no sky shows (Storm); the ground: the
+                    // floor of the preview scene the skies ship with
                     objectName: "skyControls:" + root.viewId
                     visible: environmentCol.choice === "sky"
-                    opacity: environmentCol.controlsOn ? 1 : 0.45
-                    enabled: environmentCol.controlsOn
                     width: parent.width
                     spacing: 4
                     PanelSlider {
                         objectName: "timeOfDay:" + root.viewId
+                        enabled: root.bridge !== null && root.bridge.timeOfDayOn
+                        opacity: enabled ? 1 : 0.45
                         label: "Time of day"
                         from: 0; to: 24; stepSize: 0.25
                         value: root.bridge ? root.bridge.timeOfDay : 12
@@ -255,21 +261,38 @@ Item {
                     }
                     PanelSlider {
                         objectName: "cloudiness:" + root.viewId
+                        enabled: root.bridge !== null && root.bridge.cloudinessOn
+                        opacity: enabled ? 1 : 0.45
                         label: "Cloudiness"
                         from: 0; to: 1; stepSize: 0.05
                         value: root.bridge ? root.bridge.cloudiness : 0
                         readout: Math.round(shown * 100) + "%"
-                        tip: "the sky's cumulus cover, none to solid"
+                        tip: "the sky's cloud cover, none to solid"
                         onMoved: (v, final) => root.bridge.setCloudiness(v, final)
                     }
                     PanelSlider {
                         objectName: "haze:" + root.viewId
+                        enabled: root.bridge !== null && root.bridge.hazeOn
+                        opacity: enabled ? 1 : 0.45
                         label: "Haze"
                         from: 0; to: 1; stepSize: 0.05
                         value: root.bridge ? root.bridge.haze : 0
                         readout: Math.round(shown * 100) + "%"
                         tip: "the sky's atmospheric haze, clear to milky"
                         onMoved: (v, final) => root.bridge.setHaze(v, final)
+                    }
+                    SegmentSwitch {
+                        // the sky's ground (params.ground): the preview scene's floor at 0
+                        objectName: "ground:" + root.viewId
+                        enabled: environmentCol.controlsOn
+                        opacity: enabled ? 1 : 0.45
+                        current: root.bridge && root.bridge.ground ? "on" : "off"
+                        choices: [
+                            { key: "off", label: "No ground", tip: "the stage alone under the sky" },
+                            { key: "on", label: "Ground",
+                              tip: "the floor the sky ships with: 10 x 20 m, its top at height 0" }
+                        ]
+                        onPicked: (key) => root.bridge.setGround(key === "on")
                     }
                 }
             }

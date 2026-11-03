@@ -1,39 +1,45 @@
 """The usd view's environment light (SPEC-31): what lights a stage beyond its own
-lights, ``params.environment``, with the sky and the HDRI it names and the sky's controls.
+lights, ``params.environment``, with the sky and the HDRI it names, the sky's controls and
+its ground.
 
 - ``stage``: the stage's own lights, with rtx's fallback dome for a stage without any
   (#148): today's behaviour;
 - ``sky``: one of NVIDIA's dynamic skies (:mod:`.skies`: ``params.sky``, ``ClearSky`` by
-  default), an MDL dome light with a sun, fetched on first use into the user's cache
+  default), an MDL dome light with a sun, fetched on first use into the user's folder
   and referenced from its ``.usdz``. Only RTX compiles MDL: Storm shows the HDRI instead
-  and says so. The sky's controls (``params.time_of_day``, ``cloudiness``, ``haze``;
-  :class:`SkyControls`) drive it live: the time of day moves the sun (the dome's, through
-  the material's own sun-position maths, and a ``DistantLight`` of the viewer's placed by
-  the same maths, :func:`sun_direction`, in place of the sky's rig light), cloudiness
-  sets the cumulus layer's coverage, haze the atmosphere's haze. The asset has no ground
-  switch: its material always draws its own ground below the horizon and exposes no
-  parameter for it, and the preview ground beside the skies is a separate stage;
+  and says so. The sky's controls (:class:`SkyControls`: ``params.time_of_day``,
+  ``cloudiness``, ``haze``) drive it live: the time of day moves the sun (the dome's,
+  through the material's inputs, and a ``DistantLight`` of the viewer's placed by the
+  material's own maths, :func:`sun_direction`, in place of the sky's rig light),
+  cloudiness sets the clouds' cover, haze the atmosphere's haze. The procedural skies
+  take all three; the textured CloudySky takes the time of day (its material places the
+  sun by ``Elevation`` and ``Azimuth``, which the viewer computes) and the cloudiness (its
+  ``CloudBias``), and has no haze. ``params.ground`` brings in the floor of the preview
+  scene every sky stage ships beside it (``Sky_Elements/PreviewScene.usda``: a 10 x 20 m
+  floor whose top is at height 0, scaled to the stage's units, its spheres left inactive);
 - ``hdri``: a ``DomeLight`` with one of the 3d view's HDRIs (``params.hdri``, ``sunny``
-  by default; Poly Haven, CC0), the ``.hdr`` ``packages/specto-web/build.py`` fetched
-  (``specto_web.hdri_source``).
+  by default; Poly Haven, CC0), the web build's ``.hdr`` in a source checkout, else
+  fetched on first use like the skies (:func:`.skies.fetch_hdri`).
 
 The environment is composed over the stage in the viewer's session and never written to
 the file (ADR 0024): under RTX as a reference added to the inline root's ``/__specto``
 scope at runtime (:meth:`.rtx.RtxRenderer.set_environment`), the sky's controls as
 attribute writes on that reference's prims (:meth:`.rtx.RtxRenderer.set_sky_controls`);
-under Storm as a sublayer of the session layer (:func:`author`). Both put it at
-:data:`ROOT`, turned onto the stage's up axis (:func:`rotation_x`): the sky is authored
-Z-up, and each renderer keeps a dome's pole along its own axis whatever the stage's up
-axis (measured 2026-11-03: ovrtx +Z, Storm +Y), so a Y-up stage turns the sky and ovrtx's
-dome by -90 degrees about X, and a Z-up stage turns Storm's dome by +90. The HDRI dome's
-intensity is each renderer's own too: Kit's default 1000 under RTX, the scale its fixed
-exposure is set for (a stage lit by an environment alone keeps that exposure,
-:meth:`.stage.Lighting.auto_exposure_with`); 0.5 under Storm, which has no tone mapping.
+under Storm as a sublayer of the session layer (:func:`author`), beside the stage's own
+lights. Both put it at :data:`ROOT`, turned onto the stage's up axis
+(:func:`rotation_x`): the sky is authored Z-up, and each renderer keeps a dome's pole
+along its own axis whatever the stage's up axis (measured 2026-11-03: ovrtx +Z, Storm +Y),
+so a Y-up stage turns the sky and ovrtx's dome by -90 degrees about X, and a Z-up stage
+turns Storm's dome by +90. The HDRI dome's intensity is each renderer's own too: Kit's
+default 1000 under RTX, the scale its fixed exposure is set for (a stage lit by an
+environment alone keeps that exposure, :meth:`.stage.Lighting.auto_exposure_with`; the
+textured sky is brighter and keeps auto exposure); 0.5 under Storm, which has no tone
+mapping.
 
 :func:`resolve` decides what shows for a choice: a sky without MDL (Storm) or not fetched
-yet falls back to the HDRI, an HDRI not built to the stage's own light, each with a note
-the panel and ``snap`` show. The GUI process imports this module too (the host reads the
-names): nothing here imports pxr at module level.
+yet falls back to the HDRI, an HDRI not there yet to the stage's own light, each with a
+note the panel and ``snap`` show. The GUI process imports this module too (the host reads
+the names): nothing here imports pxr at module level.
 """
 
 from __future__ import annotations
@@ -43,7 +49,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import specto_web
 
@@ -62,6 +68,13 @@ ROOT = "/__specto/Environment"
 SHADER = f"{ROOT}/Looks/SkyMaterial/Shader"
 RIG_LIGHT = f"{ROOT}/AxisNorth/AxisLatitude/AxisSHA/AxisDeclination/DistantLight"
 SUN = f"{ROOT}/Sun"  # the viewer's own sun, placed by the time of day
+GROUND = f"{ROOT}/Ground"  # the preview scene's floor, when params.ground
+#: the preview scene's prims the ground leaves out (its spheres)
+GROUND_OFF = ("MetalBalls", "PlasticBalls")
+SKY_METERS_PER_UNIT = 0.01  # the skies and their preview scene are authored in cm
+#: every sky's /World turns its dome rig by 90 degrees about X (``rotateZYX = (90, 0, 0)``);
+#: the ground under it turns back
+SKY_ROOT_ROTATE_X = 90.0
 SUN_INTENSITY = 5000  # the rig light's, on Kit's scale
 SUN_COLOR = (0.7423431, 0.62958664, 0.5119833)  # the rig light's
 RTX_DOME_INTENSITY = 1000  # Kit's default dome intensity: RTX's fixed exposure is set for it
@@ -69,10 +82,11 @@ STORM_DOME_INTENSITY = 0.5  # Storm has no tone mapping: a mid-grey ground reads
 SKY_UP = "Z"  # the sky is authored Z-up
 RTX_DOME_POLE, STORM_DOME_POLE = "Z", "Y"  # where each renderer keeps a dome's pole
 STORM_NOTE = "Storm cannot render the sky's MDL: the HDRI instead"
-HDRI_MISSING = "the HDRI is not built (packages/specto-web/build.py): the stage's own light"
 #: the sky's authored coordinates when its files say nothing (ClearSky's)
 AUTHORED = {"time_of_day": 6.93, "latitude": 51.426, "longitude": -0.985, "day_of_year": 100.0}
-TOD_RANGE = (0.0, 24.0)
+#: the textured sky's CloudBias over the cloudiness slider (its soft range: 3 shows no
+#: clouds, -2 the most; its own 0.5 is a cloudiness of 0.5)
+CLOUD_BIAS_CLEAR, CLOUD_BIAS_CLOUDY = 3.0, -2.0
 
 
 def environment_of(value: Any) -> str:
@@ -101,55 +115,104 @@ def _unit(value: Any) -> float | None:
 @dataclass(frozen=True)
 class SkyControls:
     """The sky's controls, each None where the sky's own authored value stands:
-    ``time_of_day`` in hours (0-24), ``cloudiness`` and ``haze`` 0-1."""
+    ``time_of_day`` in hours (0-24), ``cloudiness`` and ``haze`` 0-1. :data:`NAMES` are
+    their names (the params, the sliders), :data:`RANGES` their ranges and
+    :data:`SLIDER_DEFAULTS` where a slider rests before a sky says its own value."""
 
     time_of_day: float | None = None
     cloudiness: float | None = None
     haze: float | None = None
 
+    NAMES: ClassVar[tuple[str, ...]] = ("time_of_day", "cloudiness", "haze")
+    RANGES: ClassVar[dict[str, tuple[float, float]]] = {
+        "time_of_day": (0.0, 24.0),
+        "cloudiness": (0.0, 1.0),
+        "haze": (0.0, 1.0),
+    }
+    SLIDER_DEFAULTS: ClassVar[dict[str, float]] = {
+        "time_of_day": 12.0,
+        "cloudiness": 0.0,
+        "haze": 0.0,
+    }
+
     @classmethod
     def of(cls, params: Mapping[str, Any]) -> SkyControls:
         tod = params.get("time_of_day")
+        low, high = cls.RANGES["time_of_day"]
         try:
-            tod = None if tod is None else max(TOD_RANGE[0], min(TOD_RANGE[1], float(tod)))
+            tod = None if tod is None else max(low, min(high, float(tod)))
         except (TypeError, ValueError):
             tod = None
         return cls(tod, _unit(params.get("cloudiness")), _unit(params.get("haze")))
 
+    def with_value(self, name: str, value: float | None) -> SkyControls:
+        """These controls with ``name`` set to ``value`` (rounded past a slider's step
+        arithmetic; None: the sky's own), clamped."""
+        if name not in self.NAMES:
+            raise KeyError(name)
+        if value is not None:
+            value = round(float(value), 4)
+        return SkyControls.of({**self.as_dict(), name: value})
+
     def as_dict(self) -> dict[str, float | None]:
-        return {"time_of_day": self.time_of_day, "cloudiness": self.cloudiness, "haze": self.haze}
+        return {name: getattr(self, name) for name in self.NAMES}
+
+
+def controls_of(sky: str) -> tuple[str, ...]:
+    """The controls sky ``sky`` takes: all three for a procedural sky; the textured one
+    has no haze."""
+    info = skies.SKIES.get(sky)
+    if info is not None and info.textured:
+        return ("time_of_day", "cloudiness")
+    return SkyControls.NAMES
 
 
 @dataclass(frozen=True)
 class Assets:
-    """Where the chosen environments' files are on this machine; None: not fetched or
-    built. ``sky``: the sky stage's reference path (``<package>[<entry>]``); ``hdri``:
-    the ``.hdr`` path, posix."""
+    """Where the chosen environments' files are on this machine; None: not fetched yet.
+    ``sky``: the sky stage's reference path (``<package>[<entry>]``); ``hdri``: the
+    ``.hdr`` path, posix; ``ground``: the preview scene's reference path in the sky's
+    package."""
 
     sky: str | None
     hdri: str | None
+    ground: str | None = None
 
 
 def hdri_file(name: str) -> str | None:
     """HDRI ``name``'s ``.hdr``: ``SPECTO_USD_HDRI`` when set (a file, for tests), else
-    the web build's download of the 3d view's environment; None until it is built."""
+    the web build's cache or the user's fetched copy (:func:`.skies.hdri_path`)."""
     own = os.environ.get("SPECTO_USD_HDRI")
     if own:
         return Path(own).as_posix() if Path(own).is_file() else None
-    found = specto_web.hdri_source(name)
+    found = skies.hdri_path(name)
     return found.as_posix() if found is not None else None
 
 
 def find_assets(sky: str = skies.DEFAULT_SKY, hdri: str = DEFAULT_HDRI) -> Assets:
-    return Assets(sky=skies.reference(sky_of(sky)), hdri=hdri_file(hdri_of(hdri)))
+    sky = sky_of(sky)
+    return Assets(
+        sky=skies.reference(sky),
+        hdri=hdri_file(hdri_of(hdri)),
+        ground=skies.preview_reference(sky),
+    )
 
 
 def sky_missing(sky: str) -> str:
-    return f"{skies.SKIES[sky_of(sky)]} is not fetched yet: the HDRI instead"
+    return f"{skies.label(sky_of(sky))} is not fetched yet: the HDRI instead"
+
+
+def hdri_missing(hdri: str) -> str:
+    return f"the {HDRIS.get(hdri, hdri)} HDRI is not fetched yet: the stage's own light"
 
 
 def resolve(
-    environment: str, assets: Assets, *, renders_mdl: bool, sky: str = skies.DEFAULT_SKY
+    environment: str,
+    assets: Assets,
+    *,
+    renders_mdl: bool,
+    sky: str = skies.DEFAULT_SKY,
+    hdri: str = DEFAULT_HDRI,
 ) -> tuple[str, str]:
     """What shows for ``environment`` on a renderer that compiles MDL or not, with the
     assets at hand: ``(shown, note)``, the note saying why it is not what was asked."""
@@ -162,7 +225,7 @@ def resolve(
             notes.append(sky_missing(sky))
             shown = "hdri"
     if shown == "hdri" and assets.hdri is None:
-        notes.append(HDRI_MISSING)
+        notes.append(hdri_missing(hdri))
         shown = "stage"
     return shown, "; ".join(notes)
 
@@ -238,38 +301,67 @@ def cloud_coverage(cloudiness: float) -> float:
     return -0.5 + 1.5 * cloudiness
 
 
+def cloud_bias(cloudiness: float) -> float:
+    """The textured sky's ``CloudBias`` for a 0-1 cloudiness (higher is fewer clouds)."""
+    return CLOUD_BIAS_CLEAR + (CLOUD_BIAS_CLOUDY - CLOUD_BIAS_CLEAR) * cloudiness
+
+
 def haze_value(haze: float) -> float:
     """The material's ``haze`` for a 0-1 haziness: it adds 2 to it and saturates its
     effects by about 17, so 0-20 spans clear to milky (the skies author 0.001)."""
     return 20.0 * haze
 
 
-def effective(controls: SkyControls, authored: Mapping[str, Any]) -> dict[str, float]:
+def effective(
+    controls: SkyControls, authored: Mapping[str, Any], textured: bool = False
+) -> dict[str, float]:
     """The controls as shown: each param, or the sky's own authored value (``authored``:
-    :func:`.skies.authored`), as 0-1 cloudiness and haziness and hours."""
+    :func:`.skies.authored`), as 0-1 cloudiness and haziness and hours. The textured sky's
+    own cloudiness is its ``CloudBias`` of 0.5; it has no haze (0)."""
     if controls.cloudiness is not None:
         cloudiness = controls.cloudiness
+    elif textured:
+        cloudiness = (CLOUD_BIAS_CLEAR - 0.5) / (CLOUD_BIAS_CLEAR - CLOUD_BIAS_CLOUDY)
     elif not authored.get("cumulus", True):
         cloudiness = 0.0
     else:
         coverage = float(authored.get("cloud_coverage", 0.3))
         cloudiness = max(0.0, min(1.0, (coverage + 0.5) / 1.5))
-    haze = controls.haze if controls.haze is not None else float(authored.get("haze", 0.0)) / 20
+    if textured:
+        haze = 0.0
+    elif controls.haze is not None:
+        haze = controls.haze
+    else:
+        haze = float(authored.get("haze", 0.0)) / 20
     tod = controls.time_of_day
     if tod is None:
         tod = float(authored.get("time_of_day", AUTHORED["time_of_day"]))
     return {"time_of_day": tod, "cloudiness": cloudiness, "haze": max(0.0, min(1.0, haze))}
 
 
-def shader_inputs(controls: SkyControls, authored: Mapping[str, Any]) -> dict[str, Any]:
-    """The material inputs the controls set on the sky's shader: the sun from the time of
-    day through the material's own maths (``SunPositionFromTOD``, the sky's latitude,
-    longitude and day), and the coverage and haze when set."""
-    coords = {
-        k: float(authored.get(k, AUTHORED[k])) for k in ("latitude", "longitude", "day_of_year")
-    }
-    shown = effective(controls, authored)
-    out: dict[str, Any] = {
+def _coords(authored: Mapping[str, Any]) -> dict[str, float]:
+    keys = ("latitude", "longitude", "day_of_year")
+    return {k: float(authored.get(k, AUTHORED[k])) for k in keys}
+
+
+def shader_inputs(
+    controls: SkyControls, authored: Mapping[str, Any], textured: bool = False
+) -> dict[str, Any]:
+    """The material inputs the controls set on the sky's shader. A procedural sky: the
+    sun from the time of day through the material's own maths (``SunPositionFromTOD``,
+    the sky's latitude, longitude and day), the coverage and the haze when set. The
+    textured sky's material has no sun maths: its ``Elevation`` and ``Azimuth`` are
+    computed here by the same maths, and the cloudiness is its ``CloudBias``."""
+    coords = _coords(authored)
+    shown = effective(controls, authored, textured)
+    if textured:
+        az, el = sun_angles(shown["time_of_day"], coords["latitude"], coords["day_of_year"])
+        out: dict[str, Any] = {"Elevation": el, "Azimuth": az}
+        if controls.cloudiness is not None:
+            out["CloudsEnabled"] = controls.cloudiness > 0.0
+            out["CloudBias"] = cloud_bias(controls.cloudiness)
+        return out
+    out = {
         "SunPositionFromTOD": True,
         "DeclinationFromDayOfYear": True,
         "LocalTimeOfDay": True,
@@ -289,9 +381,14 @@ def shader_inputs(controls: SkyControls, authored: Mapping[str, Any]) -> dict[st
 def sun_for(controls: SkyControls, authored: Mapping[str, Any]) -> list[float]:
     """The sun's direction (the sky's Z-up frame) for the controls."""
     shown = effective(controls, authored)
-    lat = float(authored.get("latitude", AUTHORED["latitude"]))
-    day = float(authored.get("day_of_year", AUTHORED["day_of_year"]))
-    return sun_direction(shown["time_of_day"], lat, day)
+    coords = _coords(authored)
+    return sun_direction(shown["time_of_day"], coords["latitude"], coords["day_of_year"])
+
+
+def ground_scale(meters_per_unit: float) -> float:
+    """The preview floor's scale in a stage of ``meters_per_unit``: its centimetres in
+    the stage's units."""
+    return SKY_METERS_PER_UNIT / (float(meters_per_unit) or 1.0)
 
 
 def _usda_value(value: Any) -> str:
@@ -315,24 +412,47 @@ def _rows(matrix: list[list[float]]) -> str:
     return ", ".join("(" + ", ".join(repr(float(v)) for v in row) + ")" for row in matrix)
 
 
+def _ground(reference: str, meters_per_unit: float) -> str:
+    """The preview scene's floor under :data:`GROUND`: referenced from the sky's package,
+    turned back from the sky root's own rotation (it sits under it, flat on the stage's
+    ground plane), scaled to the stage's units, its spheres inactive."""
+    s = ground_scale(meters_per_unit)
+    offs = "".join(
+        f'        over "{name}" (\n            active = false\n        )\n        {{\n        }}\n'
+        for name in GROUND_OFF
+    )
+    return (
+        f'    def Xform "Ground" (\n        prepend references = @{reference}@\n    )\n    {{\n'
+        f"        float xformOp:rotateX = {-SKY_ROOT_ROTATE_X:g}\n"
+        f"        float3 xformOp:scale = ({s!r}, {s!r}, {s!r})\n"
+        '        uniform token[] xformOpOrder = ["xformOp:rotateX", "xformOp:scale"]\n'
+        f"{offs}    }}\n"
+    )
+
+
 def usda(
     environment: str,
     up_axis: str,
     assets: Assets,
     controls: SkyControls | None = None,
     authored: Mapping[str, Any] | None = None,
+    *,
+    textured: bool = False,
+    ground: bool = False,
+    meters_per_unit: float = 1.0,
 ) -> str:
     """The environment as the layer RTX references at :data:`ROOT` (ovstage's
     ``add_usd_reference_from_string``): the sky as a reference to its package with the
-    controls' inputs over its shader, its rig light turned off and the viewer's sun
-    placed; the HDRI as a dome light; empty for ``stage``. ``environment`` is what
-    :func:`resolve` answered, so its asset is there. A Y-up stage turns the sky's root
-    after the sky's own rotation (its ``xformOp:rotateZYX`` stays in the order)."""
+    controls' inputs over its shader, its rig light turned off, the viewer's sun placed
+    and, with ``ground``, the preview scene's floor; the HDRI as a dome light; empty for
+    ``stage``. ``environment`` is what :func:`resolve` answered, so its asset is there. A
+    Y-up stage turns the sky's root after the sky's own rotation (its
+    ``xformOp:rotateZYX`` stays in the order)."""
     head = '#usda 1.0\n(\n    defaultPrim = "Environment"\n)\n\n'
     controls = controls or SkyControls()
     if environment == "sky":
         authored = authored or {}
-        inputs = shader_inputs(controls, authored)
+        inputs = shader_inputs(controls, authored, textured)
         pad = " " * 16
         lines = "".join(
             f"{pad}{'bool' if isinstance(v, bool) else 'float'} inputs:{k} = {_usda_value(v)}\n"
@@ -340,6 +460,7 @@ def usda(
         )
         sun = _rows(sun_matrix(sun_for(controls, authored)))
         keep = '"xformOp:rotateZYX"'
+        floor = _ground(assets.ground, meters_per_unit) if ground and assets.ground else ""
         return (
             f'{head}def Xform "Environment" (\n    prepend references = @{assets.sky}@\n)\n{{\n'
             f"{_xform(up_axis, '    ', keep=keep)}"
@@ -358,7 +479,7 @@ def usda(
             "        float inputs:angle = 1\n"
             f"        matrix4d xformOp:transform = ({sun})\n"
             '        uniform token[] xformOpOrder = ["xformOp:transform"]\n'
-            "    }\n}\n"
+            f"    }}\n{floor}}}\n"
         )
     if environment == "hdri":
         return (
@@ -372,24 +493,18 @@ def usda(
     return ""
 
 
-def author(layer: Any, environment: str, up_axis: str, assets: Assets, stage: Any) -> None:
-    """Storm's composition: ``layer`` (a sublayer of ``stage``'s session layer, Storm's
+def author(layer: Any, environment: str, up_axis: str, assets: Assets) -> None:
+    """Storm's composition: ``layer`` (a sublayer of the stage's session layer, Storm's
     own) holds the environment: cleared, then for ``hdri`` the dome light under
-    :data:`ROOT` turned for the up axis (Storm's pole is +Y), at Storm's intensity, and
-    an ``over`` hiding each of the stage's own lights (any prim with LightAPI), so the
-    dome lights it alone, as the headlight did. ``sky`` never reaches here
-    (:func:`resolve` routes it to the HDRI on Storm)."""
-    from pxr import Sdf, UsdLux
+    :data:`ROOT` turned for the up axis (Storm's pole is +Y), at Storm's intensity. The
+    stage's own lights stay as they are: the dome adds to them. ``sky`` never reaches
+    here (:func:`resolve` routes it to the HDRI on Storm)."""
+    from pxr import Sdf
 
     layer.Clear()
     if environment != "hdri":
         return
-    lights = [p.GetPath() for p in stage.Traverse() if p.HasAPI(UsdLux.LightAPI)]
     with Sdf.ChangeBlock():
-        for path in lights:
-            spec = Sdf.CreatePrimInLayer(layer, path)
-            vis = Sdf.AttributeSpec(spec, "visibility", Sdf.ValueTypeNames.Token)
-            vis.default = "invisible"
         root = Sdf.CreatePrimInLayer(layer, ROOT)
         root.specifier = Sdf.SpecifierDef
         root.typeName = "Xform"
@@ -421,8 +536,8 @@ __all__ = [
     "AUTHORED",
     "DEFAULT_HDRI",
     "ENVIRONMENTS",
+    "GROUND",
     "HDRIS",
-    "HDRI_MISSING",
     "LABELS",
     "RIG_LIGHT",
     "ROOT",
@@ -434,12 +549,16 @@ __all__ = [
     "Assets",
     "SkyControls",
     "author",
+    "cloud_bias",
     "cloud_coverage",
+    "controls_of",
     "effective",
     "environment_of",
     "find_assets",
+    "ground_scale",
     "haze_value",
     "hdri_file",
+    "hdri_missing",
     "hdri_of",
     "resolve",
     "rotation_x",

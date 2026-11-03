@@ -1,13 +1,17 @@
 """``specto-usd-source`` with the real ovrtx (SPEC-31): the environment light on a stage
 without lights. Loaded with the Clear sky, the frame is lit by the sky (blue above the
-horizon, not the fallback dome's flat white); ``set_environment`` switches to the HDRI
-and back to the stage's own light without a reload, each a different, lit frame. Skipped
-without the rtx extra, the fetched sky (``tools/fetch_nvidia_sky.py``) or the built HDRI
-(``packages/specto-web/build.py``); a warm shader cache takes about 30 s."""
+horizon, not the fallback dome's flat white); the ground brings the sky's floor in;
+``set_environment`` switches to the HDRI and back to the stage's own light without a
+reload, each a different, lit frame. The tests' user dir is a temporary one, so the
+source reads this machine's own fetched assets (the app's user dir, read only), or the
+test fetches ClearSky into its own folder (the network). Skipped without the rtx extra,
+or where neither the cache nor the network gives a sky; a warm shader cache takes about
+30 s."""
 
 from __future__ import annotations
 
 import importlib.util
+import os
 import sys
 import time
 from pathlib import Path
@@ -22,10 +26,34 @@ if importlib.util.find_spec("ovrtx") is None:
 from specto_app.frames import control
 from specto_app.frames.ring import RingReader
 from specto_app.usd import environment as env
+from specto_app.usd import skies
 
 pytestmark = pytest.mark.ovrtx
 
-ASSETS = env.find_assets()
+
+def machine_user_dir() -> Path:
+    """This machine's own Specto user dir (conftest points SPECTO_USER_DIR elsewhere)."""
+    import platformdirs
+
+    return Path(platformdirs.user_data_dir("specto", "specto"))
+
+
+@pytest.fixture
+def assets_dir(tmp_path: Path) -> Path:
+    """A user dir with ClearSky and the default HDRI: the machine's own, else fetched."""
+    own = machine_user_dir()
+    if skies.package("ClearSky", own / "skies") is not None and (
+        skies.hdri_path(env.DEFAULT_HDRI, own / "hdri") is not None
+    ):
+        return own
+    try:
+        skies.fetch_sky("ClearSky", tmp_path / "skies")
+        skies.fetch_hdri(env.DEFAULT_HDRI, tmp_path / "hdri")
+    except skies.SkyFetchError as e:
+        pytest.skip(f"no sky here and none to fetch: {e}")
+    return tmp_path
+
+
 FIRST_FRAME_S = 400  # a cold shader cache compiles for about 2.5 minutes, then the scene
 
 STAGE = """#usda 1.0
@@ -87,18 +115,16 @@ def lit_share(image: np.ndarray) -> float:
     return float((image.max(axis=-1) > 40).mean())
 
 
-@pytest.mark.skipif(ASSETS.sky is None, reason="the sky is not fetched: tools/fetch_nvidia_sky.py")
-@pytest.mark.skipif(
-    ASSETS.hdri is None, reason="the HDRI is not built: packages/specto-web/build.py"
-)
 def test_the_sky_and_the_hdri_light_a_light_less_stage_and_switch_without_a_reload(
-    tmp_path: Path,
+    tmp_path: Path, assets_dir: Path
 ):
     path = tmp_path / "plain.usda"
     path.write_text(STAGE, encoding="utf-8", newline="\n")
+    environ = {**os.environ, "SPECTO_USER_DIR": str(assets_dir)}
     src = control.FrameSourceProcess.spawn(
         [sys.executable, "-m", "specto_app.usd.source", "--renderer", "rtx",
-         "--width", "320", "--height", "180"]
+         "--width", "320", "--height", "180"],
+        env=environ,
     )  # fmt: skip
     try:
         ready = src.wait_event("ready", timeout=30)
@@ -114,8 +140,15 @@ def test_the_sky_and_the_hdri_light_a_light_less_stage_and_switch_without_a_relo
             assert lit_share(sky) > 0.9, "the sky lights everything"
             assert top[2] >= top[0], f"a sky behind, bluer than red: {top}"
 
+            # the ground: the preview scene's floor over the stage's ground plane
+            src.call("set_environment", ground=True, timeout=30)
+            floor = rgb(settled_frame(reader, after=reader.latest().seq + 40))
+            assert np.abs(floor - sky).mean() > 5, "the floor is in the picture"
+            src.call("set_environment", ground=False, timeout=30)
+
             answer = src.call("set_environment", environment="hdri", timeout=30)
-            assert answer == {"environment": "hdri", "note": "", "renderer_note": ""}
+            assert (answer["environment"], answer["environment_note"]) == ("hdri", "")
+            assert answer["renderer_note"] == ""
             state = src.call("state")
             assert state["environment"] == "hdri" and state["loaded"] == str(path)
             hdri = rgb(settled_frame(reader, after=reader.latest().seq + 40))

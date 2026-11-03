@@ -180,7 +180,8 @@ beyond its own lights; sky is one of NVIDIA's dynamic procedural skies, named by
 first use), which only RTX renders, Storm shows the hdri for it; hdri is one of the 3D view's \
 HDRIs, named by hdri; the choice is composed in the viewer, never written to the file), the \
 sky's time_of_day (hours 0-24: the sun moves live), cloudiness and haze (0-1; null keeps the \
-sky's own) and max_pixels (the cap on rendered pixels; lower it to speed RTX up). Set its \
+sky's own; the textured CloudySky has no haze), ground (true: the floor the skies ship with, \
+at height 0) and max_pixels (the cap on rendered pixels; lower it to speed RTX up). Set its \
 camera through the camera port (a follow link from a 3D view's camera shares one viewpoint) \
 or through params, never by running code (no python link for it). snap on a usd view reports \
 the stage path, the renderer running, the frame size, the camera, the camera mode, the \
