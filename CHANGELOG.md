@@ -36,18 +36,22 @@ the release and move on their own schedule.
   a dome light (an HDRI list, `params.hdri`). The sky's **time of day**, **cloudiness** and
   **haze** sliders (`params.time_of_day` in hours, `cloudiness` and `haze` 0-1, null for the
   sky's own value) drive it live through the material's own inputs, the sun moving with
-  the time of day and the viewer's own sun light with it; the asset has no ground switch,
-  so there is none. The environment is composed over the stage in the viewer's session,
-  never written to the file (ADR 0024): under RTX a reference swapped at runtime, under
-  Storm a sublayer of the session layer. Storm cannot render MDL and shows the HDRI for
-  the sky; a sky not fetched yet or an HDRI not built fall back the same way, each said
-  under the control, in `snap` (`environment_note`) and to the agent. The skies are fetched
-  on first use of the Sky choice, never committed (their licence allows no stand-alone or
-  public-repository redistribution): off the GUI thread, from NVIDIA's public bucket, each
-  file pinned by sha256, into the user's Specto data folder (`<user dir>/skies`, the
-  textured sky's 67 MB of textures last), packed as one `.usdz` per sky with its MDL
-  inside, with the progress under the control and a plain message offline; the HDRIs are
-  the `.hdr` files the web build already downloads.
+  the time of day and the viewer's own sun light with it (the textured sky takes the time
+  of day and the cloudiness; it has no haze), and a **Ground** toggle (`params.ground`,
+  off by default) brings in the floor of the preview scene the skies ship with. The
+  environment is composed over the stage in the viewer's session, never written to the
+  file, and adds to the stage's own lights (ADR 0024): under RTX a reference swapped at
+  runtime, under Storm a sublayer of the session layer. Storm cannot render MDL and shows
+  an HDRI for the sky (the panel shows which, and lets you pick it); a sky or an HDRI not
+  fetched yet falls back the same way, each said under the control, in `snap`
+  (`environment_note`) and to the agent. The skies and, on an installed app, the HDRIs
+  are fetched on first use, never committed (the skies' licence allows no stand-alone or
+  public-repository redistribution): off the GUI thread, from NVIDIA's public bucket and
+  Poly Haven, each file pinned by sha256 and size, cut off past its size and checked
+  before it is kept, under a lock on the folder, into the user's Specto data folder
+  (`<user dir>/skies`, `<user dir>/hdri`; the textured sky's 67 MB of textures last), each
+  sky packed as one `.usdz` with its MDL inside, with the progress under the control and a
+  plain message offline. A source checkout's web build supplies the HDRIs.
 - The usd view gets an orbit camera and F frames the whole selected hierarchy (#39). The
   VIEW panel's Free / Orbit control (`params.camera_mode`, one user submit per change,
   reported by `snap` and `describe view:usd`, settable by the agent) switches between

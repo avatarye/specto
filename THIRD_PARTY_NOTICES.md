@@ -5,13 +5,17 @@ components the repository commits, fetches at build time, or depends on at runti
 their licences and how Specto uses them. Licence texts and copyright notices travel with
 the components themselves, at the locations named below.
 
-Three groups matter to a reader of the public repository:
+Four groups matter to a reader of the public repository:
 
 - **Committed** files from other projects: only the file tree's icon subset (MIT), whose
   licence sits next to the files. Everything else in the tree is Specto's own work.
 - **Fetched at build time**, git-ignored and never committed: the web views' JavaScript
   libraries and the 3D view's HDRI environments (`packages/specto-web/build.py`), the Qt
   SDK the native module compiles against, and libmpv (`tools/fetch_libmpv.py`).
+- **Fetched at run time**, on first use, into the user's data folder and never committed:
+  the usd view's environment assets, NVIDIA's dynamic skies (under NVIDIA's terms, which
+  forbid committing them) and the 3d view's Poly Haven HDRIs on an installed app
+  (section 3).
 - **Runtime dependencies** installed by `uv sync` or `npm install` from public registries.
 
 Nothing is vendored from a proprietary source. Where a dependency is copyleft or
@@ -89,12 +93,21 @@ next to the plugin, in a git-ignored folder. A binary distribution of Specto tha
 GPL libmpv would have to take the GPL's terms for that distribution into account; that is
 flagged here for whoever packages an installer.
 
-### 2.5 NVIDIA's dynamic skies, fetched by the app on first use
+## 3. Fetched at run time (into the user's data folder, never committed)
 
-The usd view's **Sky** environment (SPEC-31) is one of the seven dynamic skies of the
-Omniverse sample assets on NVIDIA's public content bucket
+The usd view's environment light (SPEC-31, ADR 0024) fetches its assets the first time the
+user picks them, into the user's Specto data folder (`specto_core.instances.user_dir`:
+`%LOCALAPPDATA%\specto\specto` on Windows, `~/.local/share/specto` on Linux), outside any
+checkout. Each file is pinned by sha256 and size and checked before it is kept; nothing is
+fetched again once cached. These are the only app assets fetched at run time.
+
+### 3.1 NVIDIA's dynamic skies, `<user dir>/skies`
+
+The **Sky** environment is one of the seven dynamic skies of the Omniverse sample assets
+on NVIDIA's public content bucket
 (`https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Skies/`:
-`Dynamic/*.usd` with the MDL under `Sky_Elements/materials/` and two small helpers). These
+`Dynamic/*.usd` with the MDL and textures under `Sky_Elements/materials/`, two small
+helpers and the preview scene with its floor, `Sky_Elements/PreviewScene.usda`). These
 are NVIDIA "Content" under the **NVIDIA Omniverse License Agreement**
 (https://docs.omniverse.nvidia.com/extensions/latest/common/NVIDIA_Omniverse_License_Agreement_2022-2023.html),
 a "non-exclusive, non-transferable, non-sublicensable" licence to "Distribute Content
@@ -104,13 +117,19 @@ not deploy or distribute the Content on a stand-alone basis", with no copies "in
 publicly accessible software repositories" and no use that makes them "redistributable
 at no charge". Files in this MIT repository would break all three, so **nothing of them
 is committed or built**: each user's own Specto fetches them the first time the Sky
-choice is used (`specto_app.usd.skies`), pinned by sha256, into that user's Specto data
-folder (`<user dir>/skies`, outside any checkout), writes the notice
-`NVIDIA-SKY-NOTICE.txt` beside them and packs each sky into its own `.usdz` for that
-installation's use; Specto only reads them from there and redistributes nothing. The
-HDRI environment reuses the Poly Haven files of section 2.2 (CC0).
+choice is used (`specto_app.usd.skies`), writes the notice `NVIDIA-SKY-NOTICE.txt` beside
+them and packs each sky into its own `.usdz` for that installation's use; Specto only
+reads them from there and redistributes nothing.
 
-## 3. Runtime dependencies (Python, `uv sync`)
+### 3.2 The HDRIs, `<user dir>/hdri`
+
+The **HDRI** environment is one of the 3d view's Poly Haven HDRIs (section 2.2, CC0 1.0,
+no attribution required), fetched by the same code from Poly Haven's URLs in
+`packages/specto-web/web/3d/environments.json` when the app has no web build beside it
+(an installed app); a source checkout uses the build's download instead. A notice,
+`POLYHAVEN-CC0.txt`, sits beside them.
+
+## 4. Runtime dependencies (Python, `uv sync`)
 
 Installed from public PyPI only (the workspace pins the index). Versions are in `uv.lock`.
 
@@ -130,7 +149,7 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 | Transitive: anyio, attrs, httpx, httpcore, h11, idna, sniffio, starlette, uvicorn, sse-starlette, python-multipart, jsonschema (+ referencing, rpds-py, jsonschema-specifications), PyJWT, cryptography, cffi, pycparser, typing-extensions, typing-inspection, annotated-types, opentelemetry-api, packaging, colorama, truststore, pywin32 (Windows) | MIT, BSD, Apache-2.0, PSF, MIT-0 | Pulled in by the SDK, mcp, pydantic and click; none copyleft. |
 | Dev only: pytest, pytest-cov, coverage, ruff, pluggy, iniconfig, Pygments | MIT, Apache-2.0, BSD-2-Clause | Tests and linting; nothing ships. |
 
-### 3.1 Optional renderers for the usd view (not installed by default)
+### 4.1 Optional renderers for the usd view (not installed by default)
 
 | Package | Licence | Use |
 |---|---|---|
@@ -138,7 +157,7 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 | `usd-core` 26.11 | Apache-2.0 (Pixar's OpenUSD, with its modified-Apache notice) | Stage bounds for the RTX source. |
 | OpenUSD imaging build (`tools/parked/build_openusd.py`, built locally, found through `SPECTO_OPENUSD`) | Apache-2.0 (OpenUSD and its build dependencies: TBB Apache-2.0, OpenSubdiv Apache-2.0, OpenImageIO BSD-3-Clause, among others) | The Hydra Storm renderer. Built by the developer from source; nothing of it is in the repository. |
 
-## 4. Tooling that fetches but ships nothing
+## 5. Tooling that fetches but ships nothing
 
 - `aqtinstall` (MIT): installs the Qt SDK for the native build.
 - `py7zr` (LGPL-2.1+) in a throwaway venv, or 7-Zip (LGPL-2.1+ with unRAR restriction) on
@@ -149,9 +168,10 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 - `ffmpeg` / `ffprobe` (LGPL-2.1+ or GPL depending on the build) on PATH:
   `tools/make_testdata.py` renders the git-ignored test dataset with them.
 
-## 5. Services the app may contact at runtime
+## 6. Services the app may contact at runtime
 
 Only when the user turns the capability on for a view: OpenStreetMap and Esri basemap
 tiles (`net:tiles`, section 2.1), the html view's live embeds (`net:web`), and the agent's
-connection to Anthropic through the user's own Claude Code login. Nothing else leaves the
-machine.
+connection to Anthropic through the user's own Claude Code login. On the user's first pick
+of the usd view's Sky or HDRI environment: NVIDIA's public content bucket and Poly Haven,
+once per asset (section 3). Nothing else leaves the machine.

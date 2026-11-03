@@ -105,7 +105,7 @@ compiles against `/usr/include/mpv` and the loader finds `libmpv.so.2`. Without 
 The usd view's **Sky** environment (SPEC-31) is one of NVIDIA's seven dynamic skies from
 the public Omniverse sample assets, with the MDL they are made of. Their licence allows
 no stand-alone or public-repository redistribution (`THIRD_PARTY_NOTICES.md` section
-2.5), so nothing of them is in the repository and there is no build step: the app
+3), so nothing of them is in the repository and there is no build step: the app
 fetches them the first time the Sky choice is used (`specto_app.usd.skies`), on a worker
 thread, from NVIDIA's public bucket, each file pinned by sha256 (a mismatch is removed
 and refused; offline is said under the control), into `<user dir>/skies` (the app's
@@ -114,12 +114,17 @@ flows do), packed as one stored `.usdz` per sky with the stage first, which the 
 references as `<name>.usdz[Dynamic/<name>.usd]` (ovrtx compiles the MDL from inside it);
 the plain files stay under `skies/src/`, shared between skies, with the licence notice
 beside them. The sky asked for comes first, then the rest once, the textured CloudySky
-(67 MB of textures) last. `SPECTO_SKY_BASE_URL` points the fetch at another server (the
-tests serve a fake bucket from a local folder). The **HDRI** environment is one of the
-`.hdr` files of the 3d view's environments that step 2 downloaded (`node_modules/.hdri`,
-`specto_web.hdri_source`); `SPECTO_USD_HDRI` points the view at another `.hdr` (tests).
-Without either the panel says so and the view falls back (the sky to the HDRI, the HDRI
-to the stage's own light). Storm never renders a sky: it shows the HDRI for it.
+(67 MB of textures) last. Every download goes to a `.part` cut off past its pinned size,
+checked, then moved into place, under a lock file on the folder (two Specto processes
+take turns). `SPECTO_SKY_BASE_URL` points the fetch at another server (the tests serve a
+fake bucket from a local folder). The **HDRI** environment is one of the `.hdr` files of
+the 3d view's environments: in a source checkout the ones step 2 downloaded
+(`node_modules/.hdri`, `specto_web.hdri_source`), else fetched the same way from Poly
+Haven into `<user dir>/hdri`, pinned by `web/3d/environments.json` (`SPECTO_HDRI_BASE_URL`
+for a local server); `SPECTO_USD_HDRI` points the view at another `.hdr` (tests). Without
+either the panel says so and the view falls back (the sky to the HDRI, the HDRI to the
+stage's own light). Storm never renders a sky: it shows the HDRI for it. The sky's ground
+(`params.ground`) is the floor of the preview scene each sky package carries.
 
 ### Everything (Windows, optional)
 

@@ -165,7 +165,7 @@ What lights a stage in the usd view beyond the stage's own lights: Stage (its ow
 _Avoid_: skybox, lighting preset, scene light (that is a stage's own light)
 
 **Dynamic sky**:
-One of NVIDIA's seven procedural skies the usd view can light a stage with (clear, cirrus, light cumulus, heavy cumulus, overcast, night, and a textured cloudy one), fetched on first use into the user's Specto data folder under NVIDIA's terms, never committed. Its sky controls, time of day, cloudiness and haze, move its sun, its cumulus cover and its atmosphere live; a control left unset keeps the sky's own value.
+One of NVIDIA's seven procedural skies the usd view can light a stage with (clear, cirrus, light cumulus, heavy cumulus, overcast, night, and a textured cloudy one), fetched on first use into the user's Specto data folder under NVIDIA's terms, never committed. Its sky controls, time of day, cloudiness and haze, move its sun, its cloud cover and its atmosphere live (the textured sky has no haze); a control left unset keeps the sky's own value. Its ground is the floor of the preview scene every sky ships with.
 _Avoid_: sky preset, skydome, HDRI (that is the static image-based light)
 
 **Browser**:
