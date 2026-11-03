@@ -2,13 +2,13 @@
 
 Personal desktop viewer for agent-produced data, agent-first with a minimal canvas: the agent composes views and links, the user looks, interacts and arranges. Vocabulary: `GLOSSARY.md`. Decisions: `docs/adr/` (0011-0017 are the v2 set and supersede `docs/review/hld.md` where they conflict). Background: `DESIGN.md`. Package contracts: `docs/contracts.md`.
 
-Active work: open issues labelled `spec`; each is built with `implement-spec` on an integration branch named after it.
+Active work: open tasks labelled `spec`; each is built with `implement-spec` on an integration branch named after it.
 
 ## Agent skills
 
 ### Issue tracker
 
-Issues and specs live in GitHub Issues on `avatarye/specto`, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues and specs live as tasks on the maintainer's private Backlog.md board (the `backlog` CLI, found through `BACKLOG_CWD`), not in this repo. GitHub Issues are off. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
