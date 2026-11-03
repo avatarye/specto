@@ -468,6 +468,18 @@ step, nothing journaled). */
     camera_mode?: "free" | "orbit";
     /** What the picture shows: lit (the render), unlit (base colour, no lighting), wireframe (edges over black), collision (only the prims with UsdPhysics CollisionAPI, as their collision shapes, in a flat tint). A stage without colliders shows lit. default: "lit" */
     view_mode?: "lit" | "unlit" | "wireframe" | "collision";
+    /** What lights the stage beyond its own lights: stage (its own lights; a stage without any gets a plain dome), sky (one of NVIDIA's dynamic procedural skies with a sun, named by sky; RTX only: Storm shows the HDRI instead) or hdri (an image-based light, one of the 3d view's HDRIs, named by hdri). Composed over the stage in the viewer, never written to the file; kept across stages. The skies are fetched on first use into the user's Specto folder; snap reports what shows, the fetch's progress and a note when it is not the choice (the sky not fetched yet, the HDRI not built). default: "stage" */
+    environment?: "stage" | "sky" | "hdri";
+    /** The dynamic sky when environment is sky: clear, cirrus, light or heavy cumulus, overcast, night, or the textured cloudy sky (67 MB of textures, fetched last). default: "ClearSky" */
+    sky?: "ClearSky" | "Cirrus" | "CumulusLight" | "CumulusHeavy" | "Overcast" | "NightSky" | "CloudySky";
+    /** The HDRI when environment is hdri (and what Storm shows for the sky): the 3d view's five Poly Haven environments. default: "sunny" */
+    hdri?: "studio" | "overcast" | "sunny" | "indoor" | "urban";
+    /** The sky's time of day in hours (0-24): moves its sun and the light of the viewer's sun with it, live. null: the sky's own. default: null */
+    time_of_day?: number | null;
+    /** The sky's cumulus cover, 0 (none) to 1 (solid), live. null: the sky's own. default: null */
+    cloudiness?: number | null;
+    /** The sky's atmospheric haze, 0 (clear) to 1 (milky), live. null: the sky's own. default: null */
+    haze?: number | null;
     /** The item key of the stage shown (default: the picked item, else the first). */
     selected?: string | null;
     /** Cap on rendered pixels (view size x device pixel ratio). default: 2073600 */

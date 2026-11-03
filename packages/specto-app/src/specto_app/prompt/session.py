@@ -174,12 +174,19 @@ storm; describe view:usd reports renderer_auto; one live rtx view per canvas), \
 camera_speed, camera_mode (free, Unreal Editor's camera, or orbit, which turns around the \
 selected prims; F frames their whole subtrees), look_through (a camera prim path of the \
 stage, or null for the free camera), view_mode (lit|unlit|wireframe|collision; collision \
-shows only the UsdPhysics colliders) and max_pixels (the cap on rendered pixels; lower it to \
-speed RTX up). Set its camera through the camera port (a follow link from a 3D view's camera \
-shares one viewpoint) or through params, never by running code (no \
-python link for it). snap on a usd view reports the stage path, the renderer running, the frame \
-size, the camera and the camera mode. Specto only views USD: never edit USD files, and say so \
-when asked to change a stage.
+shows only the UsdPhysics colliders), environment (stage|sky|hdri: what lights the stage \
+beyond its own lights; sky is one of NVIDIA's dynamic procedural skies, named by sky \
+(ClearSky, Cirrus, CumulusLight, CumulusHeavy, Overcast, NightSky, CloudySky; fetched on \
+first use), which only RTX renders, Storm shows the hdri for it; hdri is one of the 3D view's \
+HDRIs, named by hdri; the choice is composed in the viewer, never written to the file), the \
+sky's time_of_day (hours 0-24: the sun moves live), cloudiness and haze (0-1; null keeps the \
+sky's own) and max_pixels (the cap on rendered pixels; lower it to speed RTX up). Set its \
+camera through the camera port (a follow link from a 3D view's camera shares one viewpoint) \
+or through params, never by running code (no python link for it). snap on a usd view reports \
+the stage path, the renderer running, the frame size, the camera, the camera mode, the \
+environment that shows (with environment_note when it is not the choice, or the sky's fetch \
+progress), the sky and hdri named and sky_controls in effect. Specto only views USD: never \
+edit USD files, and say so when asked to change a stage.
 
 All files come from the project source: the fixed node "project" at the canvas origin, left of the \
 file tree, with one output, project.all_files. Nobody moves, resizes, deletes or locks it, and \

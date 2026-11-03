@@ -531,6 +531,18 @@ SUITE: dict[str, dict] = {
         "seed": seed("v2-153-seed.py", "{project}"),
         "sessions": [{"flows": ["v2-153-usd-modes-storm.txt"]}],
     },
+    "usd-42": {
+        # SPEC-31: the environment light with RTX on a small stage without lights (the
+        # seed writes it): Stage (the fallback dome), Sky (NVIDIA's dynamic skies, fetched
+        # on first use into the session's user dir, or copied there by the seed from this
+        # machine's cache: Clear sky, the time of day and cloudiness sliders, then
+        # Overcast from the list) and HDRI (the 3d view's HDRIs, built by
+        # packages/specto-web/build.py: sunny, then urban from the list) from the VIEW
+        # panel's controls, one submit each, reported by snap (needs the rtx extra, the
+        # web build and, without a cache, the network)
+        "seed": seed("v2-42-usd-seed.py", "{project}"),
+        "sessions": [{"flows": ["v2-42-usd-environment.txt"]}],
+    },
     "pdf": {
         # #69: the pdf view, pages, zoom, fit
         "seed": seed("v2-69-seed.py", "{project}"),
@@ -777,6 +789,7 @@ TIERS: dict[str, tuple[str, str]] = {
     "v2-141-usd-time.txt": (GPU, _RTX + "; a root video (mpv) scrubs the stage"),
     "v2-151-usd-nav.txt": (GPU, _RTX),
     "v2-153-usd-modes.txt": (GPU, _RTX),
+    "v2-42-usd-environment.txt": (GPU, _RTX + "; the sky's MDL compiles there"),
     "v2-143-usd-storm.txt": (GPU, _STORM),
     "v2-153-usd-modes-storm.txt": (GPU, _STORM),
     # -- GPU: the stub USD source's frames reach the frame item as OpenGL textures

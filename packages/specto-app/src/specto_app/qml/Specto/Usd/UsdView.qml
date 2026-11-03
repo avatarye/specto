@@ -1,6 +1,8 @@
 // The usd view's item (#139; design usd.md rev 2): the native FrameItem (Specto.Native)
 // showing the frames of the view's source process, between the VIEW panel (left: camera
-// speed, World origin, Frame selected, the Free / Orbit camera mode (#39), the renderer
+// speed, World origin, Frame selected, the Free / Orbit camera mode (#39), the Stage /
+// Sky / HDRI environment light (SPEC-31) with its sky and HDRI lists, the sky's time of day,
+// cloudiness and haze sliders and its note, the renderer
 // readout) and the PRIMS outliner (right: the stage's
 // prims, read-only, lazy, with a search), over the shared footer (#126: previous / next
 // stage, the frame target (the selection, else all), the stage's name; play / pause, the time readout and the
@@ -26,7 +28,10 @@
 // objectNames: frame, viewport:<viewId>, panel:<viewId>:view|prims (SidePanel's parts),
 // phase:<viewId> (its words: phaseText:<viewId>), speed:<viewId>, origin:<viewId>,
 // frameSelected:<viewId>, cameraMode:<viewId> (its halves cameraMode:<viewId>:free|orbit),
-// renderer:<viewId>, rendererNote:<viewId>, primsFilter:<viewId>, prims:<viewId>,
+// environment:<viewId> (its segments environment:<viewId>:stage|sky|hdri), sky:<viewId>
+// and hdri:<viewId> (the list pills; their menus' rows menu:sky-<name>, menu:hdri-<name>),
+// environmentNote:<viewId>, skyControls:<viewId> with timeOfDay:<viewId>,
+// cloudiness:<viewId> and haze:<viewId> (sliders; their tracks <name>:track), renderer:<viewId>, rendererNote:<viewId>, primsFilter:<viewId>, prims:<viewId>,
 // prim:<viewId>:<path>, toggle:<viewId>:<path>, more:<viewId>:<path>,
 // frameAll:<viewId>, stage:<viewId>, play:<viewId>, time:<viewId>, cost:<viewId>,
 // footer:<viewId>, usd:<viewId>:track|cursor|tip (the scrubber's); a renderer that died
@@ -155,56 +160,116 @@ Item {
                     font.pixelSize: theme.metrics.font_px_small
                     color: theme.colors.text
                 }
-                Rectangle {
-                    id: modeSwitch
+                SegmentSwitch {
                     objectName: "cameraMode:" + root.viewId
-                    readonly property string mode: root.bridge ? root.bridge.cameraMode : "free"
-                    width: segments.width + 2
-                    height: 22
-                    radius: height / 2
-                    color: theme.colors.surface
-                    border.color: theme.colors.border_strong
-                    border.width: 1
-                    Row {
-                        id: segments
-                        anchors.centerIn: parent
-                        spacing: 0
-                        Repeater {
-                            model: [
-                                { mode: "free", label: "Free",
-                                  tip: "free camera: drag turns and walks, right-drag looks and flies, Alt+drag orbits" },
-                                { mode: "orbit", label: "Orbit",
-                                  tip: "orbit camera: drag turns around the selection (else the point under the press), right-drag and wheel dolly toward it" }
-                            ]
-                            Rectangle {
-                                id: segment
-                                required property var modelData
-                                readonly property bool on: modeSwitch.mode === modelData.mode
-                                objectName: "cameraMode:" + root.viewId + ":" + modelData.mode
-                                width: segmentLabel.implicitWidth + 20
-                                height: 20
-                                radius: height / 2
-                                color: on ? theme.colors.accent_soft
-                                     : segmentHover.hovered ? theme.colors.bg : "transparent"
-                                Text {
-                                    id: segmentLabel
-                                    anchors.centerIn: parent
-                                    text: segment.modelData.label
-                                    font.family: theme.fonts.ui
-                                    font.pixelSize: theme.metrics.font_px_small
-                                    color: segment.on ? theme.colors.accent : theme.colors.text
-                                }
-                                HoverHandler { id: segmentHover }
-                                TapHandler {
-                                    onTapped: { root.forceActiveFocus(); root.bridge.setCameraMode(segment.modelData.mode) }
-                                }
-                                Tip {
-                                    visible: segmentHover.hovered
-                                    text: segment.modelData.tip
-                                    tag: segment.objectName
-                                }
-                            }
+                    current: root.bridge ? root.bridge.cameraMode : "free"
+                    choices: [
+                        { key: "free", label: "Free",
+                          tip: "free camera: drag turns and walks, right-drag looks and flies, Alt+drag orbits" },
+                        { key: "orbit", label: "Orbit",
+                          tip: "orbit camera: drag turns around the selection (else the point under the press), right-drag and wheel dolly toward it" }
+                    ]
+                    onPicked: (key) => root.bridge.setCameraMode(key)
+                }
+            }
+            Item { width: 1; height: 6 }
+            Column {
+                // the environment light (SPEC-31): the stage's own lights, one of NVIDIA's
+                // dynamic skies (RTX; Storm shows the HDRI instead) or one of the 3d view's
+                // HDRIs as a dome light; a Sky list, an HDRI list, the sky's controls (time
+                // of day, cloudiness, haze; live) and the note under the control: a sky's
+                // fetch on first use, or why what shows is not the choice
+                id: environmentCol
+                readonly property string choice: root.bridge ? root.bridge.environment : "stage"
+                readonly property bool controlsOn: root.bridge !== null && root.bridge.skyControlsOn
+                x: 8
+                width: parent.width - 16
+                spacing: 4
+                Text {
+                    text: "Environment"
+                    font.family: theme.fonts.ui
+                    font.pixelSize: theme.metrics.font_px_small
+                    color: theme.colors.text
+                }
+                SegmentSwitch {
+                    objectName: "environment:" + root.viewId
+                    current: environmentCol.choice
+                    choices: [
+                        { key: "stage", label: "Stage",
+                          tip: "the stage's own lights (a stage without any gets a plain dome)" },
+                        { key: "sky", label: "Sky",
+                          tip: "one of NVIDIA's dynamic skies, a procedural sky with a sun (RTX; Storm shows the HDRI instead); fetched on first use" },
+                        { key: "hdri", label: "HDRI",
+                          tip: "an image-based light: one of the 3d view's HDRIs as a dome" }
+                    ]
+                    onPicked: (key) => root.bridge.setEnvironment(key)
+                }
+                DropPill {
+                    // the dynamic skies (menu rows menu:sky-<name>)
+                    id: skyPill
+                    objectName: "sky:" + root.viewId
+                    visible: environmentCol.choice === "sky"
+                    text: root.bridge ? root.bridge.skyLabel : ""
+                    tip: "which dynamic sky: clear, cirrus, cumulus, overcast, night or the textured cloudy one"
+                    onClicked: root.openSkyMenu()
+                }
+                DropPill {
+                    // the 3d view's HDRIs (menu rows menu:hdri-<name>)
+                    id: hdriPill
+                    objectName: "hdri:" + root.viewId
+                    visible: environmentCol.choice === "hdri"
+                    text: root.bridge ? root.bridge.hdriLabel : ""
+                    tip: "which HDRI lights the stage: the 3d view's five"
+                    onClicked: root.openHdriMenu()
+                }
+                Text {
+                    objectName: "environmentNote:" + root.viewId
+                    width: parent.width
+                    visible: text !== ""
+                    text: root.bridge ? root.bridge.environmentNote : ""
+                    wrapMode: Text.WordWrap
+                    font.family: theme.fonts.ui
+                    font.pixelSize: theme.metrics.font_px_small
+                    color: theme.colors.text_muted
+                }
+                Column {
+                    // the sky's controls, live: the sun by the time of day, the cumulus
+                    // cover, the haze; at rest while no sky shows (Storm, the textured sky)
+                    objectName: "skyControls:" + root.viewId
+                    visible: environmentCol.choice === "sky"
+                    opacity: environmentCol.controlsOn ? 1 : 0.45
+                    enabled: environmentCol.controlsOn
+                    width: parent.width
+                    spacing: 4
+                    PanelSlider {
+                        objectName: "timeOfDay:" + root.viewId
+                        label: "Time of day"
+                        from: 0; to: 24; stepSize: 0.25
+                        value: root.bridge ? root.bridge.timeOfDay : 12
+                        readout: {
+                            var h = Math.floor(shown), m = Math.round((shown - h) * 60)
+                            return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m
                         }
+                        tip: "the sky's time of day: its sun moves, and the light with it"
+                        onMoved: (v, final) => root.bridge.setTimeOfDay(v, final)
+                    }
+                    PanelSlider {
+                        objectName: "cloudiness:" + root.viewId
+                        label: "Cloudiness"
+                        from: 0; to: 1; stepSize: 0.05
+                        value: root.bridge ? root.bridge.cloudiness : 0
+                        readout: Math.round(shown * 100) + "%"
+                        tip: "the sky's cumulus cover, none to solid"
+                        onMoved: (v, final) => root.bridge.setCloudiness(v, final)
+                    }
+                    PanelSlider {
+                        objectName: "haze:" + root.viewId
+                        label: "Haze"
+                        from: 0; to: 1; stepSize: 0.05
+                        value: root.bridge ? root.bridge.haze : 0
+                        readout: Math.round(shown * 100) + "%"
+                        tip: "the sky's atmospheric haze, clear to milky"
+                        onMoved: (v, final) => root.bridge.setHaze(v, final)
                     }
                 }
             }
@@ -624,6 +689,35 @@ Item {
         }
     }
 
+    // the environment's lists (SPEC-31): the dynamic skies and the HDRIs, the one chosen
+    // bold; rows are menu:sky-<name> and menu:hdri-<name>, opened under their pills
+    PopMenu { id: skyMenu; heading: "Sky"; minWidth: 200 }
+    PopMenu { id: hdriMenu; heading: "HDRI"; minWidth: 200 }
+    function openSkyMenu() {
+        if (!root.bridge) return
+        skyMenu.entries = root.bridge.skies.map(function (s) {
+            return {
+                text: s.label,
+                name: "sky-" + s.sky,
+                bold: s.sky === root.bridge.sky,
+                action: function () { root.forceActiveFocus(); root.bridge.setSky(s.sky) }
+            }
+        })
+        skyMenu.openAt(skyPill, 0, skyPill.height + 2)
+    }
+    function openHdriMenu() {
+        if (!root.bridge) return
+        hdriMenu.entries = root.bridge.hdris.map(function (h) {
+            return {
+                text: h.label,
+                name: "hdri-" + h.hdri,
+                bold: h.hdri === root.bridge.hdri,
+                action: function () { root.forceActiveFocus(); root.bridge.setHdri(h.hdri) }
+            }
+        })
+        hdriMenu.openAt(hdriPill, 0, hdriPill.height + 2)
+    }
+
     // the view mode menu: the modes this stage offers (collision only with colliders), the
     // one shown bold; rows are menu:mode-<mode>
     PopMenu { id: modeMenu; heading: "View mode"; minWidth: 200 }
@@ -831,6 +925,148 @@ Item {
         }
     }
 
+    // the VIEW panel's segmented switch (#39 Camera, SPEC-31 Environment): one pill, a segment
+    // a choice (`choices`: {key, label, tip}), the current one in the accent; a tap picks.
+    // Segments are named <objectName>:<key>.
+    component SegmentSwitch: Rectangle {
+        id: switcher
+        property var choices: []
+        property string current: ""
+        signal picked(string key)
+        width: segments.width + 2
+        height: 22
+        radius: height / 2
+        color: theme.colors.surface
+        border.color: theme.colors.border_strong
+        border.width: 1
+        Row {
+            id: segments
+            anchors.centerIn: parent
+            spacing: 0
+            Repeater {
+                model: switcher.choices
+                Rectangle {
+                    id: segment
+                    required property var modelData
+                    readonly property bool on: switcher.current === modelData.key
+                    objectName: switcher.objectName + ":" + modelData.key
+                    width: segmentLabel.implicitWidth + 20
+                    height: 20
+                    radius: height / 2
+                    color: on ? theme.colors.accent_soft
+                         : segmentHover.hovered ? theme.colors.bg : "transparent"
+                    Text {
+                        id: segmentLabel
+                        anchors.centerIn: parent
+                        text: segment.modelData.label
+                        font.family: theme.fonts.ui
+                        font.pixelSize: theme.metrics.font_px_small
+                        color: segment.on ? theme.colors.accent : theme.colors.text
+                    }
+                    HoverHandler { id: segmentHover }
+                    TapHandler {
+                        onTapped: { root.forceActiveFocus(); switcher.picked(segment.modelData.key) }
+                    }
+                    Tip {
+                        visible: segmentHover.hovered && segment.modelData.tip !== undefined
+                        text: segment.modelData.tip || ""
+                        tag: segment.objectName
+                    }
+                }
+            }
+        }
+    }
+
+    // the VIEW panel's list pill (SPEC-31: the Sky and HDRI lists): the choice's name with a
+    // chevron, like the footer's mode chip; a click opens its menu under it
+    component DropPill: Rectangle {
+        id: pill
+        property string text: ""
+        property string tip: ""
+        signal clicked()
+        width: pillRow.width + 16
+        height: 20
+        radius: height / 2
+        color: pillArea.containsMouse ? theme.colors.surface_hover : theme.colors.surface
+        border.color: theme.colors.border_strong
+        border.width: 1
+        Row {
+            id: pillRow
+            anchors.centerIn: parent
+            spacing: 4
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: pill.text
+                font.family: theme.fonts.ui
+                font.pixelSize: theme.metrics.font_px_small
+                color: theme.colors.text
+            }
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                name: "chevron-down"
+                size: 9
+                color: theme.colors.text_muted
+            }
+        }
+        MouseArea {
+            id: pillArea
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: pill.clicked()
+        }
+        Tip {
+            visible: pillArea.containsMouse && pill.tip !== ""
+            text: pill.tip
+            tag: pill.objectName
+        }
+    }
+
+    // a labelled slider of the VIEW panel (SPEC-31: the sky's controls): `label` above, the
+    // `readout` of the value shown at the right; the SpeedSlider's range and steps
+    component PanelSlider: Column {
+        id: labelled
+        property string label: ""
+        property string tip: ""
+        property real from: 0
+        property real to: 1
+        property real stepSize: 0.05
+        property real value: 0
+        property string readout: ""
+        readonly property real shown: track.shown
+        signal moved(real value, bool final)
+        width: parent.width
+        spacing: 2
+        Text {
+            text: labelled.label
+            font.family: theme.fonts.ui
+            font.pixelSize: theme.metrics.font_px_small
+            color: theme.colors.text
+        }
+        Row {
+            width: parent.width
+            spacing: 6
+            SpeedSlider {
+                id: track
+                objectName: labelled.objectName ? labelled.objectName + ":track" : ""
+                width: parent.width - readoutLabel.width - 6
+                from: labelled.from
+                to: labelled.to
+                stepSize: labelled.stepSize
+                value: labelled.value
+                tip: labelled.tip
+                onMoved: (v, final) => labelled.moved(v, final)
+            }
+            FooterLabel {
+                id: readoutLabel
+                width: 38
+                height: 14
+                horizontalAlignment: Text.AlignRight
+                mono: true
+                text: labelled.readout
+            }
+        }
+    }
+
     // the failure's buttons (#155): a pill like World origin's
     component ActionButton: Rectangle {
         id: action
@@ -860,14 +1096,16 @@ Item {
         }
     }
 
-    // the VIEW panel's slider: log2 of the camera speed, -3 .. 3 in quarter steps; live
-    // while dragged (`moved(v, false)`), final on release (`moved(v, true)`)
+    // the VIEW panel's slider: log2 of the camera speed, -3 .. 3 in quarter steps (its
+    // defaults; the sky's controls set their own range, SPEC-31); live while dragged
+    // (`moved(v, false)`), final on release (`moved(v, true)`)
     component SpeedSlider: Item {
         id: slider
         property real value: 0
         property real from: -3
         property real to: 3
         property real stepSize: 0.25
+        property string tip: "how fast the camera flies, moves, pans and dollies (right-drag + wheel sets it too)"
         property real dragValue: NaN
         readonly property real shown: isNaN(dragValue) ? value : dragValue
         signal moved(real value, bool final)
@@ -914,8 +1152,8 @@ Item {
             }
         }
         Tip {
-            visible: sliderHover.hovered
-            text: "how fast the camera flies, moves, pans and dollies (right-drag + wheel sets it too)"
+            visible: sliderHover.hovered && slider.tip !== ""
+            text: slider.tip
             tag: slider.objectName
         }
         HoverHandler { id: sliderHover }

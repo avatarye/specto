@@ -140,7 +140,19 @@ pressed on, else the point ahead; middle-drag pans; right-drag and the wheel dol
 toward it. The mode is kept with the view. **F** and the panel's **Frame selected**
 frame the selected prims and everything under them (an Xform or Scope frames all of its
 children), or the whole stage when nothing is selected; the status bar lists the keys
-while the pointer is over the view.
+while the pointer is over the view. The panel's **Environment** control lights the stage
+beyond its own lights: **Stage** (its own lights; a stage without any gets a plain dome),
+**Sky** (one of NVIDIA's seven dynamic skies, a procedural daylight sky with a sun, picked
+from the Sky list: clear, cirrus, light or heavy cumulus, overcast, night, or a textured
+cloudy one; RTX only) or **HDRI** (one of the 3d view's five HDRIs as a dome light, behind
+and lighting, from the HDRI list). Under a sky the **Time of day**, **Cloudiness** and
+**Haze** sliders move its sun and the light with it, its cumulus cover and its haze, live.
+The choices are kept with the view and never written to the stage file. The skies are
+downloaded the first time you pick Sky, into your Specto data folder (about a second for
+the procedural ones, a minute more in the background for the textured one, with the
+progress under the control; offline, the control says so and shows the HDRI meanwhile);
+Storm cannot render the sky's MDL and shows the HDRI for it; the HDRIs need the web build
+(`packages/specto-web/build.py`): a note under the control says which is missing.
 
 **The overworld.** Tab toggles the zoomed-out level: every view pauses and shows its
 snapshot as a card, the links are drawn as wires with a node each, and you move and

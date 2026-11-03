@@ -51,6 +51,8 @@ from typing import Any
 
 import numpy as np
 
+from .environment import Assets
+from .environment import author as author_environment
 from .nav import gf_frustum
 
 #: the renderer readout's note: what Storm cannot show of Omniverse content
@@ -104,6 +106,7 @@ class StormRenderer:
 
     name = "storm"
     note = NOTE
+    renders_mdl = False  # the environment's sky falls back to the HDRI (SPEC-31)
     #: (camera state, aspect) -> the camera value :meth:`set_camera` takes
     camera_of = staticmethod(gf_frustum)
 
@@ -132,6 +135,9 @@ class StormRenderer:
         self._warnings: list[str] = []  # the new ones, until taken
         self.clear = CLEAR
         self._mode_layer: Any = None  # the view mode's edits, in the session layer
+        self._environment_layer: Any = None  # the environment light's (SPEC-31), beside it
+        self._environment = "stage"
+        self._environment_hdri: str | None = None  # the HDRI the dome shows
         self._selection_color: str | None = None
         self.engine: Any = None
         self.stage: Any = None
@@ -169,7 +175,9 @@ class StormRenderer:
         self.engine = self.UsdImagingGL.Engine()
         self.engine.SetRendererAov("color")
         self.params.highlight = False
-        self._mode_layer = None
+        self._mode_layer = self._environment_layer = None
+        self._environment, self._environment_hdri = "stage", None
+        self.params.enableSceneLights = False
         self._noted, self._warnings = set(), []
         self.set_view_mode("lit")
         self.resize(width, height, camera)
@@ -221,16 +229,39 @@ class StormRenderer:
 
     # -- frames --------------------------------------------------------------------------
     def _headlight(self, view) -> None:
+        """The camera headlight; under an environment light (SPEC-31) the dome lights the
+        stage alone, so the simple lights are none."""
         Gf, Glf = self.Gf, self.Glf
-        light = Glf.SimpleLight()
-        light.position = Gf.Vec4f(*[float(v) for v in self.camera["position"]], 1.0)
-        light.transform = view.GetInverse()
-        light.ambient = Gf.Vec4f(0.01, 0.01, 0.01, 1.0)
+        lights = []
+        if self._environment == "stage":
+            light = Glf.SimpleLight()
+            light.position = Gf.Vec4f(*[float(v) for v in self.camera["position"]], 1.0)
+            light.transform = view.GetInverse()
+            light.ambient = Gf.Vec4f(0.01, 0.01, 0.01, 1.0)
+            lights.append(light)
         material = Glf.SimpleMaterial()
         material.ambient = Gf.Vec4f(0.2, 0.2, 0.2, 1.0)
         material.specular = Gf.Vec4f(0.1, 0.1, 0.1, 1.0)
         material.shininess = 32.0
-        self.engine.SetLightingState([light], material, Gf.Vec4f(0.01, 0.01, 0.01, 1.0))
+        self.engine.SetLightingState(lights, material, Gf.Vec4f(0.01, 0.01, 0.01, 1.0))
+
+    # -- the environment light (SPEC-31) -----------------------------------------------------
+    def set_environment(
+        self, environment: str, up_axis: str, assets: Assets, *_controls: Any
+    ) -> None:
+        """Draw ``environment`` (``stage`` or ``hdri``; the sky never reaches Storm, nor
+        its controls) from the next frame: the dome light composed in a sublayer of the
+        session layer (:func:`.environment.author`), the stage's own lights hidden under
+        it, scene lights on and the headlight off; ``stage`` clears all of that."""
+        if (environment, assets.hdri) == (self._environment, self._environment_hdri):
+            return
+        self._environment_hdri = assets.hdri
+        if self._environment_layer is None:
+            self._environment_layer = self.Sdf.Layer.CreateAnonymous("specto-environment")
+            self.stage.GetSessionLayer().subLayerPaths.insert(0, self._environment_layer.identifier)
+        author_environment(self._environment_layer, environment, up_axis, assets, self.stage)
+        self._environment = environment
+        self.params.enableSceneLights = environment != "stage"
 
     def submit(self, delta_time: float | None = None) -> tuple[int, int, int]:
         """Draw one frame and start reading it into a PBO; :meth:`finish` maps it.

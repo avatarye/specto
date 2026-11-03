@@ -58,7 +58,14 @@ The host:
   with prims with CollisionAPI): else the view stays lit. The pill's menu lists the
   modes on offer; the mode is kept across stages; what shows is the source's answer.
   ``snap`` reports ``view_mode`` (shown), ``view_modes`` (on offer) and
-  ``view_mode_note``, the names the 3d view uses.
+  ``view_mode_note``, the names the 3d view uses;
+- lights the stage with an **environment light** (SPEC-31, ``usd.environment``):
+  ``params.environment`` (``stage``, ``sky``, ``hdri``; one user submit per change from
+  the VIEW panel's control, or the agent's param) goes to the source with each ``load``
+  and as ``set_environment`` on a change, so the choice is kept across stages. What
+  shows is the source's answer: the sky needs MDL (RTX) and the fetched sky, the HDRI
+  the web build, else each falls back a step with a note the panel shows under the
+  control. ``snap`` reports ``environment`` (shown) and ``environment_note``.
 
 QML: ``Specto/Usd/UsdView.qml`` (the viewport ``FrameItem``, the VIEW and PRIMS side
 panels, ``ViewFooter``), talking to the host through :class:`UsdBridge`.
@@ -95,6 +102,17 @@ from specto_core.timebase import OWN_TIMELINE
 
 from ..theme import COLORS
 from ..timeline.controller import TimelineController
+from ..usd import skies
+from ..usd.environment import (
+    DEFAULT_HDRI,
+    ENVIRONMENTS,
+    HDRIS,
+    SkyControls,
+    environment_of,
+    hdri_of,
+    sky_of,
+)
+from ..usd.environment import LABELS as ENVIRONMENT_LABELS
 from ..usd.timecodes import USD_TIMELINE, StageTime
 from . import gallery_native
 from .scene3d_view import initial_camera
@@ -121,6 +139,7 @@ ORBIT_KEYS = (
     "drag orbits the selection or the point under it, middle-drag pans, "
     "right-drag and wheel dolly toward it, F frames"
 )
+CONTROLS_SEND_MS = 60  # a sky slider's live changes go to the source at most this often
 PANELS = ("view", "prims")
 PANEL_WIDTH = {"view": 200, "prims": 240}
 PANEL_MIN, PANEL_MAX = 140, 480
@@ -130,6 +149,7 @@ PHASES = {
     "composing": "composing",
     "compiling shaders": "compiling RTX shaders",  # the source adds "(first run ...)" when cold
     "first frame": "first frame",
+    "compiling sky": "compiling the sky's material",  # SPEC-31: the picture is black meanwhile
 }
 #: the loading label's phase by the source's health state (#156)
 COVER_PHASES = {
@@ -469,6 +489,7 @@ class UsdBridge(QObject):
     healthChanged = Signal()
     selectionChanged = Signal()
     viewModeChanged = Signal()
+    environmentChanged = Signal()
     failureChanged = Signal()
     coverChanged = Signal()
     #: scroll the outliner to this row (a selection revealed in it)
@@ -623,10 +644,94 @@ class UsdBridge(QObject):
     def viewModes(self) -> list[dict[str, Any]]:
         return self._host.view_mode_rows()
 
+    # the environment light (SPEC-31): the choice (the VIEW panel's control), what shows, why,
+    # the sky and HDRI lists, the sky's controls and its fetch
+    @Property(str, notify=environmentChanged)
+    def environment(self) -> str:
+        return self._host.environment
+
+    @Property(str, notify=environmentChanged)
+    def environmentShown(self) -> str:
+        return self._host.environment_shown
+
+    @Property(str, notify=environmentChanged)
+    def environmentNote(self) -> str:
+        return self._host.environment_words
+
+    @Property("QVariantList", constant=True)
+    def environments(self) -> list[dict[str, Any]]:
+        return [{"environment": e, "label": ENVIRONMENT_LABELS[e]} for e in ENVIRONMENTS]
+
+    @Property("QVariantList", constant=True)
+    def skies(self) -> list[dict[str, Any]]:
+        return [{"sky": name, "label": label} for name, label in skies.SKIES.items()]
+
+    @Property("QVariantList", constant=True)
+    def hdris(self) -> list[dict[str, Any]]:
+        return [{"hdri": name, "label": label} for name, label in HDRIS.items()]
+
+    @Property(str, notify=environmentChanged)
+    def sky(self) -> str:
+        return self._host.sky
+
+    @Property(str, notify=environmentChanged)
+    def skyLabel(self) -> str:
+        return skies.SKIES.get(self._host.sky, self._host.sky)
+
+    @Property(str, notify=environmentChanged)
+    def hdri(self) -> str:
+        return self._host.hdri
+
+    @Property(str, notify=environmentChanged)
+    def hdriLabel(self) -> str:
+        return HDRIS.get(self._host.hdri, self._host.hdri)
+
+    @Property(bool, notify=environmentChanged)
+    def skyControlsOn(self) -> bool:
+        """The sliders act: a sky shows (Storm and the textured sky have none to move)."""
+        return self._host.environment_shown == "sky" and self._host.sky in skies.PROCEDURAL
+
+    @Property(float, notify=environmentChanged)
+    def timeOfDay(self) -> float:
+        return float(self._host.sky_values()["time_of_day"])
+
+    @Property(float, notify=environmentChanged)
+    def cloudiness(self) -> float:
+        return float(self._host.sky_values()["cloudiness"])
+
+    @Property(float, notify=environmentChanged)
+    def haze(self) -> float:
+        return float(self._host.sky_values()["haze"])
+
     # -- intent --------------------------------------------------------------------------
     @Slot(str)
     def setViewMode(self, mode: str) -> None:
         self._host.set_view_mode(str(mode))
+
+    @Slot(str)
+    def setEnvironment(self, environment: str) -> None:
+        """The VIEW panel's Stage / Sky / HDRI control (SPEC-31)."""
+        self._host.set_environment(str(environment))
+
+    @Slot(str)
+    def setSky(self, name: str) -> None:
+        self._host.set_sky(str(name))
+
+    @Slot(str)
+    def setHdri(self, name: str) -> None:
+        self._host.set_hdri(str(name))
+
+    @Slot(float, bool)
+    def setTimeOfDay(self, value: float, final: bool) -> None:
+        self._host.set_sky_control("time_of_day", float(value), final=bool(final))
+
+    @Slot(float, bool)
+    def setCloudiness(self, value: float, final: bool) -> None:
+        self._host.set_sky_control("cloudiness", float(value), final=bool(final))
+
+    @Slot(float, bool)
+    def setHaze(self, value: float, final: bool) -> None:
+        self._host.set_sky_control("haze", float(value), final=bool(final))
 
     @Slot(int)
     def step(self, delta: int) -> None:
@@ -724,6 +829,8 @@ class UsdHost(Stepping, QuickViewHost):
 
     #: (on_result, on_error, result, error), to the GUI thread
     _answered = Signal(object, object, object, object)
+    #: the sky fetcher's worker thread reports a change (SPEC-31), to the GUI thread
+    _fetch_changed = Signal()
 
     def __init__(
         self,
@@ -735,10 +842,12 @@ class UsdHost(Stepping, QuickViewHost):
         source: SourceCommand = source_command,
         camera_factory: CameraFactory = PlaceholderCamera,
         idle_kill_s: float = IDLE_KILL_S,
+        fetcher_factory: Callable[..., Any] = skies.SkyFetcher,
     ) -> None:
         super().__init__(ctx, view_id, manifest)
         self.source_command = source
         self.idle_kill_s = idle_kill_s
+        self._fetcher_factory = fetcher_factory  # tests hand in one that fetches nothing
         self.collection: Collection | None = None
         self.items: list[Item] = []
         self.keys: list[str] = []
@@ -794,6 +903,21 @@ class UsdHost(Stepping, QuickViewHost):
         self.view_mode_note = ""
         self.view_modes: list[dict[str, Any]] = []  # the source's view_modes for the stage
         self._mode_asked = "lit"  # the last set_view_mode sent for this stage
+        self.environment = "stage"  # params.environment: the choice asked (SPEC-31)
+        self.environment_shown = "stage"  # the source's answer: what lights the picture
+        self.environment_note = ""  # why it differs from the choice (the source's words)
+        self.sky = skies.DEFAULT_SKY  # params.sky and params.hdri: the names chosen
+        self.hdri = DEFAULT_HDRI
+        self.sky_controls = SkyControls()  # params.time_of_day, cloudiness, haze
+        self.sky_shown: dict[str, float] = {}  # the controls in effect (the source's answer)
+        self.sky_fetch_note = ""  # the fetch of the sky chosen: progress, or why it failed
+        self._fetcher: Any = None  # skies.SkyFetcher, made on the first sky not cached
+        self._fetching: set[str] = set()  # the skies asked of it, applied once they land
+        self._controls_out = QTimer(self)  # the sliders' live changes, coalesced
+        self._controls_out.setSingleShot(True)
+        self._controls_out.setInterval(CONTROLS_SEND_MS)
+        self._controls_out.timeout.connect(self._send_sky_controls)
+        self._fetch_changed.connect(self._on_fetch_changed)
         self._params: dict[str, Any] = {}
         self._answered.connect(self._on_answer)
         self.tl = TimelineController(self)  # the footer's scrubber (#141)
@@ -960,7 +1084,7 @@ class UsdHost(Stepping, QuickViewHost):
         if self.cover is None:
             self._begin_cover(COVER_PHASES["composing"])
         self._cover_loaded, self.cover_frame = False, None
-        self._send("load", path=self.path)
+        self._send("load", path=self.path, **self._environment_params())
 
     def _send(self, method: str, **params: Any) -> None:
         if self.source is None:
@@ -1052,6 +1176,7 @@ class UsdHost(Stepping, QuickViewHost):
             self._cover_loaded = True
             self._stage_time(params)
             self._stage_modes()
+            self._stage_environment(params)
             self.bridge.stageChanged.emit()
             self.camera.load(params.get("bounds"), str(params.get("up_axis", "Y")))
             if self._camera_wanted is not None:  # a shared viewpoint wins the first look
@@ -1129,6 +1254,163 @@ class UsdHost(Stepping, QuickViewHost):
                 self._mode_asked = self.view_mode_shown
 
         self._request("set_view_mode", take, failed, mode=want, timeout=MODE_TIMEOUT_S)
+
+    # -- the environment light (SPEC-31) -----------------------------------------------------
+    def set_environment(self, environment: str) -> None:
+        """The user picked an environment: ``params.environment``, one submit."""
+        if environment not in ENVIRONMENTS or environment == self.environment:
+            return
+        self.environment = environment
+        self.bridge.environmentChanged.emit()
+        self._write_params({"environment": environment}, f"environment {environment}")
+        self._apply_environment()
+
+    def set_sky(self, name: str) -> None:
+        """The panel's Sky list: ``params.sky``, one submit; a sky not cached is fetched."""
+        if name not in skies.SKIES or name == self.sky:
+            return
+        self.sky = name
+        self.bridge.environmentChanged.emit()
+        self._write_params({"sky": name}, f"sky {skies.SKIES[name]}")
+        self._apply_environment()
+
+    def set_hdri(self, name: str) -> None:
+        """The panel's HDRI list: ``params.hdri``, one submit."""
+        if name not in HDRIS or name == self.hdri:
+            return
+        self.hdri = name
+        self.bridge.environmentChanged.emit()
+        self._write_params({"hdri": name}, f"HDRI {HDRIS[name]}")
+        self._apply_environment()
+
+    def _environment_params(self) -> dict[str, Any]:
+        """What a ``load`` and a ``set_environment`` carry."""
+        return {
+            "environment": self.environment,
+            "sky": self.sky,
+            "hdri": self.hdri,
+            "sky_controls": self.sky_controls.as_dict(),
+        }
+
+    def _take_environment(self, result: dict[str, Any]) -> None:
+        """The source's answer: what shows, why, and the controls in effect."""
+        shown = str(result.get("environment") or "stage")
+        note = str(result.get("note") or result.get("environment_note") or "")
+        controls = result.get("sky_controls")
+        self.environment_shown, self.environment_note = shown, note
+        if isinstance(controls, dict):
+            self.sky_shown = {k: float(v) for k, v in controls.items()}
+        self.bridge.environmentChanged.emit()
+        if "renderer_note" in result and self.stage:
+            self.stage["renderer_note"] = str(result.get("renderer_note") or "")
+            self.bridge.stageChanged.emit()
+
+    def _stage_environment(self, params: dict[str, Any]) -> None:
+        """A stage loaded with the choice sent along: the source says what shows."""
+        self._take_environment(params)
+        self._ensure_sky()
+        if self.environment_shown != self.environment:  # a fallback, or an old source
+            self._apply_environment()
+
+    def _apply_environment(self) -> None:
+        """Ask the source for the environment chosen on the stage shown; what shows is its
+        answer (the choice, or the fallback with its note), and the readout's note follows.
+        A sky not cached yet is fetched meanwhile and applied when it lands."""
+        self._ensure_sky()
+        if self.source is None or not self.stage:
+            return
+        path, want = self.path, self._environment_params()
+
+        def take(result: dict[str, Any]) -> None:
+            if path == self.path and want == self._environment_params():
+                self._take_environment(result)
+
+        self._request("set_environment", take, **want, timeout=MODE_TIMEOUT_S)
+
+    # the dynamic skies' fetch: on first use, off the GUI thread, said in the panel
+    def _ensure_sky(self) -> None:
+        if self.environment != "sky" or skies.package(self.sky) is not None:
+            self._refresh_fetch_note()
+            return
+        if self._fetcher is None:
+            self._fetcher = self._fetcher_factory(self._fetch_changed.emit)
+        self._fetching.add(self.sky)
+        self._fetcher.ask(self.sky)
+        self._refresh_fetch_note()
+
+    @Slot()
+    def _on_fetch_changed(self) -> None:
+        """The fetcher moved (on the GUI thread): the note, and a sky that landed applies."""
+        if self.disposed or self._fetcher is None:
+            return
+        landed = [name for name in self._fetching if self._fetcher.cached(name)]
+        for name in landed:
+            self._fetching.discard(name)
+        self._refresh_fetch_note()
+        if self.sky in landed and self.environment == "sky":
+            self._apply_environment()
+
+    def _refresh_fetch_note(self) -> None:
+        note = ""
+        if self.environment == "sky" and self._fetcher is not None:
+            note = self._fetcher.note(self.sky)
+        if note != self.sky_fetch_note:
+            self.sky_fetch_note = note
+            self.bridge.environmentChanged.emit()
+
+    @property
+    def environment_words(self) -> str:
+        """The panel's line under the control: the fetch's progress or failure while the
+        sky chosen is on its way, else the source's note on what shows instead."""
+        return self.sky_fetch_note or self.environment_note
+
+    def sky_fetch_state(self) -> dict[str, Any]:
+        """``snap``: the sky chosen and its fetch (cached, fetching, done, total, error)."""
+        if self._fetcher is None:
+            return {"sky": self.sky, "cached": skies.package(self.sky) is not None}
+        return {"sky": self.sky, **self._fetcher.status(self.sky)}
+
+    # the sky's controls: live while a slider moves, one user submit on release
+    def set_sky_control(self, name: str, value: float | None, *, final: bool = True) -> None:
+        """``time_of_day``, ``cloudiness`` or ``haze``: the sky follows at once; the
+        param is written on ``final`` (a slider's release, the agent's value)."""
+        if name not in ("time_of_day", "cloudiness", "haze"):
+            return
+        if value is not None:
+            value = round(float(value), 4)  # a slider's step arithmetic, not its noise
+        params = {**self.sky_controls.as_dict(), name: value}
+        controls = SkyControls.of(params)
+        if controls != self.sky_controls:
+            self.sky_controls = controls
+            self.bridge.environmentChanged.emit()
+            self._controls_out.start()
+        if final and self._params.get(name) != getattr(controls, name):
+            self._write_params({name: getattr(controls, name)}, name.replace("_", " "))
+
+    @Slot()
+    def _send_sky_controls(self) -> None:
+        if self.source is None or not self.stage:
+            return
+        path, want = self.path, self.sky_controls
+
+        def take(result: dict[str, Any]) -> None:
+            if path == self.path and want == self.sky_controls:
+                self._take_environment({**result, "environment": self.environment_shown,
+                                        "note": self.environment_note})  # fmt: skip
+
+        self._request("set_sky_controls", take, **want.as_dict(), timeout=MODE_TIMEOUT_S)
+
+    def sky_values(self) -> dict[str, float]:
+        """The controls as the sliders show them: the values in effect (the source's), the
+        params before a stage says."""
+        shown = dict(self.sky_shown)
+        for key, value in self.sky_controls.as_dict().items():
+            if value is not None:
+                shown[key] = value
+        shown.setdefault("time_of_day", 12.0)
+        shown.setdefault("cloudiness", 0.0)
+        shown.setdefault("haze", 0.0)
+        return shown
 
     def _on_phase(self, state: str, message: str, seq: int | None = None) -> None:
         if state == "ok":
@@ -1908,6 +2190,18 @@ class UsdHost(Stepping, QuickViewHost):
         if mode != self.view_mode and mode in VIEW_MODES:
             self.view_mode = mode
             self._apply_view_mode()
+        environment = environment_of(p.get("environment", "stage"))
+        sky, hdri = sky_of(p.get("sky")), hdri_of(p.get("hdri"))
+        controls = SkyControls.of(p)
+        if (environment, sky, hdri) != (self.environment, self.sky, self.hdri):
+            self.environment, self.sky, self.hdri = environment, sky, hdri
+            self.sky_controls = controls
+            self.bridge.environmentChanged.emit()
+            self._apply_environment()
+        elif controls != self.sky_controls:
+            self.sky_controls = controls
+            self.bridge.environmentChanged.emit()
+            self._send_sky_controls()
         if initial:
             return
         sel = p.get("selected")
@@ -1982,6 +2276,12 @@ class UsdHost(Stepping, QuickViewHost):
             "view_mode": self.view_mode_shown,
             "view_modes": self.offered_modes(),
             "view_mode_note": self.view_mode_note,
+            "environment": self.environment_shown,
+            "environment_note": self.environment_words,
+            "sky": self.sky,
+            "hdri": self.hdri,
+            "sky_controls": self.sky_values(),
+            "sky_fetch": self.sky_fetch_state(),
             "time": self.time_snapshot(),
             "source": source,
             "failure": self.failure,
@@ -2000,6 +2300,7 @@ class UsdHost(Stepping, QuickViewHost):
         self._idle.stop()
         self._play.stop()
         self._camera_out.stop()
+        self._controls_out.stop()
         src, self.source = self.source, None
         if src is not None:
             self._closing.add(src.proc.pid)
@@ -2034,6 +2335,7 @@ def register(registry: Any) -> None:
 
 __all__ = [
     "CAMERA_MODES",
+    "ENVIRONMENTS",
     "IDLE_KILL_S",
     "ORBIT_KEYS",
     "USD_MANIFEST",

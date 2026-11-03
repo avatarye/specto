@@ -57,7 +57,20 @@ source's methods (#139), so the usd host drives either one:
   with the reason (no prims with CollisionAPI, a renderer without view modes). Every load
   starts lit. ``view_modes`` answers ``{mode, modes: [{mode, available, reason}]}`` for
   the loaded stage; ``state`` reports ``view_mode``. In collision a pick names the
-  collider, not the overlay prim that draws it.
+  collider, not the overlay prim that draws it;
+- the environment light (SPEC-31, :mod:`.environment`): ``load {path, environment, sky,
+  hdri, sky_controls}`` takes the choice (``stage``, ``sky``, ``hdri``), the sky and
+  HDRI names and the sky's controls (``{time_of_day, cloudiness, haze}``, each null for
+  the sky's own value; the last ones asked when left out) and ``loaded`` carries
+  ``environment``, what shows, ``environment_note`` when it is not what was asked (Storm
+  cannot render the sky's MDL and shows the HDRI; a sky not fetched yet or an HDRI not
+  built fall back the same way) and ``sky_controls``, the values in effect;
+  ``set_environment {environment, sky, hdri, sky_controls}`` switches without a reload
+  and answers ``{environment, note, renderer_note, sky_controls}``; ``set_sky_controls
+  {time_of_day, cloudiness, haze}`` moves the sun, the clouds and the haze of the sky
+  shown, live, answering ``{sky_controls}``; ``state`` reports ``environment``, ``sky``,
+  ``hdri`` and ``sky_controls``. The assets are looked up at each load and switch, so a
+  fetch made meanwhile is seen.
 
 Frames: two steps in flight (48 fps against 39 synchronous at 1080p in the spike), each
 mapped to the CPU (Storm: read into a PBO) and copied into the ring's free slot in place.
@@ -90,6 +103,8 @@ from specto_app.frames.control import ControlServer
 from specto_app.frames.server import FrameServer
 from specto_core.machine import INSTALL_HINT, STORM_HINT, openusd_prefix
 
+from . import environment as env
+from . import skies
 from .nav import CameraState, Nav, usd_camera
 
 #: a USD time step on of at most this many seconds plays (the simulation advances with
@@ -99,6 +114,9 @@ IN_FLIGHT = 2
 #: steps after the last change, then idle: rtx's TAA and DLSS converge; Storm keeps no
 #: history, a few cover its textures still loading
 SETTLE_STEPS = {"rtx": 120, "storm": 8}
+#: steps after a sky comes in (SPEC-31): rtx compiles its MDL off the step for some seconds
+#: and draws black meanwhile, so the loop keeps stepping past the compile
+SKY_SETTLE_STEPS = 600
 MAX_PIXELS = 1920 * 1080
 RENDERERS = ("rtx", "storm")
 PICK_TIMEOUT_S = 10.0
@@ -201,12 +219,25 @@ class UsdSource:
         self._picks: list[tuple[float, float, threading.Event, list]] = []
         self._calls: list[tuple[Callable[[], dict], threading.Event, list]] = []
         self.view_mode = "lit"
+        self.environment = "stage"  # the environment asked for (SPEC-31), what shows, and why
+        self.environment_shown = "stage"
+        self.environment_note = ""
+        self.sky = skies.DEFAULT_SKY  # the sky and HDRI named, and the sky's controls
+        self.hdri = env.DEFAULT_HDRI
+        self.sky_controls = env.SkyControls()
+        self.assets = env.Assets(sky=None, hdri=None)
+        self.authored: dict[str, Any] = {}  # what the sky shown authors (skies.authored)
         self._want_select: list[str] | None = None
         self.selected: list[str] = []
         self.outline_color = OUTLINE_COLOR
         self._budget = 0  # steps left before idling
         self._inflight: deque[tuple[Any, float]] = deque()
         self._first_frame = False  # the loaded stage's first frame is still to come
+        #: the skies whose MDL this renderer has compiled (SPEC-31: the first step after a new
+        #: sky comes in blocks on the compile for some seconds and draws black), and
+        #: whether a step is compiling one now (health says so until it is out)
+        self._compiled_skies: set[str] = set()
+        self._compiling_sky = False
         self.control = ControlServer(self.handle, on_eof=self.stop, stdin=stdio[0], stdout=stdio[1])
         self.frames = FrameServer(
             args.name or f"specto-usd-{os.getpid()}",
@@ -242,6 +273,12 @@ class UsdSource:
         if method == "set_view_mode":
             mode = str(params.get("mode") or "")
             return self._ask(lambda: self._set_view_mode(mode), MODE_TIMEOUT_S)
+        if method == "set_environment":
+            self._take_choice(params)
+            return self._ask(self._set_environment, MODE_TIMEOUT_S)
+        if method == "set_sky_controls":
+            self.sky_controls = env.SkyControls.of(params)
+            return self._ask(self._set_sky_controls, MODE_TIMEOUT_S)
         with self._cond:
             result = self._handle(method, params)
             self._cond.notify()
@@ -286,6 +323,7 @@ class UsdSource:
     def _handle(self, method: str, params: dict) -> dict:
         if method == "load":
             self._want_load = str(params["path"])
+            self._take_choice(params)
             return {}
         if method == "set_camera":
             self._want_camera = _camera_state(params)
@@ -327,6 +365,10 @@ class UsdSource:
                 "selected": self.selected,
                 "timecode": self.timecode,
                 "view_mode": self.view_mode,
+                "environment": self.environment_shown,
+                "sky": self.sky,
+                "hdri": self.hdri,
+                "sky_controls": env.effective(self.sky_controls, self.authored),
             }
         if method == "shutdown":
             self._stop = True
@@ -373,6 +415,8 @@ class UsdSource:
 
     def _close_renderer(self) -> None:
         self._inflight.clear()
+        self._compiled_skies.clear()  # a fresh renderer compiles them again
+        self._compiling_sky = False
         renderer, self.renderer = self.renderer, None
         if renderer is not None:
             try:
@@ -485,6 +529,84 @@ class UsdSource:
         notes = (overlay.note if overlay is not None else "", note)
         return {"mode": mode, "note": "; ".join(n for n in notes if n)}
 
+    # -- the environment light (SPEC-31) -----------------------------------------------------
+    def _take_choice(self, params: dict) -> None:
+        """The environment, sky, HDRI and sky controls a ``load`` or ``set_environment``
+        names (those left out keep the last asked)."""
+        if "environment" in params:
+            self.environment = env.environment_of(params["environment"])
+        if "sky" in params:
+            self.sky = env.sky_of(params["sky"])
+        if "hdri" in params:
+            self.hdri = env.hdri_of(params["hdri"])
+        if isinstance(params.get("sky_controls"), dict):
+            self.sky_controls = env.SkyControls.of(params["sky_controls"])
+
+    def _resolve_environment(self) -> tuple[str, str]:
+        """What shows for the environment asked, with this renderer and the assets on this
+        machine (looked up now), and the note saying why when it differs."""
+        self.assets = env.find_assets(self.sky, self.hdri)
+        self.authored = skies.authored(self.sky) if self.assets.sky else {}
+        renders_mdl = bool(getattr(self.renderer, "renders_mdl", False))
+        return env.resolve(self.environment, self.assets, renders_mdl=renders_mdl, sky=self.sky)
+
+    def _environment_answer(self) -> dict:
+        return {
+            "environment": self.environment_shown,
+            "note": self.environment_note,
+            "renderer_note": self._renderer_note(),
+            "sky_controls": env.effective(self.sky_controls, self.authored),
+        }
+
+    def _set_sky_controls(self) -> dict:
+        """The sky's controls, live on the render thread; the answer is what is in effect."""
+        if self.renderer is None or self.info is None or self.failed:
+            raise ValueError("no stage is rendering")
+        if self.environment_shown == "sky" and hasattr(self.renderer, "set_sky_controls"):
+            self.renderer.set_sky_controls(
+                env.shader_inputs(self.sky_controls, self.authored),
+                env.sun_matrix(env.sun_for(self.sky_controls, self.authored), self.info.up_axis),
+            )
+            self._budget = self.settle_steps
+        return {"sky_controls": env.effective(self.sky_controls, self.authored)}
+
+    def _renderer_note(self) -> str:
+        """The readout's note: what the renderer cannot show, and how the stage is lit."""
+        notes = [getattr(self.renderer, "note", "")]
+        stage_note = getattr(self.renderer, "stage_note", None)
+        if stage_note is not None and self.info is not None:
+            notes.append(stage_note(self.info.lighting, self.environment_shown))
+        return "; ".join(n for n in notes if n)
+
+    def _set_environment(self) -> dict:
+        """Switch to the environment asked, on the render thread; the answer is what
+        shows. Another sky or HDRI of the same kind is another reference: the renderer
+        tells by the layer it would add."""
+        if self.renderer is None or self.info is None or self.failed:
+            raise ValueError("no stage is rendering")
+        shown, note = self._resolve_environment()
+        if hasattr(self.renderer, "set_environment"):
+            self.renderer.set_environment(
+                shown, self.info.up_axis, self.assets, self.sky_controls, self.authored
+            )
+            self._budget = self._environment_budget(shown)
+            self._sky_compiling(shown)
+        self.environment_shown, self.environment_note = shown, note
+        return self._environment_answer()
+
+    def _sky_compiling(self, shown: str) -> None:
+        """A sky this renderer has not drawn yet: its MDL compiles in the next step, which
+        blocks for some seconds and comes out black; health says so meanwhile."""
+        if shown != "sky" or not self.assets.sky or self.assets.sky in self._compiled_skies:
+            return
+        self._compiled_skies.add(self.assets.sky)
+        self._compiling_sky = True
+        self.health("compiling sky", skies.SKIES.get(self.sky, self.sky))
+
+    def _environment_budget(self, shown: str) -> int:
+        """The steps after an environment switch: a sky's MDL compiles for some seconds."""
+        return max(self.settle_steps, SKY_SETTLE_STEPS) if shown == "sky" else self.settle_steps
+
     def _pick(self, picks: list[tuple[float, float, threading.Event, list]]) -> None:
         """Answer the picks taken this turn, against the camera of this turn."""
         while picks:
@@ -545,13 +667,18 @@ class UsdSource:
         with self._info_lock:
             self.info = info
         self.camera = Nav(info.bounds, info.up_axis).state()
-        notes = [getattr(self.renderer, "note", "")]
-        stage_note = getattr(self.renderer, "stage_note", None)
-        if stage_note is not None:
-            notes.append(stage_note(info.lighting))  # rtx: a stage without lights (#148)
-        note = "; ".join(n for n in notes if n)
+        # the environment asked for, as this renderer and machine can show it (SPEC-31)
+        self.environment_shown, self.environment_note = self._resolve_environment()
+        note = self._renderer_note()  # Storm's MDL; rtx: a stage without lights (#148)
         extra = {"renderer_note": note} if note else {}
-        self.control.emit("loaded", **info.loaded_event(self.renderer_name), **extra)
+        self.control.emit(
+            "loaded",
+            **info.loaded_event(self.renderer_name),
+            environment=self.environment_shown,
+            environment_note=self.environment_note,
+            sky_controls=env.effective(self.sky_controls, self.authored),
+            **extra,
+        )
         if self.renderer is None:
             return
         self.health("first frame")
@@ -566,10 +693,15 @@ class UsdSource:
             (info.start_time_code, info.end_time_code, info.time_codes_per_second),
             lighting=info.lighting,
         )
+        if self.environment_shown != "stage" and hasattr(self.renderer, "set_environment"):
+            self.renderer.set_environment(
+                self.environment_shown, info.up_axis, self.assets, self.sky_controls, self.authored
+            )
+            self._sky_compiling(self.environment_shown)  # under the loading label
         self.failed = False
         self._first_frame = True
         # the frame ``ok`` names must come: a few frames past the first, however settled
-        self._budget = max(self.settle_steps, IN_FLIGHT + 1)
+        self._budget = max(self._environment_budget(self.environment_shown), IN_FLIGHT + 1)
         if keep is not None:
             self._set_time(keep)
 
@@ -617,8 +749,12 @@ class UsdSource:
             # ``seq``: the stage's first complete frame, past those in flight behind this
             # one (drawn before the stage settled); the host's loading label lifts on it
             self._first_frame = False
+            self._compiling_sky = False
             name = self.info.name if self.info is not None else ""
             self.health("ok", name, seq=self.frames.ring.seq + IN_FLIGHT)
+        elif self._compiling_sky:
+            self._compiling_sky = False  # the step that compiled the sky is out
+            self.health("ok", self.info.name if self.info is not None else "")
 
     def _fail(self, e: Exception) -> None:
         traceback.print_exc()

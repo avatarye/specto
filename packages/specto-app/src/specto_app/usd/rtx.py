@@ -41,11 +41,18 @@ and a stage without lights a uniform dome light at Kit's default 1000 under
 ``/__specto`` (:class:`.stage.Lighting`). Nothing is authored over the stage's own prims.
 A DistantLight at USD's default still burns out what it lights when the frame is mostly
 background.
+
+The environment light (SPEC-31, :mod:`.environment`) is a reference added at runtime under
+``/__specto/Environment`` (``add_usd_reference_from_string``, as the collision overlay
+is), swapped in one commit with a history reset; nothing is reloaded. While it lights a
+stage without lights of its own, the fallback dome is hidden (a ``visibility`` write on
+the viewer's own prim) and auto exposure is turned off (a bool write on the camera): the
+sky and the HDRI dome are on Kit's scale. Both go back with the Stage choice.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -54,11 +61,18 @@ import ovrtx
 import ovstage
 
 from .collision import ROOT as COLLISION_ROOT
+from .environment import ROOT as ENVIRONMENT_ROOT
+from .environment import SHADER as SKY_SHADER
+from .environment import SUN as SKY_SUN
+from .environment import Assets, SkyControls
+from .environment import usda as environment_usda
 
 if TYPE_CHECKING:
     from .stage import Lighting
 
 CAMERA = "/__specto/Camera"
+FALLBACK_PATH = "/__specto/Light"  # the fallback dome (#148), the viewer's own prim
+AUTO_EXPOSURE_ATTR = "omni:rtx:autoExposure:enabled"
 PRODUCT = "/Render/__specto"
 LDR = f"{PRODUCT}/LdrColor"
 DLSS_MODE = "performance"
@@ -181,6 +195,7 @@ class RtxRenderer:
     """One ovrtx renderer with one attached ovstage stage. Used from one thread."""
 
     name = "rtx"
+    renders_mdl = True  # the sky's MDL compiles here (SPEC-31)
 
     def __init__(self, log_file: str, streaming: str = "async") -> None:
         kw = {}
@@ -199,6 +214,11 @@ class RtxRenderer:
         self._settings: dict[str, str] = {}  # the view mode's product attributes, as written
         self._overlay: Any = None  # the collision overlay shown, and its reference handle
         self._overlay_handle: Any = None
+        self._lighting: Lighting | None = None  # the loaded stage's (#148)
+        self._environment = "stage"  # the environment shown (SPEC-31), and its reference
+        self._environment_text = ""  # the reference's layer, as added
+        self._environment_handle: Any = None
+        self._auto_exposure = False  # the camera's auto exposure, as written
 
     # -- the stage -----------------------------------------------------------------------
     def load(
@@ -218,6 +238,10 @@ class RtxRenderer:
         self._outlined = []
         self._settings = dict(MODE_SETTINGS["lit"])
         self._overlay = self._overlay_handle = None
+        self._lighting = lighting
+        self._environment, self._environment_handle = "stage", None
+        self._environment_text = ""
+        self._auto_exposure = lighting is not None and lighting.auto_exposure
         self.stage = ovstage.Stage(STAGE_NAME)
         self.renderer.attach_ovstage(self.stage)
         self.ordinal = 1
@@ -250,9 +274,83 @@ class RtxRenderer:
         self.stage = None
 
     @staticmethod
-    def stage_note(lighting: Lighting) -> str:
-        """What the view says under the readout about how the stage is lit (#148)."""
-        return lighting.note
+    def stage_note(lighting: Lighting, environment: str = "stage") -> str:
+        """What the view says under the readout about how the stage is lit (#148); nothing
+        while an environment light (SPEC-31) lights it."""
+        return lighting.note_with(environment != "stage")
+
+    # -- the environment light (SPEC-31) -----------------------------------------------------
+    def set_environment(
+        self,
+        environment: str,
+        up_axis: str,
+        assets: Assets,
+        controls: SkyControls | None = None,
+        authored: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Show ``environment`` (``stage``, ``sky`` or ``hdri``, as :func:`.environment.
+        resolve` answered) from the next step: the reference under ``/__specto/Environment``
+        swapped (another sky is another reference), the fallback dome hidden or shown and
+        the camera's auto exposure set for the stage's own lights under it, in one commit
+        with a history reset. ``controls`` and ``authored`` place the sky's sun and set
+        its inputs as the reference is added."""
+        text = environment_usda(environment, up_axis, assets, controls, authored)
+        if (environment, text) == (self._environment, self._environment_text):
+            return
+        writes: list[Callable[[], None]] = []
+        if self._environment_handle is not None:
+            writes.append(self._remove_environment)
+        if text:
+            writes.append(lambda: self._add_environment(text))
+        self._environment_text = text
+        lit = environment != "stage"
+        lighting = self._lighting
+        if lighting is not None:
+            if lighting.fallback:
+                value = "invisible" if lit else "inherited"
+                writes.append(
+                    lambda: self._write_tokens(self._query([FALLBACK_PATH]), "visibility", [value])
+                )
+            auto = lighting.auto_exposure_with(lit)
+            if auto != self._auto_exposure:
+                self._auto_exposure = auto
+                flag = np.asarray([[auto]], np.bool_)
+                writes.append(lambda: self._write(self._camera_q, AUTO_EXPOSURE_ATTR, flag, 1))
+        writes.append(self._history_reset())
+        self._commit(writes)
+        self._environment = environment
+
+    def set_sky_controls(self, inputs: Mapping[str, Any], sun: list[list[float]]) -> None:
+        """The sky's controls, live (SPEC-31): ``inputs`` (:func:`.environment.shader_inputs`)
+        written on the sky's shader prim, floats and bools, and the viewer's sun turned
+        to ``sun`` (a world transform, :func:`.environment.sun_matrix`), in one commit
+        with a history reset; nothing while no sky shows."""
+        if self._environment != "sky" or self._environment_handle is None:
+            return
+        shader = self._query([SKY_SHADER])
+        writes: list[Callable[[], None]] = []
+        for name, value in inputs.items():
+            array = np.asarray([[value]], np.bool_ if isinstance(value, bool) else np.float32)
+            writes.append(lambda a=array, n=name: self._write(shader, f"inputs:{n}", a, 1))
+        matrix = np.asarray(sun, np.float64).reshape(1, 4, 4)
+        writes.append(
+            lambda: self._write(
+                self._query([SKY_SUN]), "omni:xform", matrix, 16, ovstage.AttributeSemantic.MATRIX
+            )
+        )
+        writes.append(self._history_reset())
+        self._commit(writes)
+
+    def _add_environment(self, text: str) -> None:
+        self._environment_handle = ovstage.population.add_usd_reference_from_string(
+            self.stage, text, ENVIRONMENT_ROOT
+        )
+        ovstage.population.apply_usd_changes(self.stage, self.ordinal)
+
+    def _remove_environment(self) -> None:
+        handle, self._environment_handle = self._environment_handle, None
+        ovstage.population.remove_usd(self.stage, handle)
+        ovstage.population.apply_usd_changes(self.stage, self.ordinal)
 
     # -- writes --------------------------------------------------------------------------
     def _write(self, query, attr: str, array: np.ndarray, lanes: int, semantic=None) -> None:

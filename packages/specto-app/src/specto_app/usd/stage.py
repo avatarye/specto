@@ -59,6 +59,17 @@ class Lighting:
     def note(self) -> str:
         return NO_LIGHTS_NOTE if self.fallback else ""
 
+    # with an environment light the viewer adds (SPEC-31: the sky or the HDRI, on Kit's scale)
+    def auto_exposure_with(self, environment: bool) -> bool:
+        """Under an environment a stage without lights keeps the fixed exposure (the
+        environment is on Kit's scale); its own plain lights still ask for auto exposure."""
+        return self.kit_lights < self.lights if environment else self.auto_exposure
+
+    def note_with(self, environment: bool) -> str:
+        """The readout's note: nothing to say about a default dome while an environment
+        lights the stage."""
+        return "" if environment else self.note
+
 
 @dataclass
 class StageInfo:

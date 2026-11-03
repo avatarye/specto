@@ -53,10 +53,14 @@ onto it). Params: renderer auto|rtx|storm (auto is rtx on Windows and Linux wher
 view:usd` shows machine.ovrtx present, else storm; on macOS always storm; `describe view:usd`
 reports renderer_auto), camera_speed, camera_mode (free, Unreal Editor's, or orbit: drag
 turns around the selection), look_through (a camera prim path, or null), view_mode
-(lit|unlit|wireframe|collision; collision shows only the UsdPhysics colliders) and
-max_pixels. Set its camera through the camera port (a follow link from a 3d view's camera)
-or params, never by running code. `snap` reports its stage path, renderer, frame size,
-camera and camera_mode. Specto only views USD: never edit USD files."""
+(lit|unlit|wireframe|collision; collision shows only the UsdPhysics colliders),
+environment (stage|sky|hdri: the stage's own lights, one of NVIDIA's dynamic skies named by
+sky (fetched on first use; RTX only, Storm shows the HDRI) or one of the 3d view's HDRIs
+named by hdri), the sky's time_of_day (hours), cloudiness and haze (0-1, null: the sky's
+own) and max_pixels. Set its camera through the camera port (a follow link from a 3d view's
+camera) or params, never by running code. `snap` reports its stage path, renderer, frame
+size, camera, camera_mode, the environment that shows, the sky's controls in effect and the
+sky's fetch. Specto only views USD: never edit USD files."""
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, open_world_hint=False)
 ADDITIVE = ToolAnnotations(

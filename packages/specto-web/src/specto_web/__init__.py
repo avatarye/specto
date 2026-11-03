@@ -96,12 +96,31 @@ def environment_file(name: str, root: Path | None = None) -> Path | None:
     return None
 
 
+#: where build.py keeps each HDRI's ``.hdr`` as downloaded (sha256-checked), beside the
+#: prefiltered ``.env`` it bakes: a source checkout's ``packages/specto-web/node_modules/.hdri``
+HDRI_CACHE = "node_modules/.hdri"
+
+
+def hdri_source(name: str, root: Path | None = None) -> Path | None:
+    """The source ``.hdr`` of environment ``name`` (SPEC-31: the usd view lights a stage with
+    it; a dome light reads ``.hdr``, not Babylon's ``.env``): the file build.py downloaded
+    into its cache, named as the manifest's URL names it; None until build.py has run,
+    or outside a source checkout."""
+    base = root or find_web_root()
+    entry = next((e for e in environments(base) if e.get("name") == name), None)
+    if base is None or entry is None:
+        return None
+    f = base.parent / HDRI_CACHE / str(entry.get("url", "")).rsplit("/", 1)[-1]
+    return f if f.is_file() else None
+
+
 BUILD_HINT = "run: uv run python packages/specto-web/build.py  (npm install + offline copy)"
 
 __all__ = [
     "BUILD_HINT",
     "ENVIRONMENTS_FILE",
     "ENV_VAR",
+    "HDRI_CACHE",
     "HDRI_DIR",
     "HDRI_FORMATS",
     "candidates",
@@ -109,6 +128,7 @@ __all__ = [
     "environments",
     "environments_manifest",
     "find_web_root",
+    "hdri_source",
     "monaco_dir",
     "monaco_ok",
     "monaco_version",

@@ -40,6 +40,12 @@ Methods on top of the lifecycle set (:mod:`.control`):
   error; ``view_modes`` ``{mode, modes: [{mode, available, reason}]}``, all four
   available (the fake bases are colliders); every load starts lit. Only recorded: the
   picture stays the test pattern;
+- the environment light (SPEC-31), as ``specto-usd-source`` answers it: ``load`` takes
+  ``environment``, ``loaded`` carries ``environment`` and ``environment_note``,
+  ``set_environment {environment}`` answers ``{environment, note, renderer_note}`` and
+  ``state`` reports ``environment``. Every choice shows as asked, unless
+  ``SPECTO_USD_STUB_NO_MDL`` is set: then the sky falls back to the HDRI with Storm's
+  note, for the flows and tests of that path. Only recorded;
 - ``crash {code, stderr}`` (tests only, #155): writes the ``stderr`` lines to stderr and
   ends the process at once with exit code ``code`` (``0xC0000005``: a renderer crash; on
   POSIX that one dies by SIGSEGV instead, as a real crash there does).
@@ -70,6 +76,17 @@ import sys
 import threading
 import time
 
+from ..usd.environment import (
+    AUTHORED,
+    DEFAULT_HDRI,
+    STORM_NOTE,
+    SkyControls,
+    effective,
+    environment_of,
+    hdri_of,
+    sky_of,
+)
+from ..usd.skies import DEFAULT_SKY
 from .stub_source import StubSource
 
 RENDERER = "stub"
@@ -206,6 +223,10 @@ class StubUsdSource(StubSource):
         self._want: str | None = None
         self.selected: list[str] = []
         self.view_mode = "lit"
+        self.environment = "stage"  # the environment asked (SPEC-31); what shows follows
+        self.sky, self.hdri = DEFAULT_SKY, DEFAULT_HDRI
+        self.sky_controls = SkyControls()
+        self.renders_mdl = not os.environ.get("SPECTO_USD_STUB_NO_MDL")
         self.start_phase = START_PHASE.get(args.renderer)
         self.crash_after_s = max(0.0, args.crash_after_ms / 1000.0)
         self.crash_marker = args.crash_marker
@@ -221,7 +242,24 @@ class StubUsdSource(StubSource):
     def handle(self, method: str, params: dict) -> dict:
         if method == "load":
             self._want = str(params["path"])
+            self._take_choice(params)
             return {}
+        if method == "set_environment":
+            if self.loaded is None:
+                raise ValueError("no stage loaded")
+            self._take_choice(params)
+            shown, note = self.environment_shown()
+            return {
+                "environment": shown,
+                "note": note,
+                "renderer_note": "",
+                "sky_controls": self.sky_controls_shown(),
+            }
+        if method == "set_sky_controls":
+            if self.loaded is None:
+                raise ValueError("no stage loaded")
+            self.sky_controls = SkyControls.of(params)
+            return {"sky_controls": self.sky_controls_shown()}
         if method == "crash":
             self.crash(int(params.get("code", 1)), [str(x) for x in params.get("stderr") or []])
         if method == "set_time" and "timecode" in params:
@@ -239,6 +277,10 @@ class StubUsdSource(StubSource):
                 "selected": self.selected,
                 "timecode": self.timecode,
                 "view_mode": self.view_mode,
+                "environment": self.environment_shown()[0] if self.loaded else None,
+                "sky": self.sky,
+                "hdri": self.hdri,
+                "sky_controls": self.sky_controls_shown(),
             }
         stage_methods = ("pick", "properties", "bounds", "reveal", "set_view_mode", "view_modes")
         if method in stage_methods and self.loaded is None:
@@ -368,6 +410,27 @@ class StubUsdSource(StubSource):
             if self.crash_after_s and self.crash_marker:
                 self._crash_once(self.crash_marker)
 
+    def _take_choice(self, params: dict) -> None:
+        if "environment" in params:
+            self.environment = environment_of(params["environment"])
+        if "sky" in params:
+            self.sky = sky_of(params["sky"])
+        if "hdri" in params:
+            self.hdri = hdri_of(params["hdri"])
+        if isinstance(params.get("sky_controls"), dict):
+            self.sky_controls = SkyControls.of(params["sky_controls"])
+
+    def environment_shown(self) -> tuple[str, str]:
+        """What shows for the environment asked, and why it differs: as asked, except the
+        sky without MDL (``SPECTO_USD_STUB_NO_MDL``) shows the HDRI, as under Storm."""
+        if self.environment == "sky" and not self.renders_mdl:
+            return "hdri", STORM_NOTE
+        return self.environment, ""
+
+    def sky_controls_shown(self) -> dict[str, float]:
+        """The controls in effect: the params, else the fake sky's own (ClearSky's)."""
+        return effective(self.sky_controls, AUTHORED | {"cumulus": False, "haze": 0.001})
+
     def _load(self, path: str) -> None:
         self.loaded = None
         if not os.path.isfile(path):
@@ -380,6 +443,7 @@ class StubUsdSource(StubSource):
         self.loaded = path
         self.timecode = None
         self.view_mode = "lit"
+        environment, note = self.environment_shown()
         self.control.emit(
             "loaded",
             path=path,
@@ -388,6 +452,9 @@ class StubUsdSource(StubSource):
             up_axis=up_axis_of(path),
             bounds=BOUNDS,
             prims=len(self.prims) - 1,
+            environment=environment,
+            environment_note=note,
+            sky_controls=self.sky_controls_shown(),
             **time_codes_of(path),
         )
         self._ok_due = True

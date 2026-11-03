@@ -89,6 +89,27 @@ next to the plugin, in a git-ignored folder. A binary distribution of Specto tha
 GPL libmpv would have to take the GPL's terms for that distribution into account; that is
 flagged here for whoever packages an installer.
 
+### 2.5 NVIDIA's dynamic skies, fetched by the app on first use
+
+The usd view's **Sky** environment (SPEC-31) is one of the seven dynamic skies of the
+Omniverse sample assets on NVIDIA's public content bucket
+(`https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Skies/`:
+`Dynamic/*.usd` with the MDL under `Sky_Elements/materials/` and two small helpers). These
+are NVIDIA "Content" under the **NVIDIA Omniverse License Agreement**
+(https://docs.omniverse.nvidia.com/extensions/latest/common/NVIDIA_Omniverse_License_Agreement_2022-2023.html),
+a "non-exclusive, non-transferable, non-sublicensable" licence to "Distribute Content
+(unmodified or as modified by you) as incorporated into your products or services for
+the purpose of enhancing your work, subject to the distribution requirements below, but
+not deploy or distribute the Content on a stand-alone basis", with no copies "in any
+publicly accessible software repositories" and no use that makes them "redistributable
+at no charge". Files in this MIT repository would break all three, so **nothing of them
+is committed or built**: each user's own Specto fetches them the first time the Sky
+choice is used (`specto_app.usd.skies`), pinned by sha256, into that user's Specto data
+folder (`<user dir>/skies`, outside any checkout), writes the notice
+`NVIDIA-SKY-NOTICE.txt` beside them and packs each sky into its own `.usdz` for that
+installation's use; Specto only reads them from there and redistributes nothing. The
+HDRI environment reuses the Poly Haven files of section 2.2 (CC0).
+
 ## 3. Runtime dependencies (Python, `uv sync`)
 
 Installed from public PyPI only (the workspace pins the index). Versions are in `uv.lock`.

@@ -1,0 +1,88 @@
+# SPEC-31 the usd view's environment light with RTX: pick worlds/plain.usda (the seed,
+# tools/gui_flows/v2-42-usd-seed.py: a ground, a box, a ball and a wall, no lights). The
+# VIEW panel's Environment control: Stage (the fallback dome, the readout's note says so),
+# Sky (NVIDIA's dynamic skies, fetched on first use: Clear sky, then Overcast from the Sky
+# list, each compiling its material for some seconds first, the phase label saying so; a
+# click on the time of day slider's evening end moves the sun, one on the cloudiness
+# slider thickens the clouds), HDRI (the 3d view's sunny HDRI behind and lighting, then
+# Urban from the HDRI list), each one submit of its param reported by snap; back to Stage
+# brings the dome back.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-42-usd-canvas.json usd view of the picked stage, environment light
+wait 2000
+assert_found slot:kobi
+# the tree starts collapsed (#231): open the folder first
+wait_until treeRow:fege:worlds 15000
+expand fege:worlds
+wait_until treeRow:fege:worlds/plain.usda 15000
+click treeRow:fege:worlds/plain.usda
+wait_while cover:kobi 400000
+wait 3000
+assert_found environment:kobi:stage
+assert_found environment:kobi:sky
+assert_found environment:kobi:hdri
+assert_host kobi environment "stage"
+assert_text rendererNote:kobi default dome light
+assert_painted viewport:kobi 0.9
+shot 42-01-stage.png
+print snap {"target": "kobi", "image": true}
+# Sky: one submit; the first use fetches the skies (said under the control), the sky's
+# MDL compiles on first use
+click environment:kobi:sky
+assert_found sky:kobi
+assert_host kobi environment "sky" 120000
+wait 25000
+assert_host kobi environment_note ""
+assert_host kobi sky "ClearSky"
+assert_painted viewport:kobi 0.75
+shot 42-02-clear-sky.png
+print snap {"target": "kobi", "image": true}
+# the time of day: a click near the slider's evening end moves the sun, one submit
+assert_found timeOfDay:kobi
+click timeOfDay:kobi:track 0.74 0.5
+wait 3000
+assert_meta kobi params.time_of_day 18.25
+shot 42-03-evening.png
+print snap {"target": "kobi", "image": true}
+# the cloudiness: thicker clouds
+click cloudiness:kobi:track 0.8 0.5
+wait 3000
+assert_meta kobi params.cloudiness 0.85
+shot 42-04-clouds.png
+print snap {"target": "kobi", "image": true}
+# another sky from the list: Overcast (fetched with the first), the controls stay
+click sky:kobi
+wait 600
+assert_found menu:sky-Overcast
+shot 42-05-sky-menu.png
+click menu:sky-Overcast
+assert_host kobi sky "Overcast" 120000
+wait 25000
+assert_host kobi environment_note ""
+assert_painted viewport:kobi 0.75
+shot 42-06-overcast.png
+print snap {"target": "kobi", "image": true}
+# HDRI: the dome light with the 3d view's sunny HDRI, then Urban from the list
+click environment:kobi:hdri
+assert_host kobi environment "hdri" 60000
+wait 4000
+assert_painted viewport:kobi 0.75
+shot 42-07-hdri.png
+print snap {"target": "kobi", "image": true}
+click hdri:kobi
+wait 600
+assert_found menu:hdri-urban
+click menu:hdri-urban
+assert_host kobi hdri "urban" 60000
+wait 4000
+shot 42-08-hdri-urban.png
+print snap {"target": "kobi", "image": true}
+# back to the stage's own light: the fallback dome again
+click environment:kobi:stage
+assert_host kobi environment "stage" 60000
+wait 3000
+assert_text rendererNote:kobi default dome light
+shot 42-09-stage-again.png
+print snap {"target": "kobi"}

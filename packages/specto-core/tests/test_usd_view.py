@@ -71,12 +71,25 @@ def test_the_agent_schema_names_each_param_with_its_choices(engine: Engine):
         "max_pixels": 1920 * 1080,
         "spp": 1,
         "view_mode": "lit",
+        "environment": "stage",
+        "sky": "ClearSky",
+        "hdri": "sunny",
+        "time_of_day": None,
+        "cloudiness": None,
+        "haze": None,
     }
     props = info["state_schema"]["properties"]
     assert props["renderer"]["enum"] == ["auto", "rtx", "storm"]
     assert props["mode"]["enum"] == ["rt", "pt", "minimal"]
     assert props["view_mode"]["enum"] == ["lit", "unlit", "wireframe", "collision"]  # #153
     assert props["camera_mode"]["enum"] == ["free", "orbit"]  # #39
+    assert props["environment"]["enum"] == ["stage", "sky", "hdri"]  # SPEC-31
+    assert props["environment"]["default"] == "stage"
+    assert "Storm shows the HDRI" in props["environment"]["description"]
+    assert props["sky"]["enum"][0] == "ClearSky" and len(props["sky"]["enum"]) == 7
+    assert props["hdri"]["enum"] == ["studio", "overcast", "sunny", "indoor", "urban"]
+    for name, top in (("time_of_day", 24), ("cloudiness", 1), ("haze", 1)):
+        assert props[name]["type"] == ["number", "null"] and props[name]["maximum"] == top
     assert (props["camera_speed"]["minimum"], props["camera_speed"]["maximum"]) == (0.125, 8)
     assert {"look_through", "selected", "max_pixels", "spp", "panels"} <= set(props)
 

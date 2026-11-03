@@ -160,6 +160,14 @@ _Avoid_: role (bare; see the flagged "role" overload), view category, view famil
 The icon buttons on a view's chrome: in its header the auto-update eye at the left end, before the name, then refresh, lock, float, collapse, maximise and close on the right; in its footer the step controls and the view type's own tools; a side panel's collapse. Always visible, at rest as much as on hover or selection (the user's decision of 2026-10-24, #158, replacing the UX pass's "state shows, actions hide"); a control that is on wears the accent fill. Status indicators keep their own rule: the health dot shows only when the view is not ok.
 _Avoid_: toolbar, hover controls
 
+**Environment light**:
+What lights a stage in the usd view beyond the stage's own lights: Stage (its own lights; a stage without any gets a plain dome), Sky (one of the dynamic skies, a procedural daylight sky with a sun, drawn by RTX only) or HDRI (an image-based light, one of the 3d view's HDRIs). The choice is composed over the stage in the viewer and never written to the file; a choice the renderer or this machine cannot show falls back a step and says so (ADR 0024).
+_Avoid_: skybox, lighting preset, scene light (that is a stage's own light)
+
+**Dynamic sky**:
+One of NVIDIA's seven procedural skies the usd view can light a stage with (clear, cirrus, light cumulus, heavy cumulus, overcast, night, and a textured cloudy one), fetched on first use into the user's Specto data folder under NVIDIA's terms, never committed. Its sky controls, time of day, cloudiness and haze, move its sun, its cumulus cover and its atmosphere live; a control left unset keeps the sky's own value.
+_Avoid_: sky preset, skydome, HDRI (that is the static image-based light)
+
 **Browser**:
 A view role: shows many items of a collection and outputs a selection (the file tree, the gallery, the scratch pad; the map partly). A gallery shows a thumbnail for every kind of item; it browses and never plays.
 _Avoid_: list view, picker, file browser (that is the file tree)
