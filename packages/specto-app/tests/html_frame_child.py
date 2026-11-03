@@ -2,9 +2,9 @@
 (the pytest process itself runs with web views off), on the offscreen platform.
 
 Each file named on the command line (under ``deck/``) is opened the way the user does
-it, a double-click on its row in the file tree (``gestures.open_file``), so the preview,
-its pinned link and the html view's page inside it come up as in the app; the second
-file re-points the preview. One
+it, a Ctrl+double-click on its row in the file tree (``gestures.open_file`` in its
+contextual mode, #43), so the preview, its link and the html view's page inside it come
+up as in the app; the second file re-points the preview. One
 JSON line per file on stdout: whether the view's page came up, what the scheme handler
 served for it (the document and the assets it references relative to itself) and what
 reached the view host from the frame. The console lines a framed page prints go to
@@ -93,7 +93,9 @@ def open_one(app: SpectoApp, name: str, events: list[dict]) -> dict:
     """Open ``deck/<name>`` from the file tree as the user does and report what the
     scheme handler served for it once the page is up."""
     start = len(runtime().log)
-    opened = open_file(app.live, "fege", f"deck/{name}")
+    opened = open_file(
+        app.live, "fege", f"deck/{name}", mode="contextual", plugins=app.engine.plugins
+    )
     vid = opened.view
     spin(until=lambda: getattr(app.hosts.hosts.get(vid), "renderer", None) is not None)
     h = app.hosts.hosts[vid].renderer  # the html view's own host, in the preview (#106)
