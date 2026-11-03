@@ -112,6 +112,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 clip: true
                 // the same header rule as the normal view (#80): `<name>: <label>`
+                spacing: 6 * root.ui
                 Text {
                     objectName: "overTitle:" + root.viewId
                     text: root.viewId + (root.card.label && root.card.label !== root.viewId
@@ -121,6 +122,26 @@ Item {
                     font.pixelSize: 13 * root.ui * header.fit
                     font.bold: true
                     anchors.verticalCenter: parent.verticalCenter
+                }
+                // the contextual tag (#43), as in the normal view's header
+                Rectangle {
+                    objectName: "overContextual:" + root.viewId
+                    visible: root.card.contextual === true
+                    width: contextualText.implicitWidth + 12 * root.ui
+                    height: 18 * root.ui * header.fit
+                    radius: height / 2
+                    color: theme.colors.accent_soft
+                    border.color: theme.colors.accent
+                    border.width: 1
+                    anchors.verticalCenter: parent.verticalCenter
+                    Text {
+                        id: contextualText
+                        anchors.centerIn: parent
+                        text: "Contextual"
+                        color: theme.colors.accent
+                        font.family: theme.fonts.ui
+                        font.pixelSize: 11 * root.ui * header.fit
+                    }
                 }
             }
             // the snapshot's age, the health dot (a pause glyph while paused: every

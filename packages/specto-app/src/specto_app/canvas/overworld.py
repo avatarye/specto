@@ -190,6 +190,7 @@ class OverworldController(QObject):
                     "floating": bool(v.get("floating")),
                     "collapsed": bool(v.get("collapsed")),
                     "locked": v["locked"],
+                    "contextual": bool(v.get("contextual")),
                     "health": v["health"],
                     "paused": v["paused"],
                     "chain": v.get("chain", ""),

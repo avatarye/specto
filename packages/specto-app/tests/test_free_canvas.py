@@ -327,3 +327,19 @@ def test_a_move_lands_in_memory_and_warns_once_while_canvas_json_is_held_open(
     assert list(app.project.canvas_document().views["kobi"].layout.position) == [420.0, 180.0]
     assert [n for n in app.notices.log if n["level"] == "warn"] == warned
     assert warnings == []
+
+
+def test_the_hosts_reveal_brings_a_far_view_on_screen_selected_and_focused(app, spin):
+    """#43: a file whose dedicated view is open already is revealed, not duplicated: the
+    host context's ``reveal_view`` selects the view, pans it into the viewport and
+    focuses it."""
+    add_view(app, "kobi", "Far", [3000, 2600])
+    spin(until=lambda: "kobi" in app.hosts.hosts)
+    assert app.controller.pan == {"x": 0.0, "y": 0.0}
+    app.hosts.ctx.reveal_view("kobi")
+    spin(50)
+    assert app.controller.selectedViews == ["kobi"]
+    assert app.controller.focusedView == "kobi"
+    x, y, w, h = app.controller.rect_of("kobi")
+    vx, vy, vw, vh = app.controller.viewport_rect()
+    assert vx <= x and vy <= y and x + w <= vx + vw and y + h <= vy + vh

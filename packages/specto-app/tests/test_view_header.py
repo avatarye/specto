@@ -180,3 +180,60 @@ def test_a_click_on_a_control_taps_only_the_view_on_top(app, spin):
     spin(until=lambda: upper.property("on") or lower.property("on"))
     spin(300)
     assert [upper.property("on"), lower.property("on")].count(True) == 1
+
+
+# -- the contextual tag (#43) ---------------------------------------------------------------
+def add_preview(app, spin, vid: str, *, on_picks: bool, position=(380, 40)) -> None:
+    """A preview beside the tree: on the tree's picks (a selection intaker, the
+    contextual view) or pinned to the notes folder (the agent's fixed quick look)."""
+    from specto_core.canvas_document import file_tree_of, next_id
+
+    (app.project.root / "notes").mkdir(exist_ok=True)
+    doc = app.live.document()
+    doc["views"][vid] = {
+        "type": "preview",
+        "label": "Files preview",
+        "layout": {"position": list(position), "size": [480, 300]},
+    }
+    if on_picks:
+        tree = file_tree_of(doc["views"])
+        doc["links"][next_id(doc["links"], "l")] = {
+            "kind": "intaker",
+            "scope": "selection",
+            "source": {"view": tree, "port": "selected_files"},
+            "target": {"view": vid, "port": "data"},
+            "params": {"sources": ["."]},
+            "summary": {"sentence": "The preview shows the file picked in the tree."},
+        }
+    else:
+        pin(doc, vid, sources=["notes"])
+    app.engine.call("canvas.submit", {"document": doc, "label": f"add {vid}"}, AGENT)
+    spin(until=lambda: vid in app.hosts.hosts)
+
+
+def visible(app, name: str) -> bool:
+    it = find_item(app.window.contentItem(), name)
+    return it is not None and it.isVisible()
+
+
+def test_a_contextual_preview_says_so_in_its_header_and_on_its_overworld_card(app, spin):
+    """#43: a preview on the file tree's picks is the contextual view: its header carries
+    a "Contextual" tag and "follows selection" after the title, and its overworld card the
+    same tag, so it cannot be taken for a dedicated view. A preview the agent pinned to
+    fixed sources, and every other view (a gallery on the picks included), show none."""
+    add_preview(app, spin, "pela", on_picks=True)
+    add_preview(app, spin, "mesa", on_picks=False, position=(380, 400))
+    add_gallery(app, spin, "kobi", position=(900, 40))
+    tag = item(app, "contextual:pela")
+    assert tag.isVisible() and tag.property("text") == "Contextual"
+    follows = item(app, "follows:pela")
+    assert follows.isVisible() and follows.property("text") == "follows selection"
+    assert item(app, "title:pela").property("text") == "pela: Files preview"
+    assert not visible(app, "contextual:mesa") and not visible(app, "follows:mesa")
+    assert not visible(app, "contextual:kobi") and not visible(app, "follows:kobi")
+
+    ow = app.overworld
+    ow.toggle()
+    spin(until=lambda: ow.active)
+    assert visible(app, "overContextual:pela")
+    assert not visible(app, "overContextual:mesa") and not visible(app, "overContextual:kobi")

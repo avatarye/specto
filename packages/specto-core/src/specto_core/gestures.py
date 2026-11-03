@@ -445,6 +445,18 @@ def dedicated_view_of(doc: dict[str, Any], path: str) -> str | None:
     return None
 
 
+def is_contextual(doc: dict[str, Any], view_id: str) -> bool:
+    """Whether ``view_id`` is a contextual view (#43, ADR 0023): the context viewer
+    (a preview) not fed fixed sources from the project source, so it follows a
+    selection (the file tree's picks, a gallery's pick) or waits for one. The shell
+    tags it "Contextual · follows selection" in its header and on its overworld card."""
+    view = doc["views"].get(view_id)
+    if view is None or view["type"] != CONTEXT_VIEWER:
+        return False
+    feed = _file_feed(doc, view_id)
+    return feed is None or feed["source"] != {"view": PROJECT_ID, "port": PROJECT_PORT}
+
+
 def open_file(
     live: LiveCanvas,
     tree_id: str,

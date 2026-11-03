@@ -25,6 +25,8 @@ Item {
     readonly property string health: info.health || "ok"
     readonly property bool fedByIntaker: info.autoUpdate === true || info.autoUpdate === false
     readonly property bool autoUpdate: info.autoUpdate === true
+    // the contextual view (#43): the preview on a selection says so after its title
+    readonly property bool contextual: info.contextual === true
 
     // auto-update (#102): the eye says "this view follows its files"; one undo step. It
     // leads the header (#158); on a collapsed bar it starts after the extra input circles
@@ -67,7 +69,9 @@ Item {
                 readonly property string text: root.viewId + (label ? ": " + label : "")
                 width: Math.min(nameText.implicitWidth + labelText.implicitWidth,
                                 titleRow.width - (dot.visible ? dot.width + titleRow.spacing : 0)
-                                - (approve.visible ? approve.width + titleRow.spacing : 0))
+                                - (approve.visible ? approve.width + titleRow.spacing : 0)
+                                - (contextualTag.visible ? contextualTag.width + follows.width
+                                                           + 2 * titleRow.spacing : 0))
                 height: nameText.implicitHeight
                 anchors.verticalCenter: parent.verticalCenter
                 Text {
@@ -89,6 +93,27 @@ Item {
                     font.family: theme.fonts.ui
                     font.pixelSize: theme.metrics.font_px
                 }
+            }
+            // the contextual tag (#43): "Contextual" and "follows selection", so the
+            // preview on the picks is never taken for a view dedicated to one file
+            Pill {
+                id: contextualTag
+                objectName: "contextual:" + root.viewId
+                visible: root.contextual
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Contextual"
+                tone: "accent"
+                tip: "this view follows the selection; double-click a file for a view of its own"
+            }
+            Text {
+                id: follows
+                objectName: "follows:" + root.viewId
+                visible: root.contextual
+                anchors.verticalCenter: parent.verticalCenter
+                text: "follows selection"
+                color: theme.colors.text_muted
+                font.family: theme.fonts.ui
+                font.pixelSize: theme.metrics.font_px_small
             }
             // health: a dot after the title only when not ok (a pause glyph while paused);
             // its message is the status bar's while the pointer is on the view (#80). A

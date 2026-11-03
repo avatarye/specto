@@ -104,6 +104,7 @@ from specto_core.gestures import (
     auto_update_of,
     close_view,
     float_view,
+    is_contextual,
     move_views,
     open_scratch,
     place_floating,
@@ -356,6 +357,9 @@ class CanvasController(QObject):
                 *reversed(self._selected),
                 *([self._focused] if self._focused else []),
             ]
+            # a file whose dedicated view is open already (#43): the view is selected,
+            # panned into the viewport and focused instead of being opened again
+            hosts.ctx.reveal_view = self.reveal
         self._nav_timer = QTimer(self)
         self._nav_timer.setSingleShot(True)
         self._nav_timer.setInterval(NAV_SETTLE_MS)
@@ -1062,6 +1066,9 @@ class CanvasController(QObject):
                 # the host's own gesture line for its state (#39), else the type's
                 "keys": getattr(host, "nav_keys", "") or "",
                 "locked": bool(v.get("locked")),
+                # the contextual view (#43): the preview on a selection, tagged in its
+                # header and on its overworld card so it is not taken for a dedicated one
+                "contextual": is_contextual(self.data, vid),
                 # the header's auto-update switch (#102): None when no intaker feeds it,
                 # or the view follows what it is fed (#126: the preview)
                 "autoUpdate": None
@@ -1576,6 +1583,14 @@ class CanvasController(QObject):
         if view_id != self._focused:
             self._focused = view_id if view_id in self._views else ""
             self.focusChanged.emit()
+
+    def reveal(self, view_id: str) -> bool:
+        """Bring a view to the user (#43, the hosts' ``ctx.reveal_view``): the selection
+        becomes this view, the canvas pans until it is on screen, and it is focused."""
+        if view_id not in self._views:
+            return False
+        self._set_selection([view_id])
+        return self.jumpTo(view_id)
 
     @Slot(str, result=bool)
     def flyTo(self, view_id: str) -> bool:
