@@ -8,7 +8,7 @@ Active work: open tasks labelled `spec`; each is built with `implement-spec` on 
 
 ### Issue tracker
 
-Issues and specs live as tasks on the maintainer's private Backlog.md board (the `backlog` CLI, found through `BACKLOG_CWD`), not in this repo. GitHub Issues are off. See `docs/agents/issue-tracker.md`.
+Issues and specs live as tasks on the maintainer's private Backlog.md board (the `backlog` CLI, found through `BACKLOG_CWD`), not in this repo. GitHub Issues are only a public inbox that gets copied onto the board; never work from one directly. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
