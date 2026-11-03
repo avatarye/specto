@@ -6,15 +6,13 @@ from __future__ import annotations
 from typing import Any
 
 from specto_core.canvas_document import next_id
-
-#: the input port and link kind a view type takes files on
-_FILE_INPUT: dict[str, tuple[str, str]] = {"map": ("features", "read_contents")}
+from specto_core.ports import file_input_of
 
 
 def pin_link(vid: str, vtype: str = "gallery", sources: list[str] | None = None) -> dict[str, Any]:
     """A pinned link from the project source into a view's file input (an intaker, or
     read_contents for a map)."""
-    port, kind = _FILE_INPUT.get(vtype, ("data", "intaker"))
+    port, kind = file_input_of(vtype) or ("data", "intaker")
     link: dict[str, Any] = {
         "kind": kind,
         "source": {"view": "project", "port": "all_files"},

@@ -7,7 +7,7 @@ read them through ``describe view:<type>`` and the canvas JSON Schema's descript
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -61,6 +61,10 @@ VIEW_TYPES: tuple[str, ...] = (
 #: the context viewer (ADR 0020, SPEC-32): the one view type that follows the file tree's
 #: picks by design; a dedicated view is never one
 CONTEXT_VIEWER = "preview"
+#: how a file opens from the file tree (SPEC-32, ADR 0023): in a dedicated view of its
+#: own, fed that file alone, or in the contextual preview, which follows the tree's picks
+OpenMode = Literal["dedicated", "contextual"]
+OPEN_MODES: tuple[str, ...] = get_args(OpenMode)
 
 #: What a view does, not what data it shows (ADR 0020): a browser shows many items of a
 #: collection and outputs a selection; a viewer shows the one selected item in its native

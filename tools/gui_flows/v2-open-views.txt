@@ -1,6 +1,6 @@
 # v2 SPEC-32: what a double-click on a file in the file tree opens. A double-click opens the
 # file's dedicated view: a view of the type that shows its kind, fed that one file by a
-# pinned link, titled "<name> · <folder>", left alone by later picks; the same file again
+# pinned link, labelled "<name> · <folder>", left alone by later picks; the same file again
 # reveals that view instead of adding another; a file no view shows opens the "Not
 # supported" text view. Ctrl+double-click opens the contextual preview on the tree's
 # picks, tagged "Contextual · follows selection" in its header and on its overworld card,
@@ -16,7 +16,7 @@ expand @file_tree:images
 expand @file_tree:papers
 wait_until treeRow:@file_tree:docs/plan.md 20000
 wait_until treeRow:@file_tree:papers/report.pdf 10000
-# 1 double-click: a dedicated markdown view of the note, titled name · folder, no tag
+# 1 double-click: a dedicated markdown view of the note, labelled name · folder, no tag
 assert_missing slot:@markdown
 dblclick treeRow:@file_tree:docs/plan.md 0.6 0.5
 wait_until slot:@markdown 15000
@@ -24,7 +24,7 @@ wait 1500
 assert_text title:@markdown plan.md · docs
 assert_missing contextual:@markdown
 assert_missing slot:@preview
-shot 43-01-double-click-opens-a-dedicated-view.png
+shot open-views-01-double-click-opens-a-dedicated-view.png
 print snap {"target": "@markdown"}
 # 2 a later single click elsewhere does not change it
 click treeRow:@file_tree:images/00001.jpg 0.6 0.5
@@ -35,13 +35,13 @@ dblclick treeRow:@file_tree:docs/plan.md 0.6 0.5
 wait 1200
 assert_missing slot:@markdown#2
 assert_found slot:@markdown
-# 4 a file no view shows: the "Not supported" text view, titled the same way
+# 4 a file no view shows: the "Not supported" text view, labelled the same way
 dblclick treeRow:@file_tree:odd.xyz 0.6 0.5
 wait_until slot:@text 15000
 wait 800
 assert_text text:@text:body Not supported: odd.xyz (.xyz)
 assert_text title:@text odd.xyz
-shot 43-02-not-supported.png
+shot open-views-02-not-supported.png
 # 5 a double-click on a folder still toggles it
 mark treeRow:@file_tree:papers/report.pdf
 dblclick treeRow:@file_tree:papers 0.6 0.5
@@ -63,7 +63,7 @@ assert_text contextual:@preview Contextual
 assert_text follows:@preview follows selection
 assert_missing preview:@preview:card
 assert_missing slot:@preview#2
-shot 43-03-ctrl-double-click-opens-the-contextual-preview.png
+shot open-views-03-ctrl-double-click-opens-the-contextual-preview.png
 print snap {"target": "@file_tree"}
 # 7 it follows the next pick (the pdf), the dedicated note view stays as it was
 click treeRow:@file_tree:papers/report.pdf 0.6 0.5
@@ -77,17 +77,17 @@ wait_until overCard:@preview 8000
 wait 600
 assert_found overContextual:@preview
 assert_missing overContextual:@markdown
-shot 43-04-overworld-contextual-tag.png
+shot open-views-04-overworld-contextual-tag.png
 key tab
 wait 1200
 wait_until treeRow:@file_tree:docs/README.md 8000
 # 9 the context menu on a file offers both ways: the contextual one re-points the
-# preview (the file picked), the dedicated one opens the file's own view
+# preview (the file picked), the dedicated one opens the file's dedicated view
 rclick treeRow:@file_tree:docs/README.md 0.6 0.5
-wait_until menu:tree.open_dedicated 8000
-assert_found menu:tree.open_contextual
-shot 43-05-context-menu-open-entries.png
-click menu:tree.open_contextual
+wait_until menu:file_tree.open_dedicated 8000
+assert_found menu:file_tree.open_contextual
+shot open-views-05-context-menu-open-entries.png
+click menu:file_tree.open_contextual
 wait 1500
 assert_missing slot:@preview#2
 assert_missing preview:@preview:card
@@ -96,8 +96,8 @@ click close:@preview
 wait 800
 assert_missing slot:@preview
 rclick treeRow:@file_tree:docs/README.md 0.6 0.5
-wait_until menu:tree.open_dedicated 8000
-click menu:tree.open_dedicated
+wait_until menu:file_tree.open_dedicated 8000
+click menu:file_tree.open_dedicated
 wait_until slot:@markdown#2 15000
 wait 800
 assert_text title:@markdown#2 README.md · docs

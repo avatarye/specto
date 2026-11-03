@@ -157,8 +157,11 @@ def test_a_blend_row_opens_with_its_default_launcher_one_argv_item_per_placehold
     rows = opened.rows()
     # after the tree's own open entries (SPEC-32), the launchers lead
     assert list(rows)[:4] == [
-        "tree.open_dedicated", "tree.open_contextual", "launch.default", "launch.open_with",
-    ]  # fmt: skip
+        "file_tree.open_dedicated",
+        "file_tree.open_contextual",
+        "launch.default",
+        "launch.open_with",
+    ]
     assert rows["launch.default"]["text"] == "Open with Fake Blender"
     assert list(opened.children()) == [
         "launcher:fake-blender", "system", "explorer", "edit", "edit_project",

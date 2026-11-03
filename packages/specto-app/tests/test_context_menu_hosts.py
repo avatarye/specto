@@ -63,8 +63,8 @@ def test_right_click_on_a_tree_row_copies_its_path_and_keeps_the_selection(s):
     assert opened.calls[-1][1:] == (120.0, 80.0, False)
     # the tree's open entries (SPEC-32), the launchers (#186), then the copy group
     assert opened.names() == [
-        "tree.open_dedicated",
-        "tree.open_contextual",
+        "file_tree.open_dedicated",
+        "file_tree.open_contextual",
         "launch.default",
         "launch.open_with",
         "copy.path",
@@ -85,8 +85,8 @@ def test_the_trees_menu_opens_the_clicked_file_in_its_own_or_the_contextual_view
     opened = Opened(s.menus)
     s.tree.select_paths(["notes/beta.md", "notes/alpha.md"])
     s.tree.bridge.contextMenu(s.tree.model.row_of("notes/alpha.md"), 10.0, 10.0)
-    assert opened.names()[:2] == ["tree.open_dedicated", "tree.open_contextual"]
-    vid = s.menus.trigger("tree.open_dedicated")
+    assert opened.names()[:2] == ["file_tree.open_dedicated", "file_tree.open_contextual"]
+    vid = s.menus.trigger("file_tree.open_dedicated")
     doc = s.engine.live.document()
     assert doc["views"][vid]["type"] == "markdown"
     assert doc["views"][vid]["label"] == "alpha.md · notes"
@@ -95,7 +95,7 @@ def test_the_trees_menu_opens_the_clicked_file_in_its_own_or_the_contextual_view
     assert s.tree.model.selected == {"notes/beta.md", "notes/alpha.md"}  # untouched
 
     s.tree.bridge.contextMenu(s.tree.model.row_of("notes/beta.md"), 10.0, 10.0)
-    pv = s.menus.trigger("tree.open_contextual")
+    pv = s.menus.trigger("file_tree.open_contextual")
     doc = s.engine.live.document()
     assert doc["views"][pv]["type"] == "preview"
     feed = next(ln for ln in doc["links"].values() if ln["target"]["view"] == pv)
@@ -103,7 +103,7 @@ def test_the_trees_menu_opens_the_clicked_file_in_its_own_or_the_contextual_view
     assert s.tree.model.selected == {"notes/beta.md"}
 
     s.tree.bridge.contextMenu(s.tree.model.row_of("notes"), 10.0, 10.0)
-    assert "tree.open_dedicated" not in opened.names()
+    assert "file_tree.open_dedicated" not in opened.names()
 
 
 def test_right_click_inside_the_selection_copies_every_selected_row_one_per_line(s):

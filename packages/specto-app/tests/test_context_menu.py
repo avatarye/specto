@@ -126,8 +126,8 @@ def test_browsers_copy_the_absolute_path_with_native_separators():
     names = [r.get("name") for r in reg.rows(tree_target("runs/front/00001.jpg"))]
     # the tree's own open entries (SPEC-32), the launchers (#186), then the copy group
     assert [n for n in names if n] == [
-        "tree.open_dedicated",
-        "tree.open_contextual",
+        "file_tree.open_dedicated",
+        "file_tree.open_contextual",
         "launch.default",
         "launch.open_with",
         "copy.path",
@@ -205,25 +205,25 @@ def test_the_trees_open_entries_open_the_one_file_under_the_cursor_its_own_way()
     clicked row, show neither. Each runs the host's ``open_path`` with its mode."""
     reg = default_registry()
     rows = {r["name"]: r for r in reg.rows(tree_target("notes/a.md")) if "name" in r}
-    assert rows["tree.open_dedicated"]["text"] == "Open in its own view"
-    assert rows["tree.open_contextual"]["text"] == "Open in contextual view"
-    assert rows["tree.open_dedicated"]["detail"] == "Double-click"
-    assert rows["tree.open_contextual"]["detail"] == "Ctrl+Double-click"
+    assert rows["file_tree.open_dedicated"]["text"] == "Open in its own view"
+    assert rows["file_tree.open_contextual"]["text"] == "Open in contextual view"
+    assert rows["file_tree.open_dedicated"]["detail"] == "Double-click"
+    assert rows["file_tree.open_contextual"]["detail"] == "Ctrl+Double-click"
     host = FakeTreeHost()
     call = MenuCall(target=tree_target("notes/a.md"), host=host)
-    assert reg.run("tree.open_dedicated", call) == "lito"
-    assert reg.run("tree.open_contextual", call) == "lito"
+    assert reg.run("file_tree.open_dedicated", call) == "lito"
+    assert reg.run("file_tree.open_contextual", call) == "lito"
     assert host.opened == [("notes/a.md", "dedicated"), ("notes/a.md", "contextual")]
 
     names = lambda t: [r["name"] for r in reg.rows(t) if "name" in r]  # noqa: E731
-    assert "tree.open_dedicated" not in names(tree_target("notes"))
-    assert "tree.open_dedicated" not in names(tree_target("notes/a.md", "notes/b.md"))
+    assert "file_tree.open_dedicated" not in names(tree_target("notes"))
+    assert "file_tree.open_dedicated" not in names(tree_target("notes/a.md", "notes/b.md"))
     wide = tree_target("notes/a.md", "notes/b.md")
     clicked = MenuTarget(**{**wide.__dict__, "data": {"clicked": "notes/b.md"}})
-    assert names(clicked)[:2] == ["tree.open_dedicated", "tree.open_contextual"]
+    assert names(clicked)[:2] == ["file_tree.open_dedicated", "file_tree.open_contextual"]
     host = FakeTreeHost()
-    reg.run("tree.open_contextual", MenuCall(target=clicked, host=host))
+    reg.run("file_tree.open_contextual", MenuCall(target=clicked, host=host))
     assert host.opened == [("notes/b.md", "contextual")]
     both = tree_target("notes", "notes/a.md")
     folder = MenuTarget(**{**both.__dict__, "data": {"clicked": "notes"}})
-    assert "tree.open_contextual" not in names(folder)
+    assert "file_tree.open_contextual" not in names(folder)

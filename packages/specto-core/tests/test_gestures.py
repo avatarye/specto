@@ -262,7 +262,7 @@ def test_a_double_click_opens_a_dedicated_view_of_the_files_kind(live: LiveCanva
     live.undo()
     assert vid not in live.document()["views"]
 
-    # the kind's own view: an image, a video, a stage, a point cloud, a pdf, a page; a
+    # the kind's typed view: an image, a video, a stage, a point cloud, a pdf, a page; a
     # geojson file's typed view is the map, fed by read_contents on its features port
     for path, vtype in [
         ("look/a.jpg", "image"),
@@ -289,12 +289,15 @@ def test_a_double_click_opens_a_dedicated_view_of_the_files_kind(live: LiveCanva
     # agent pinned to that one file counts too), focused, never duplicated, no submit
     steps = len(live.history)
     again = gestures.open_file(live, "fege", "sites.geojson", mode="dedicated", plugins=plugins)
-    assert again == gestures.OpenedFile(geo.view, "focused", None, "dedicated")
+    assert again == gestures.OpenedFile(
+        view=geo.view, action="focused", submit=None, mode="dedicated"
+    )
     doc = live.document()
     doc["views"]["lito"] = {"type": "json", "label": "the run", "layout": {"size": [300, 300]}}
     pin(doc, "lito", sources=["meta/run.json"])
     live.submit(doc, origin="agent:s1", label="pin the run's json")
-    assert gestures.open_file(live, "fege", "meta/run.json", plugins=plugins).view == "lito"
+    pinned = gestures.open_file(live, "fege", "meta/run.json", mode="dedicated", plugins=plugins)
+    assert pinned.view == "lito"
     assert gestures.dedicated_view_of(live.document(), "meta/other.json") is None
     assert len(live.history) == steps + 1  # the agent's pin alone
 
@@ -332,7 +335,7 @@ def test_opening_a_file_contextually_adds_a_preview_on_the_trees_picks(live: Liv
     assert view["params"]["text"] == "Not supported: plan.xyz (.xyz)"
     assert live.document()["views"]["fege"]["params"]["selected"] == ["notes/plan.xyz"]
     with pytest.raises(NotFound):
-        gestures.open_file(live, "kobi", "notes/plan.md", plugins=plugins)  # not a file tree
+        gestures.open_file(live, "kobi", "notes/plan.md", mode="dedicated", plugins=plugins)
     with pytest.raises(InvalidArgs):
         gestures.open_file(live, "fege", "notes/plan.md", mode="quick", plugins=plugins)
 
@@ -369,7 +372,9 @@ def test_opening_a_file_reuses_a_preview_and_puts_it_on_the_picks(live: LiveCanv
     opened = gestures.open_file(
         live, "fege", "papers/report.pdf", mode="contextual", plugins=plugins
     )
-    assert opened == gestures.OpenedFile("lito", "selected", None, "contextual")
+    assert opened == gestures.OpenedFile(
+        view="lito", action="selected", submit=None, mode="contextual"
+    )
     assert live.document()["views"]["fege"]["params"]["selected"] == ["papers/report.pdf"]
     assert len(live.history) == steps  # navigation, not an undo step
 
@@ -409,6 +414,28 @@ def test_repointing_a_preview_relabels_it_unless_the_label_was_written_by_hand(
     gestures.open_file(live, "fege", "notes/more.md", **ctx)
     assert live.document()["views"]["lito"]["label"] == "quick look"
     assert live.history_summaries()[-1]["label"] == "show the picks of Files in quick look"
+
+
+def test_a_preview_is_contextual_only_while_a_view_feeds_it(live: LiveCanvas):
+    """SPEC-32: the "Contextual · follows selection" tag means the preview follows a
+    view's selection: true on the file tree's picks (a selection intaker) and on a
+    gallery's items (a follow link); false for a preview pinned to fixed sources, for
+    one whose feed the user deleted (it follows nothing), and for any other view type."""
+    plugins = app_plugins()
+    picks = gestures.open_file(live, "fege", "notes/plan.md", mode="contextual", plugins=plugins)
+    doc = live.document()
+    assert gestures.is_contextual(doc, picks.view) is True
+    doc["views"]["lito"] = {"type": "preview", "label": "pinned", "layout": {"size": [300, 300]}}
+    pin(doc, "lito", sources=["notes"])
+    live.submit(doc, origin="agent:s1", label="a pinned preview")
+    doc = live.document()
+    assert gestures.is_contextual(doc, "lito") is False
+    assert gestures.is_contextual(doc, "kobi") is False  # a gallery on the picks
+    beside, _ = gestures.open_gallery_preview(live, "kobi")
+    assert gestures.is_contextual(live.document(), beside) is True
+    (lid,) = [i for i, ln in doc["links"].items() if ln["target"]["view"] == picks.view]
+    gestures.delete_link(live, lid)  # the user cut its feed: it follows nothing now
+    assert gestures.is_contextual(live.document(), picks.view) is False
 
 
 def test_an_agent_opens_a_file_through_the_canvas_open_file_command(engine):

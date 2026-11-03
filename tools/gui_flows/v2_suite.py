@@ -634,7 +634,7 @@ SUITE: dict[str, dict] = {
         # Ctrl+double-click the contextual preview, tagged in its header and its card;
         # the context menu offers both
         "seed": seed("v2-122-seed.py", "{project}"),
-        "sessions": [{"flows": ["v2-43-open-views.txt"]}],
+        "sessions": [{"flows": ["v2-open-views.txt"]}],
     },
     "fresh-tree": {
         # #125: a new project's file tree fills the visible canvas at any window height

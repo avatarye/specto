@@ -100,7 +100,7 @@ from specto_core.gestures import OpenedFile, open_file
 from specto_core.jobs import InlineJobManager
 from specto_core.kinds import PluginManifest, ViewManifest
 from specto_core.links import Collection, FilesValue, Selection
-from specto_core.ports import PROJECT_ID
+from specto_core.ports import PROJECT_ID, OpenMode
 from specto_intake.listing import Entry, TreeLister
 
 from . import gallery_native
@@ -113,13 +113,12 @@ from .file_tree_format import (  # noqa: F401  (re-exported: the tree's formatti
     format_size,
     format_stamp,
 )
+from .keys import CTRL, SHIFT, open_mode_for
 from .listing_worker import ListingWorker
 from .tree_search import TreeSearch
 
 FILE_TREE_QML = gallery_native.QML_DIR / "Specto" / "FileTree" / "FileTreeView.qml"
 FILE_TREE_PLUGIN = PluginManifest(name="app-file-tree", version="0.1.0", views=[])
-CTRL = int(Qt.KeyboardModifier.ControlModifier.value)
-SHIFT = int(Qt.KeyboardModifier.ShiftModifier.value)
 #: what a hover thumbnail can show (QML's image formats)
 THUMB_EXTS = frozenset({".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff"})
 
@@ -1112,13 +1111,13 @@ class FileTreeHost(QuickViewHost):
         node, _ = self.model._rows[row]
         if node.is_dir:
             return None
-        return self.open_path(node.path, "contextual" if modifiers & CTRL else "dedicated")
+        return self.open_path(node.path, open_mode_for(modifiers))
 
-    def open_path(self, path: str, mode: str) -> OpenedFile | None:
+    def open_path(self, path: str, mode: OpenMode) -> OpenedFile | None:
         """Open a file of this tree the way ``mode`` says (``gestures.open_file``: one
         user submit, or a pick in this tree, or nothing when the file's dedicated view
-        is there already, in which case the shell reveals it). The context menu's "Open
-        in its own view" and "Open in contextual view" come here too."""
+        is there already, in which case the shell reveals it). The context menu's open
+        entries (``specto_app.menu.open_file``) come here too."""
         try:
             opened = open_file(
                 self.ctx.live,

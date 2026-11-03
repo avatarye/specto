@@ -75,10 +75,10 @@ class Api:
         beside the file tree; a kind the preview cannot show (a usd stage) opens dedicated
         instead. mode dedicated (a double-click): a view of the file's own, of the view type
         that shows its kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed by a
-        pinned link from project.all_files to that one file, titled '<name> · <folder>'; a file
-        no view shows opens a text view saying 'Not supported: <name> (<ext>)'; a file whose
-        dedicated view exists is focused, not duplicated. Compose typed views with submit_canvas
-        when their ports need linking.
+        pinned link from project.all_files to that one file, labelled '<name> · <folder>'; a
+        file no view shows opens a text view saying 'Not supported: <name> (<ext>)'; a file
+        whose dedicated view exists is focused, not duplicated. Compose typed views with
+        submit_canvas when their ports need linking.
 
         Args:
             path: str -- The file, relative to the project folder (POSIX slashes).

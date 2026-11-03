@@ -7,9 +7,7 @@ from typing import Any
 
 from specto_core.canvas_document import next_id
 from specto_core.kinds import PluginManifest, PluginRegistry, ViewManifest, default_plugins
-
-#: the input port and link kind a view type takes files on
-_FILE_INPUT: dict[str, tuple[str, str]] = {"map": ("features", "read_contents")}
+from specto_core.ports import file_input_of
 
 
 def pin(
@@ -21,7 +19,7 @@ def pin(
 ) -> str:
     """Add a pinned link from the project source into ``vid``'s file input (an intaker,
     or read_contents for a map). Returns the link id."""
-    port, kind = _FILE_INPUT.get(doc["views"][vid]["type"], ("data", "intaker"))
+    port, kind = file_input_of(doc["views"][vid]["type"]) or ("data", "intaker")
     lid = lid or next_id(doc["links"], "l")
     link: dict[str, Any] = {
         "kind": kind,

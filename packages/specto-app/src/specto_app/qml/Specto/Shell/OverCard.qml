@@ -123,25 +123,16 @@ Item {
                     font.bold: true
                     anchors.verticalCenter: parent.verticalCenter
                 }
-                // the contextual tag (SPEC-32), as in the normal view's header
-                Rectangle {
+                // the contextual tag (SPEC-32): the header's Pill, scaled with the card
+                Pill {
                     objectName: "overContextual:" + root.viewId
                     visible: root.card.contextual === true
-                    width: contextualText.implicitWidth + 12 * root.ui
-                    height: 18 * root.ui * header.fit
-                    radius: height / 2
-                    color: theme.colors.accent_soft
-                    border.color: theme.colors.accent
-                    border.width: 1
+                    text: "Contextual"
+                    tone: "accent"
+                    transformOrigin: Item.Left
+                    scale: root.ui * header.fit * 0.8
+                    width: implicitWidth * scale
                     anchors.verticalCenter: parent.verticalCenter
-                    Text {
-                        id: contextualText
-                        anchors.centerIn: parent
-                        text: "Contextual"
-                        color: theme.colors.accent
-                        font.family: theme.fonts.ui
-                        font.pixelSize: 11 * root.ui * header.fit
-                    }
                 }
             }
             // the snapshot's age, the health dot (a pause glyph while paused: every

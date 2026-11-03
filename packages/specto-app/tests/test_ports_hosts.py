@@ -813,10 +813,10 @@ def test_double_click_on_a_file_row_opens_its_dedicated_view_or_reveals_it(
     # again: the same view, focused and revealed, nothing submitted
     steps = len(engine.live.history)
     again = host.open_row(rows["notes/readme.md"])
-    assert again == OpenedFile(opened.view, "focused", None, "dedicated")
+    assert again == OpenedFile(view=opened.view, action="focused", submit=None, mode="dedicated")
     assert revealed == [opened.view] and len(engine.live.history) == steps
 
-    # a file no view type shows: the text view saying so, titled the same way
+    # a file no view type shows: the text view saying so, labelled the same way
     odd = host.open_row(rows["notes/blob.bin"])
     view = engine.live.document()["views"][odd.view]
     assert view["type"] == "text" and view["label"] == "blob.bin · notes"

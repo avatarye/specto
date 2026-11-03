@@ -31,13 +31,13 @@ from specto_intake.search import SearchHit, SearchResult
 
 from .file_icons import icon_for
 from .file_tree_format import age_of, format_bytes, format_stamp
+from .keys import CTRL, open_mode_for
 
 if TYPE_CHECKING:
     from .file_tree import FileTreeHost
 
 #: how many hits a query shows at most (the note says when there are more)
 LIMIT = 200
-CTRL = int(Qt.KeyboardModifier.ControlModifier.value)
 
 
 class SearchHitsModel(QAbstractListModel):
@@ -223,7 +223,7 @@ class TreeSearch:
         h = self.hit(row)
         if h is None:
             return None
-        return self.host.open_path(h.path, "contextual" if modifiers & CTRL else "dedicated")
+        return self.host.open_path(h.path, open_mode_for(modifiers))
 
     def reveal(self, row: int) -> bool:
         """Back to the tree at this hit: its folders listed and opened, the row selected

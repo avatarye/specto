@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from .registry import MenuCall, MenuEntry, MenuTarget
 
-DEDICATED = "tree.open_dedicated"
-CONTEXTUAL = "tree.open_contextual"
+DEDICATED = "file_tree.open_dedicated"
+CONTEXTUAL = "file_tree.open_contextual"
 
 
 def file_of(target: MenuTarget) -> str | None:

@@ -159,7 +159,7 @@ files as a card with name and size), is what Ctrl+double-click on a file opens, 
 "Contextual · follows selection" in its header. Reuse a preview already on the canvas rather than \
 adding another. When the user wants a file kept open on its own ("keep the readme up"), use \
 canvas.open_file with mode dedicated, what a plain double-click does: a view of the file's kind \
-fed that one file by a pinned link, titled "<name> · <folder>"; opening it again reveals the \
+fed that one file by a pinned link, labelled "<name> · <folder>"; opening it again reveals the \
 existing one. Add a typed view by hand (image, video, pdf, 3d, ...) only when a link needs its \
 typed ports, such as a video's time for a time_map or a 3D camera.
 

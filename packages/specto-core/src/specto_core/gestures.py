@@ -27,10 +27,17 @@ from .float_layer import (
     is_floating,
     shown_size,
 )
-from .kinds import PluginRegistry, default_plugins
+from .kinds import PluginRegistry
 from .live_canvas import LiveCanvas, SubmitResult
 from .names import fresh_name
-from .ports import CONTEXT_VIEWER, PROJECT_ID, PROJECT_PORT, file_input_of
+from .ports import (
+    CONTEXT_VIEWER,
+    OPEN_MODES,
+    PROJECT_ID,
+    PROJECT_PORT,
+    OpenMode,
+    file_input_of,
+)
 
 IMAGE_GAP = 20.0  # canvas px between a gallery and the image view opened beside it
 OPEN_GAP = IMAGE_GAP  # canvas px between the file tree and a view opened from it
@@ -39,9 +46,6 @@ OPEN_SIZE = (640.0, 480.0)  # a view opened from the file tree
 OPEN_TYPE = CONTEXT_VIEWER
 #: the view a file no view type shows opens in (SPEC-32): "Not supported: <name> (<ext>)"
 TEXT_TYPE = "text"
-#: how ``open_file`` opens a file (SPEC-32, ADR 0023): in a dedicated view of its own, fed
-#: that file alone, or in the contextual preview, which follows the tree's picks
-OPEN_MODES: tuple[str, ...] = ("dedicated", "contextual")
 SCRATCH_TYPE = "scratch"
 SCRATCH_SIZE = (440.0, 520.0)  # a scratch pad the user opens
 
@@ -408,7 +412,7 @@ def _free_spot_beside(
 
 
 def dedicated_label(path: str, project_name: str | None = None) -> str:
-    """The title of a dedicated view (SPEC-32): the file's name, a middle dot, its folder
+    """The label of a dedicated view (SPEC-32): the file's name, a middle dot, its folder
     relative to the project; a file at the root shows the project's name, or "." when
     there is none."""
     p = PurePosixPath(path)
@@ -447,14 +451,18 @@ def dedicated_view_of(doc: dict[str, Any], path: str) -> str | None:
 
 def is_contextual(doc: dict[str, Any], view_id: str) -> bool:
     """Whether ``view_id`` is a contextual view (SPEC-32, ADR 0023): the context viewer
-    (a preview) not fed fixed sources from the project source, so it follows a
-    selection (the file tree's picks, a gallery's pick) or waits for one. The shell
-    tags it "Contextual · follows selection" in its header and on its overworld card."""
+    (a preview) that follows another view's selection, because its data comes from a
+    view (the file tree's picks) or a link from a view drives its ``selection`` port (a
+    gallery's pick, #106). A preview fed fixed sources from the project source with no
+    selection link is not one, nor is a preview with no feed at all. The shell tags it
+    "Contextual · follows selection" in its header and on its overworld card."""
     view = doc["views"].get(view_id)
     if view is None or view["type"] != CONTEXT_VIEWER:
         return False
+    if _link_into(doc, view_id, "selection") is not None:
+        return True
     feed = _file_feed(doc, view_id)
-    return feed is None or feed["source"] != {"view": PROJECT_ID, "port": PROJECT_PORT}
+    return feed is not None and feed["source"] != {"view": PROJECT_ID, "port": PROJECT_PORT}
 
 
 def open_file(
@@ -462,19 +470,24 @@ def open_file(
     tree_id: str,
     path: str,
     *,
-    mode: str = "dedicated",
+    mode: OpenMode,
+    plugins: PluginRegistry,
     prefer: Iterable[str] = (),
     origin: str = "user",
-    plugins: PluginRegistry | None = None,
 ) -> OpenedFile:
     """Open ``path`` (relative to the tree's root) from file tree ``tree_id`` (SPEC-32, ADR
     0023), or the agent's ``canvas.open_file``.
 
-    ``mode="dedicated"`` (a double-click): a view of its own for that one file, of the
+    ``mode`` is required: every caller says which way (the gesture decides by Ctrl, the
+    command by its argument). ``plugins`` is the registry the kinds and view types are
+    read from (the engine's).
+
+    ``mode="dedicated"`` (a double-click): a dedicated view for that one file, of the
     view type that shows the file's kind (``plugins.typed_view_for``; the usd view for a
     stage, the map for geojson, never the preview), fed by a pinned link from the
     project source to exactly that file, so later picks never change it; labelled
-    ``<name> · <folder>``; placed beside the tree in the first free spot (one submit).
+    ``<name> · <folder>`` (``dedicated_label``); placed beside the tree in the first free
+    spot (one submit).
     A file no view type shows opens a ``text`` view saying ``Not supported: <name>
     (<ext>)`` the same way. A file whose dedicated view is on the canvas already comes
     back ``focused`` with no submit (the shell focuses and reveals it). The tree's picks
@@ -490,16 +503,13 @@ def open_file(
     (or no label) is named for the picks; a label the agent or user wrote stays (#86).
     Without one, a new preview is placed beside the tree (one submit). A kind the
     preview cannot render (a usd stage) opens dedicated instead, and a file no view
-    shows the ``text`` view: the result's ``mode`` says so.
-
-    ``plugins`` is the registry the kinds and view types are read from (the engine's);
-    without one core's built-in manifests stand in."""
+    shows the ``text`` view: the result's ``mode`` says so."""
     if mode not in OPEN_MODES:
         raise InvalidArgs(
             f"open_file mode {mode!r} is not one of {', '.join(OPEN_MODES)}",
-            fix="dedicated: a view of its own for the file; contextual: the preview on the picks",
+            fix="dedicated: a view for the file alone; contextual: the preview on the picks",
         )
-    reg = plugins if plugins is not None else default_plugins()
+    reg = plugins
     doc = live.document()
     tree = _view(doc, tree_id)
     if tree["type"] != "file_tree":
@@ -530,7 +540,7 @@ def _open_dedicated(
     doc = live.document()
     have = dedicated_view_of(doc, path)
     if have is not None:
-        return OpenedFile(have, "focused", None, "dedicated")
+        return OpenedFile(view=have, action="focused", submit=None, mode="dedicated")
     name = PurePosixPath(path).name
     label = dedicated_label(path, live.project.name if live.project is not None else None)
     vtype = plugins.typed_view_for(path) or TEXT_TYPE
@@ -559,7 +569,7 @@ def _open_dedicated(
         link["scope"] = "pinned"
     doc["links"][next_id(doc["links"], "l")] = link
     res = live.submit(doc, origin=origin, label=f"open {name}")
-    return OpenedFile(vid, "created", res, "dedicated")
+    return OpenedFile(view=vid, action="created", submit=res, mode="dedicated")
 
 
 def _open_contextual(
@@ -578,7 +588,7 @@ def _open_contextual(
     if target is not None:
         found = _link_into(doc, target, "data")
         if found is not None and found[1]["source"] == {"view": tree_id, "port": "selected_files"}:
-            return OpenedFile(target, "selected")
+            return OpenedFile(view=target, action="selected", submit=None, mode="contextual")
         lid = found[0] if found is not None else next_id(doc["links"], "l")
         view = doc["views"][target]
         if not view.get("label") or view["label"] == _shown_file_name(found):
@@ -588,7 +598,8 @@ def _open_contextual(
             shown_in = view["label"]
         doc["links"][lid] = _picks_link(tree_id, tree, target)
         what = f"show the picks of {_name(tree_id, tree)} in {shown_in}"
-        return OpenedFile(target, "repointed", live.submit(doc, origin=origin, label=what))
+        submitted = live.submit(doc, origin=origin, label=what)
+        return OpenedFile(view=target, action="repointed", submit=submitted, mode="contextual")
     vid = fresh_name(doc["views"], path)
     doc["views"][vid] = {
         "type": OPEN_TYPE,
@@ -599,7 +610,8 @@ def _open_contextual(
     }
     doc["links"][next_id(doc["links"], "l")] = _picks_link(tree_id, tree, vid)
     name = PurePosixPath(path).name
-    return OpenedFile(vid, "created", live.submit(doc, origin=origin, label=f"open {name}"))
+    submitted = live.submit(doc, origin=origin, label=f"open {name}")
+    return OpenedFile(view=vid, action="created", submit=submitted, mode="contextual")
 
 
 def float_view(live: LiveCanvas, view_id: str) -> SubmitResult:

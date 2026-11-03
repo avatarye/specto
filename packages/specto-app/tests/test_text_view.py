@@ -53,7 +53,9 @@ def test_an_unsupported_file_opens_a_text_view_saying_so_under_its_title(app, sp
     (project.root / "notes").mkdir()
     (project.root / "notes" / "blob.bin").write_bytes(b"\x00" * 16)
     tree = file_tree_of(app.live.document()["views"])
-    opened = open_file(app.live, tree, "notes/blob.bin", plugins=app.engine.plugins)
+    opened = open_file(
+        app.live, tree, "notes/blob.bin", mode="dedicated", plugins=app.engine.plugins
+    )
     vid = opened.view
     spin(until=lambda: vid in app.hosts.hosts)
     spin(100)

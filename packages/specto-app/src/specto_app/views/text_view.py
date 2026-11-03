@@ -1,6 +1,6 @@
 """The ``text`` view host (SPEC-32): one short text the canvas document carries in
 ``params.text``, shown as it is. It is the "Not supported" view: a file no view type
-shows opens in one saying ``Not supported: <name> (<ext>)``, titled like any dedicated
+shows opens in one saying ``Not supported: <name> (<ext>)``, labelled like any dedicated
 view (``<name> · <folder>``) and fed the file by the same pinned link, so the file's
 dedicated view is recognised the same way whatever its kind. The link is the view's
 identity only: nothing is read from the file, nothing goes out.

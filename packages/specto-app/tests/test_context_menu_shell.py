@@ -63,7 +63,7 @@ def test_right_click_on_a_tree_row_opens_the_menu_there_and_copies_the_path(app,
         )
     )
     # the tree's open entries come first (SPEC-32): the menu's corner is the first row's
-    x, y = locate(app, "menu:tree.open_dedicated")["rect"][:2]
+    x, y = locate(app, "menu:file_tree.open_dedicated")["rect"][:2]
     assert abs(x - at.x()) <= 2 and 0 <= y - at.y() <= 8  # the menu's corner at the pointer
     assert app.hosts.snapshot("fege")["selected"] == []  # a right-click is no pick
 
