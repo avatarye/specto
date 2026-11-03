@@ -5,6 +5,7 @@ under the cursor; the registry answers the rows to show and runs the one picked.
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import pytest
 
@@ -123,8 +124,10 @@ def test_a_failing_predicate_hides_its_entry_only():
 def test_browsers_copy_the_absolute_path_with_native_separators():
     reg = default_registry()
     names = [r.get("name") for r in reg.rows(tree_target("runs/front/00001.jpg"))]
-    # the launchers open the file first (#186), then the copy group
+    # the tree's own open entries (#43), the launchers (#186), then the copy group
     assert [n for n in names if n] == [
+        "tree.open_dedicated",
+        "tree.open_contextual",
         "launch.default",
         "launch.open_with",
         "copy.path",
@@ -183,3 +186,43 @@ def test_copy_entries_belong_to_browsers_only():
         root=ROOT,
     )
     assert "copy.path" not in [r.get("name") for r in reg.rows(viewer)]
+
+
+# -- the file tree's open entries (#43) -------------------------------------------------
+class FakeTreeHost:
+    def __init__(self) -> None:
+        self.opened: list[tuple[str, str]] = []
+
+    def open_path(self, path: str, mode: str) -> SimpleNamespace:
+        self.opened.append((path, mode))
+        return SimpleNamespace(view="lito")  # what the tree host answers: the view opened
+
+
+def test_the_trees_open_entries_open_the_one_file_under_the_cursor_its_own_way():
+    """"Open in its own view" and "Open in contextual view" lead the file tree's menu for
+    a file: the row that was right-clicked (``data.clicked``) even inside a wider
+    selection, else the one file the target holds; a folder, or several files with no
+    clicked row, show neither. Each runs the host's ``open_path`` with its mode."""
+    reg = default_registry()
+    rows = {r["name"]: r for r in reg.rows(tree_target("notes/a.md")) if "name" in r}
+    assert rows["tree.open_dedicated"]["text"] == "Open in its own view"
+    assert rows["tree.open_contextual"]["text"] == "Open in contextual view"
+    assert rows["tree.open_dedicated"]["detail"] == "Double-click"
+    assert rows["tree.open_contextual"]["detail"] == "Ctrl+Double-click"
+    host = FakeTreeHost()
+    call = MenuCall(target=tree_target("notes/a.md"), host=host)
+    assert reg.run("tree.open_dedicated", call) == "lito"
+    assert reg.run("tree.open_contextual", call) == "lito"
+    assert host.opened == [("notes/a.md", "dedicated"), ("notes/a.md", "contextual")]
+
+    names = lambda t: [r["name"] for r in reg.rows(t) if "name" in r]  # noqa: E731
+    assert "tree.open_dedicated" not in names(tree_target("notes"))
+    assert "tree.open_dedicated" not in names(tree_target("notes/a.md", "notes/b.md"))
+    wide = tree_target("notes/a.md", "notes/b.md")
+    clicked = MenuTarget(**{**wide.__dict__, "data": {"clicked": "notes/b.md"}})
+    assert names(clicked)[:2] == ["tree.open_dedicated", "tree.open_contextual"]
+    host = FakeTreeHost()
+    reg.run("tree.open_contextual", MenuCall(target=clicked, host=host))
+    assert host.opened == [("notes/b.md", "contextual")]
+    folder = MenuTarget(**{**tree_target("notes", "notes/a.md").__dict__, "data": {"clicked": "notes"}})
+    assert "tree.open_contextual" not in names(folder)

@@ -62,8 +62,8 @@ def test_right_click_on_a_tree_row_opens_the_menu_there_and_copies_the_path(app,
             > locate(app, "menu:copy.path")["rect"][1]
         )
     )
-    # the launchers' rows come first (#186): the menu's corner is the first row's
-    x, y = locate(app, "menu:launch.default")["rect"][:2]
+    # the tree's open entries come first (#43): the menu's corner is the first row's
+    x, y = locate(app, "menu:tree.open_dedicated")["rect"][:2]
     assert abs(x - at.x()) <= 2 and 0 <= y - at.y() <= 8  # the menu's corner at the pointer
     assert app.hosts.snapshot("fege")["selected"] == []  # a right-click is no pick
 
@@ -180,9 +180,10 @@ def test_after_copy_path_windows_shift_f10_opens_the_menu_again(app, spin):
 
     windows_menu_key(app)
     spin(until=lambda: locate(app, "menu:copy.path")["visible"])
-    # the keyboard's menu: its first row, the launchers' (#186); two down is Copy path
-    QTest.keyClick(app.window, Qt.Key.Key_Down)
-    QTest.keyClick(app.window, Qt.Key.Key_Down)
+    # the keyboard's menu on one file: its first row is "Open in its own view" (#43),
+    # then the contextual one and the launchers' two (#186); four down is Copy path
+    for _ in range(4):
+        QTest.keyClick(app.window, Qt.Key.Key_Down)
     QTest.keyClick(app.window, Qt.Key.Key_Return)
     spin(until=lambda: not locate(app, "menu:copy.path")["visible"])
     assert QGuiApplication.clipboard().text() == os.path.join(

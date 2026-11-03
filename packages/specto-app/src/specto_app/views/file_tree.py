@@ -1173,12 +1173,14 @@ class FileTreeHost(QuickViewHost):
         """A right-clicked row inside the selection stands for every selected row; one
         outside it for itself alone (no pick: a right-click changes nothing). The
         keyboard's target (``hit`` None) is the selection."""
+        clicked: dict[str, Any] = {}  # the row under the cursor, for the open entries (#43)
         if hit is not None and hit.get("kind") == "items":
             row = int(hit.get("row", -1))
             if not 0 <= row < len(self.model._rows):
                 return None
             path = self.model._rows[row][0].path
             paths = self.model.selected if path in self.model.selected else {path}
+            clicked = {"clicked": path}
         elif hit is not None and hit.get("kind") == "hit":
             # a search hit (#232): the hits' order, then any picked rows the search hides
             found = self.search.hit(int(hit.get("row", -1)))
@@ -1188,13 +1190,15 @@ class FileTreeHost(QuickViewHost):
             shown = [h.path for h in self.search.model.hits if h.path in paths]
             rest = [p for p in self.model.in_tree_order(set(paths)) if p not in shown]
             items = [self._menu_item(p) for p in shown + rest]
-            return self.menu_target("items" if items else "view", items)
+            return self.menu_target(
+                "items" if items else "view", items, data={"clicked": found.path}
+            )
         elif hit is None:
             paths = self.model.selected
         else:
             return super().context_target(hit)
         items = [self._menu_item(p) for p in self.model.in_tree_order(set(paths))]
-        return self.menu_target("items" if items else "view", items)
+        return self.menu_target("items" if items else "view", items, data=clicked)
 
     def _menu_item(self, path: str) -> MenuItemRef:
         node = self.model._nodes.get(path)

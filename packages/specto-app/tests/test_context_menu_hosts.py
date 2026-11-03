@@ -61,8 +61,10 @@ def test_right_click_on_a_tree_row_copies_its_path_and_keeps_the_selection(s):
     opened = Opened(s.menus)
     s.tree.bridge.contextMenu(s.tree.model.row_of("notes/alpha.md"), 120.0, 80.0)
     assert opened.calls[-1][1:] == (120.0, 80.0, False)
-    # the launchers (#186) open it, then the copy group
+    # the tree's open entries (#43), the launchers (#186), then the copy group
     assert opened.names() == [
+        "tree.open_dedicated",
+        "tree.open_contextual",
         "launch.default",
         "launch.open_with",
         "copy.path",
@@ -74,6 +76,34 @@ def test_right_click_on_a_tree_row_copies_its_path_and_keeps_the_selection(s):
     assert QGuiApplication.clipboard().text() == native(s, "notes", "alpha.md")
     assert s.menus.trigger("copy.relative_path") == os.path.join("notes", "alpha.md")
     assert QGuiApplication.clipboard().text() == os.path.join("notes", "alpha.md")
+
+
+def test_the_trees_menu_opens_the_clicked_file_in_its_own_or_the_contextual_view(s):
+    """#43: "Open in its own view" on a tree row opens that file's dedicated view (the
+    clicked row, even inside a wider selection); "Open in contextual view" the preview
+    on the tree's picks, the file selected; a folder row offers neither."""
+    opened = Opened(s.menus)
+    s.tree.select_paths(["notes/beta.md", "notes/alpha.md"])
+    s.tree.bridge.contextMenu(s.tree.model.row_of("notes/alpha.md"), 10.0, 10.0)
+    assert opened.names()[:2] == ["tree.open_dedicated", "tree.open_contextual"]
+    vid = s.menus.trigger("tree.open_dedicated")
+    doc = s.engine.live.document()
+    assert doc["views"][vid]["type"] == "markdown"
+    assert doc["views"][vid]["label"] == "alpha.md · notes"
+    feed = next(ln for ln in doc["links"].values() if ln["target"]["view"] == vid)
+    assert feed["scope"] == "pinned" and feed["params"]["sources"] == ["notes/alpha.md"]
+    assert s.tree.model.selected == {"notes/beta.md", "notes/alpha.md"}  # untouched
+
+    s.tree.bridge.contextMenu(s.tree.model.row_of("notes/beta.md"), 10.0, 10.0)
+    pv = s.menus.trigger("tree.open_contextual")
+    doc = s.engine.live.document()
+    assert doc["views"][pv]["type"] == "preview"
+    feed = next(ln for ln in doc["links"].values() if ln["target"]["view"] == pv)
+    assert feed["scope"] == "selection"
+    assert s.tree.model.selected == {"notes/beta.md"}
+
+    s.tree.bridge.contextMenu(s.tree.model.row_of("notes"), 10.0, 10.0)
+    assert "tree.open_dedicated" not in opened.names()
 
 
 def test_right_click_inside_the_selection_copies_every_selected_row_one_per_line(s):

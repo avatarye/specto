@@ -5,6 +5,7 @@ opens the shell's one menu for a view and runs the picked entry. How a view cont
 
 from __future__ import annotations
 
+from .open_file import ENTRIES as OPEN_ENTRIES
 from .paths import ENTRIES as PATH_ENTRIES
 from .registry import (
     GROUPS,
@@ -20,13 +21,13 @@ _DEFAULT: ContextMenuRegistry | None = None
 
 
 def default_registry() -> ContextMenuRegistry:
-    """The app's menu: the built-in entries (Copy path, the launchers of #186), plus
-    what view modules add at import."""
+    """The app's menu: the built-in entries (the file tree's open entries of #43, the
+    launchers of #186, Copy path), plus what view modules add at import."""
     global _DEFAULT
     if _DEFAULT is None:
         from ..launchers.menu import ENTRIES as LAUNCH_ENTRIES
 
-        _DEFAULT = ContextMenuRegistry((*LAUNCH_ENTRIES, *PATH_ENTRIES))
+        _DEFAULT = ContextMenuRegistry((*OPEN_ENTRIES, *LAUNCH_ENTRIES, *PATH_ENTRIES))
     return _DEFAULT
 
 
