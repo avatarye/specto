@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from pdf_helpers import make_pdf
+from PySide6.QtCore import Qt
 from scene3d_helpers import write_cloud_ply
 from web_helpers import new_engine, registry
 
@@ -307,7 +308,7 @@ def test_a_gallery_tile_that_is_not_an_image_opens_the_gallery_preview(engine: E
 def test_a_double_click_puts_the_preview_on_the_tree_picks_and_later_clicks_change_it(
     engine: Engine,
 ):
-    """#122: a double-click on a file row (its first click picks the row) re-points the
+    """#122: a Ctrl+double-click on a file row (its first click picks the row) re-points the
     preview, pinned to mixed/ here, at the file tree's picks in one submit: it shows the
     double-clicked file, and a later single click on another row shows that one (no
     submit), in the renderer of its kind."""
@@ -321,7 +322,8 @@ def test_a_double_click_puts_the_preview_on_the_tree_picks_and_later_clicks_chan
     steps = len(engine.live.history)
 
     tree.click(rows["mixed/c.md"])
-    opened = tree.open_row(rows["mixed/c.md"])
+    ctrl = int(Qt.KeyboardModifier.ControlModifier.value)  # Ctrl+double-click (#43)
+    opened = tree.open_row(rows["mixed/c.md"], ctrl)
     assert opened is not None and (opened.view, opened.action) == ("pela", "repointed")
     assert len(engine.live.history) == steps + 1
     assert Path(preview.part).name == "c.md" and isinstance(preview.renderer, MarkdownViewHost)

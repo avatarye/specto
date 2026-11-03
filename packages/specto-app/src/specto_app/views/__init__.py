@@ -42,6 +42,8 @@ from .preview_view import PreviewFactory
 from .scene3d_view import Scene3DHost
 from .scene3d_view import factory as scene3d_factory
 from .scratch_view import ScratchFactory
+from .text_view import TextFactory
+from .text_view import factory as text_factory
 from .usd_view import UsdFactory
 from .video_view import VideoFactory
 from .video_view import factory as video_factory
@@ -56,6 +58,7 @@ Factory = (
     | PreviewFactory
     | UsdFactory
     | ScratchFactory
+    | TextFactory
 )
 
 
@@ -74,6 +77,7 @@ def factories() -> list[Factory]:
         PreviewFactory(),
         UsdFactory(),
         ScratchFactory(),
+        text_factory(),
     ]
 
 

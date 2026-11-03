@@ -164,7 +164,10 @@ def test_hits_pass_the_trees_screener_and_the_note_says_when_there_are_more(proj
 def test_a_hit_click_picks_double_click_opens_and_reveal_returns_to_the_tree_at_it(
     project: Project,
 ):
+    from specto_app.views.preview_view import PREVIEW_PLUGIN
+
     engine = Engine(project=project, jobs=InlineJobManager())
+    engine.plugins.register(PREVIEW_PLUGIN)
     ctx, host = host_on(engine)
     host.search.everything = everything(Index(up=False))  # the scan answers
 
@@ -182,7 +185,11 @@ def test_a_hit_click_picks_double_click_opens_and_reveal_returns_to_the_tree_at_
     assert picks(ctx).paths == ["a/deep/f3.jpg", "a/deep/f3.txt"]
     assert host.snapshot()["loaded"] == [""]  # nothing listed for the picks
 
-    opened = host.search.open(1)
+    # a double-click on a hit opens its dedicated view (#43), Ctrl the contextual preview
+    own = host.search.open(1)
+    assert own is not None and (own.action, own.mode) == ("created", "dedicated")
+    assert engine.live.data["views"][own.view]["type"] != "preview"
+    opened = host.search.open(1, CTRL)
     assert opened is not None and opened.action == "created"
     assert engine.live.data["views"][opened.view]["type"] == "preview"
     # the gesture picked the file in params; the registry's patch brings it to the host,

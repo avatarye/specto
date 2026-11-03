@@ -180,7 +180,7 @@ Item {
                 text = ""
                 root.forceActiveFocus()
             }
-            Keys.onReturnPressed: if (root.bridge && hits.count > 0) root.bridge.openHit(0)
+            Keys.onReturnPressed: if (root.bridge && hits.count > 0) root.bridge.openHit(0, Number(event.modifiers))
             Keys.onDownPressed: if (hits.count > 0) hits.forceActiveFocus()
         }
         Shell.Icon {
@@ -269,10 +269,13 @@ Item {
                     else
                         root.bridge.click(row.index, Number(tap.point.modifiers))
                 }
+                // a double-click opens a file's dedicated view, Ctrl+double-click the
+                // contextual preview (#43); the gesture makes sure the file ends up
+                // selected even though the Ctrl taps before it toggled the row
                 onDoubleTapped: {
                     if (!root.bridge) return
                     if (row.isDir) root.bridge.toggle(row.index)
-                    else root.bridge.open(row.index)
+                    else root.bridge.open(row.index, Number(tap.point.modifiers))
                 }
             }
             // a left drag past the platform's drag distance drags the row out, or the
@@ -431,7 +434,7 @@ Item {
         model: root.searching ? root.searchModel : null
         boundsBehavior: Flickable.StopAtBounds
         keyNavigationEnabled: true
-        Keys.onReturnPressed: if (root.bridge && currentIndex >= 0) root.bridge.openHit(currentIndex)
+        Keys.onReturnPressed: if (root.bridge && currentIndex >= 0) root.bridge.openHit(currentIndex, Number(event.modifiers))
         Keys.onEscapePressed: {
             searchField.text = ""
             root.forceActiveFocus()
@@ -459,7 +462,7 @@ Item {
                     hits.currentIndex = hit.index
                     root.bridge.clickHit(hit.index, Number(hitTap.point.modifiers))
                 }
-                onDoubleTapped: if (root.bridge) root.bridge.openHit(hit.index)
+                onDoubleTapped: if (root.bridge) root.bridge.openHit(hit.index, Number(hitTap.point.modifiers))
             }
             TapHandler {
                 acceptedButtons: Qt.RightButton

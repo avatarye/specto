@@ -20,6 +20,7 @@ from specto_app.hosts import HostContext, HostRegistry, clear_pending
 from specto_app.views.file_tree import FileTreeFactory, FileTreeHost
 from specto_app.views.gallery import GalleryFactory, GalleryHost
 from specto_core import Engine, Project
+from specto_core.gestures import OpenedFile
 from specto_core.jobs import InlineJobManager
 from specto_core.kinds import Item
 from specto_core.links import Collection, FilesValue, Selection
@@ -757,46 +758,107 @@ def test_file_tree_details_give_each_rows_time_and_size_and_its_age(engine: Engi
     assert changed == [[host.model.AgeRole]]
 
 
-def test_double_click_on_a_file_row_opens_it_in_a_preview(engine: Engine, tmp_path: Path):
-    """Seam 2 (double-click on a file row, #106, #122): the tree asks
-    ``gestures.open_file``: a new preview beside the tree on the tree's picks when none
-    exists, the file picked in the tree; a preview on another link (the shell's selected
-    one first) is re-pointed at the picks; one on the picks already only takes the pick;
-    folders keep expand/collapse."""
-    col = tree_collection(
-        tmp_path / "data",
-        ["runs/cam-a/00000.jpg", "runs/cam-a/00001.jpg", "notes/readme.md", "notes/todo.md"],
-    )
+def _tree_with_every_view(engine: Engine, tmp_path: Path, files: list[str]):
+    """A file tree host on a registry that knows every built-in view type (so a file's
+    kind resolves to its view type as in the app), fed ``files``, every folder open."""
+    from specto_app.views import install
+
+    col = tree_collection(tmp_path / "data", files)
     ctx = HostContext(engine, None)
+    clear_pending()
+    install()
     reg = HostRegistry(ctx, load_entry_points=False)
-    reg.add_factory(FileTreeFactory())
+    clear_pending()
     host = reg.host("fege")
     assert isinstance(host, FileTreeHost)
     host.receive("data", col)
-    host.expand_path("notes")
-    host.expand_path("runs/cam-a")
+    for folder in sorted({p.rsplit("/", 1)[0] for p in files if "/" in p}):
+        host.expand_path(folder)
     rows = {r["path"]: i for i, r in enumerate(host.rows())}
+    return ctx, reg, host, rows
+
+
+def test_double_click_on_a_file_row_opens_its_dedicated_view_or_reveals_it(
+    engine: Engine, tmp_path: Path
+):
+    """Seam 2 (#43): a double-click on a file row asks ``gestures.open_file`` for the
+    file's dedicated view: a view of the type that shows its kind, fed that one file by a
+    pinned link, beside the tree; the tree's picks are not touched. A second double-click
+    on the same file reveals that view through the shell (``ctx.reveal_view``) instead of
+    adding another. A file no view shows opens the "Not supported" text view. Folders
+    keep expand/collapse."""
+    ctx, _reg, host, rows = _tree_with_every_view(
+        engine, tmp_path, ["runs/cam-a/00000.jpg", "notes/readme.md", "notes/blob.bin"]
+    )
+    revealed: list[str] = []
+    ctx.reveal_view = revealed.append
 
     assert host.open_row(rows["notes"]) is None  # a folder: the double-click toggles it
     assert len(engine.live.data["views"]) == 1
 
     opened = host.open_row(rows["notes/readme.md"])
-    assert opened is not None and opened.action == "created"
+    assert opened is not None and (opened.action, opened.mode) == ("created", "dedicated")
     doc = engine.live.document()
     md = doc["views"][opened.view]
-    assert md["type"] == "preview" and md["label"] == "Files preview"
+    assert md["type"] == "markdown" and md["label"] == "readme.md · notes"
     assert md["layout"]["position"] == [380.0, 0.0]  # beside the tree (280 wide at 80,0)
+    link = next(ln for ln in doc["links"].values() if ln["target"]["view"] == opened.view)
+    assert (link["kind"], link["scope"]) == ("intaker", "pinned")
+    assert link["source"] == {"view": "project", "port": "all_files"}
+    assert link["params"]["sources"] == ["notes/readme.md"]
+    assert engine.live.history[-1].origin == "user"
+    assert emitted(ctx, "fege", "selected_files").paths == []  # no pick was made
+    assert host.model.selected == set() and revealed == []
+
+    # again: the same view, focused and revealed, nothing submitted
+    steps = len(engine.live.history)
+    again = host.open_row(rows["notes/readme.md"])
+    assert again == OpenedFile(opened.view, "focused", None, "dedicated")
+    assert revealed == [opened.view] and len(engine.live.history) == steps
+
+    # a file no view type shows: the text view saying so, titled the same way
+    odd = host.open_row(rows["notes/blob.bin"])
+    view = engine.live.document()["views"][odd.view]
+    assert view["type"] == "text" and view["label"] == "blob.bin · notes"
+    assert view["params"]["text"] == "Not supported: blob.bin (.bin)"
+    image = host.open_row(rows["runs/cam-a/00000.jpg"])
+    assert engine.live.document()["views"][image.view]["type"] == "image"
+
+
+def test_ctrl_double_click_opens_the_contextual_preview_and_leaves_the_file_selected(
+    engine: Engine, tmp_path: Path
+):
+    """Seam 2 (#43, #106, #122): Ctrl+double-click on a file row asks for the
+    contextual preview: new beside the tree on the tree's picks when none exists, the
+    file picked in the tree, even though the Ctrl click before it toggled the row out of
+    the selection; a preview on another link (the shell's selected one first) is
+    re-pointed at the picks; one on the picks already only takes the pick."""
+    ctx, _reg, host, rows = _tree_with_every_view(
+        engine,
+        tmp_path,
+        ["runs/cam-a/00000.jpg", "runs/cam-a/00001.jpg", "notes/readme.md", "notes/todo.md"],
+    )
+    host.click(rows["notes/readme.md"])
+    host.click(rows["notes/readme.md"], CTRL)  # the Ctrl tap of a Ctrl+double-click
+    assert host.model.selected == set()
+
+    opened = host.open_row(rows["notes/readme.md"], CTRL)
+    assert opened is not None and (opened.action, opened.mode) == ("created", "contextual")
+    doc = engine.live.document()
+    pv = doc["views"][opened.view]
+    assert pv["type"] == "preview" and pv["label"] == "Files preview"
     link = next(ln for ln in doc["links"].values() if ln["target"]["view"] == opened.view)
     assert link["scope"] == "selection" and link["source"]["view"] == "fege"
     assert engine.live.history[-1].origin == "user"
     assert emitted(ctx, "fege", "selected_files").paths == ["notes/readme.md"]
+    assert host.model.selected == {"notes/readme.md"}
 
     # a second preview the shell says is selected, pinned to notes/: re-pointed
     doc["views"]["lito"] = {"type": "preview", "label": "other", "layout": {"size": [300, 300]}}
     pin(doc, "lito", sources=["notes"])
     engine.live.submit(doc, origin="agent:s1", label="another preview")
     ctx.selected_views = lambda: ["lito"]
-    again = host.open_row(rows["notes/todo.md"])
+    again = host.open_row(rows["notes/todo.md"], CTRL)
     assert (again.view, again.action) == ("lito", "repointed")
     assert engine.live.document()["links"]["l3"]["source"] == {
         "view": "fege",
@@ -804,9 +866,9 @@ def test_double_click_on_a_file_row_opens_it_in_a_preview(engine: Engine, tmp_pa
     }
     assert engine.live.document()["views"]["lito"]["label"] == "other"  # written by hand: kept
 
-    # on the picks already: the double-click is a pick in the tree
+    # on the picks already: the Ctrl+double-click is a pick in the tree
     steps = len(engine.live.history)
-    picked = host.open_row(rows["runs/cam-a/00001.jpg"])
+    picked = host.open_row(rows["runs/cam-a/00001.jpg"], CTRL)
     assert (picked.view, picked.action) == ("lito", "selected")
     assert emitted(ctx, "fege", "selected_files").paths == ["runs/cam-a/00001.jpg"]
     assert host.snapshot()["selected_rows"] == ["runs/cam-a/00001.jpg"]

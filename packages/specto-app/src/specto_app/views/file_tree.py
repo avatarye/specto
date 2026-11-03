@@ -655,10 +655,11 @@ class FileTreeBridge(QObject):
     def toggle(self, row: int) -> None:
         self._host.toggle(int(row))
 
-    @Slot(int)
-    def open(self, row: int) -> None:
-        """Double-click on a file row: open it in a preview."""
-        self._host.open_row(int(row))
+    @Slot(int, int)
+    def open(self, row: int, modifiers: int) -> None:
+        """Double-click on a file row (#43): its dedicated view; with Ctrl the contextual
+        preview."""
+        self._host.open_row(int(row), int(modifiers))
 
     @Slot()
     def clearSelection(self) -> None:
@@ -694,9 +695,9 @@ class FileTreeBridge(QObject):
     def clickHit(self, row: int, modifiers: int) -> None:
         self._host.search.click(int(row), int(modifiers))
 
-    @Slot(int)
-    def openHit(self, row: int) -> None:
-        self._host.search.open(int(row))
+    @Slot(int, int)
+    def openHit(self, row: int, modifiers: int) -> None:
+        self._host.search.open(int(row), int(modifiers))
 
     @Slot(int)
     def revealHit(self, row: int) -> None:
@@ -1097,24 +1098,37 @@ class FileTreeHost(QuickViewHost):
             if not node.loaded:
                 self._request(path)
 
-    def open_row(self, row: int) -> OpenedFile | None:
-        """Double-click on a row: a file opens in a preview (the gesture is one
-        user submit, or a pick in this tree); a folder is not opened here (None)."""
+    def open_row(self, row: int, modifiers: int = 0) -> OpenedFile | None:
+        """Double-click on a row (#43): a file opens in its dedicated view, or, with
+        Ctrl, in the contextual preview (``open_path``); a folder is not opened here
+        (None)."""
         if not 0 <= row < len(self.model._rows):
             return None
         node, _ = self.model._rows[row]
         if node.is_dir:
             return None
+        return self.open_path(node.path, "contextual" if modifiers & CTRL else "dedicated")
+
+    def open_path(self, path: str, mode: str) -> OpenedFile | None:
+        """Open a file of this tree the way ``mode`` says (``gestures.open_file``: one
+        user submit, or a pick in this tree, or nothing when the file's dedicated view
+        is there already, in which case the shell reveals it). The context menu's "Open
+        in its own view" and "Open in contextual view" come here too."""
         try:
-            return open_file(
+            opened = open_file(
                 self.ctx.live,
                 self.view_id,
-                node.path,
+                path,
+                mode=mode,
                 prefer=self.ctx.selected_views(),
+                plugins=self.ctx.engine.plugins,
             )
         except SpectoError as e:
             self.ctx.notice(e, "open file")
             return None
+        if opened.action == "focused":
+            self.ctx.reveal_view(opened.view)
+        return opened
 
     def clear_selection(self) -> bool:
         if self.model.clear_selection():

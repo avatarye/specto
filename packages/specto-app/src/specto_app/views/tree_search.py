@@ -10,8 +10,8 @@ the tree's root (``notes readme`` finds ``docs/notes/readme.md``), name matches 
 Hits pass the tree's lister (its sources, pattern and screener),
 so the index is asked for more than the limit. A click picks a hit: ``selected_files``
 carries that file (with the stat the search saw) and ``params.selected`` remembers it,
-as a pick in the tree does; Ctrl toggles more hits in; a double-click opens it in a
-preview; ``reveal`` clears the search and loads the folders down to the hit, selected
+as a pick in the tree does; Ctrl toggles more hits in; a double-click opens its
+dedicated view (Ctrl+double-click the contextual preview, #43); ``reveal`` clears the search and loads the folders down to the hit, selected
 and scrolled into view. The item's ``searchNote`` says how many hits there are, that
 there are more than shown, or, for a miss, which backend ran, so a miss can be
 understood (Everything does not see inside archives).
@@ -24,8 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, QObject, Qt
 
-from specto_core.errors import SpectoError
-from specto_core.gestures import OpenedFile, open_file
+from specto_core.gestures import OpenedFile
 from specto_intake import search as file_search
 from specto_intake.search import SearchHit, SearchResult
 
@@ -217,17 +216,13 @@ class TreeSearch:
         host._caption()
         return True
 
-    def open(self, row: int) -> OpenedFile | None:
-        """Double-click on a hit: open it in a preview, as a row's double-click does."""
+    def open(self, row: int, modifiers: int = 0) -> OpenedFile | None:
+        """Double-click on a hit (#43): its dedicated view, or with Ctrl the contextual
+        preview, as a row's double-click does (``FileTreeHost.open_path``)."""
         h = self.hit(row)
         if h is None:
             return None
-        host = self.host
-        try:
-            return open_file(host.ctx.live, host.view_id, h.path, prefer=host.ctx.selected_views())
-        except SpectoError as e:
-            host.ctx.notice(e, "open file")
-            return None
+        return self.host.open_path(h.path, "contextual" if modifiers & CTRL else "dedicated")
 
     def reveal(self, row: int) -> bool:
         """Back to the tree at this hit: its folders listed and opened, the row selected

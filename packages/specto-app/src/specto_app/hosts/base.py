@@ -80,6 +80,9 @@ class HostContext:
         #: the views the user has selected on the canvas, newest first (the shell sets
         #: this; headless: none): a file opened from the file tree reuses a selected preview
         self.selected_views: Callable[[], list[str]] = list
+        #: bring a view to the user (#43: a file whose dedicated view is open already):
+        #: the shell selects it and pans it into view; headless: nothing
+        self.reveal_view: Callable[[str], None] = lambda view_id: None
         #: the shell's context menu (``specto_app.menu.shell.ContextMenus``; headless:
         #: none, so a right-click opens nothing)
         self.context_menus: Any = None

@@ -249,11 +249,20 @@ def test_restored_picks_the_selection_input_and_params_selected_load_their_folde
 
 
 def test_a_double_click_on_a_file_in_a_folder_listed_on_expand_opens_it(project: Project, no_walk):
+    """Plain: the file's dedicated view, the picks untouched; with Ctrl (#43): the
+    contextual preview, the file picked in the tree."""
+    from specto_app.views.preview_view import PREVIEW_PLUGIN
+
     engine = Engine(project=project, jobs=InlineJobManager())
+    engine.plugins.register(PREVIEW_PLUGIN)
     _ctx, host = host_on(engine)
     host.toggle(1)  # b
-    opened = host.open_row(host.model.row_of("b/z.txt"))
-    assert opened is not None and opened.action == "created"
+    own = host.open_row(host.model.row_of("b/z.txt"))
+    assert own is not None and (own.action, own.mode) == ("created", "dedicated")
+    assert "selected" not in engine.live.data["views"]["fege"]["params"]
+    ctrl = int(Qt.KeyboardModifier.ControlModifier.value)
+    opened = host.open_row(host.model.row_of("b/z.txt"), ctrl)
+    assert opened is not None and (opened.action, opened.mode) == ("created", "contextual")
     assert engine.live.data["views"]["fege"]["params"]["selected"] == ["b/z.txt"]
     assert host.open_row(host.model.row_of("b/sub")) is None  # a folder is not opened
 
