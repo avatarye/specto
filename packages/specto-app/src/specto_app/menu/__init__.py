@@ -21,7 +21,7 @@ _DEFAULT: ContextMenuRegistry | None = None
 
 
 def default_registry() -> ContextMenuRegistry:
-    """The app's menu: the built-in entries (the file tree's open entries of #43, the
+    """The app's menu: the built-in entries (the file tree's open entries of SPEC-32, the
     launchers of #186, Copy path), plus what view modules add at import."""
     global _DEFAULT
     if _DEFAULT is None:

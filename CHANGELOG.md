@@ -16,7 +16,7 @@ the release and move on their own schedule.
 ## Unreleased
 
 - A double-click on a file in the file tree opens a dedicated view; Ctrl+double-click the
-  contextual preview (#43, ADR 0023). The dedicated view is of the type that shows the
+  contextual preview (SPEC-32, ADR 0023). The dedicated view is of the type that shows the
   file's kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed that one file
   by a pinned link from the project source, titled `<name> · <folder>`; the same file
   again reveals it (selected, panned into view) instead of opening another, and a file no

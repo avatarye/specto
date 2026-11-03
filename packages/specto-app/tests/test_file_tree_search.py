@@ -185,7 +185,7 @@ def test_a_hit_click_picks_double_click_opens_and_reveal_returns_to_the_tree_at_
     assert picks(ctx).paths == ["a/deep/f3.jpg", "a/deep/f3.txt"]
     assert host.snapshot()["loaded"] == [""]  # nothing listed for the picks
 
-    # a double-click on a hit opens its dedicated view (#43), Ctrl the contextual preview
+    # a double-click on a hit opens its dedicated view (SPEC-32), Ctrl the contextual preview
     own = host.search.open(1)
     assert own is not None and (own.action, own.mode) == ("created", "dedicated")
     assert engine.live.data["views"][own.view]["type"] != "preview"

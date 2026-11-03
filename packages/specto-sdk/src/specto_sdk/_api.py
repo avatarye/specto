@@ -67,18 +67,18 @@ class Api:
         tree: str | None = UNSET,
         prefer: list[str] = UNSET,
     ) -> dict[str, Any]:
-        """Open a file from the file tree, as the user's double-click does (#43). mode contextual
-        (the default; Ctrl+double-click): a quick look in the preview, which renders the file by
-        its kind; the file is picked in the tree and the preview follows the tree's picks (a
-        selection intaker), so later picks show in it too; an existing preview is reused (its
-        link re-pointed at the picks if it had another), else a new one is placed beside the
-        file tree; a kind the preview cannot show (a usd stage) opens dedicated instead. mode
-        dedicated (a double-click): a view of the file's own, of the view type that shows its
-        kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed by a pinned link from
-        project.all_files to that one file, titled '<name> · <folder>'; a file no view shows
-        opens a text view saying 'Not supported: <name> (<ext>)'; a file whose dedicated view
-        exists is focused, not duplicated. Compose typed views with submit_canvas when their
-        ports need linking.
+        """Open a file from the file tree, as the user's double-click does (SPEC-32). mode
+        contextual (the default; Ctrl+double-click): a quick look in the preview, which renders
+        the file by its kind; the file is picked in the tree and the preview follows the tree's
+        picks (a selection intaker), so later picks show in it too; an existing preview is
+        reused (its link re-pointed at the picks if it had another), else a new one is placed
+        beside the file tree; a kind the preview cannot show (a usd stage) opens dedicated
+        instead. mode dedicated (a double-click): a view of the file's own, of the view type
+        that shows its kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed by a
+        pinned link from project.all_files to that one file, titled '<name> · <folder>'; a file
+        no view shows opens a text view saying 'Not supported: <name> (<ext>)'; a file whose
+        dedicated view exists is focused, not duplicated. Compose typed views with submit_canvas
+        when their ports need linking.
 
         Args:
             path: str -- The file, relative to the project folder (POSIX slashes).

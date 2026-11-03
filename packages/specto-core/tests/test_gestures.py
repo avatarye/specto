@@ -238,7 +238,7 @@ def _picks_link(doc: dict, view: str) -> dict:
 
 
 def test_a_double_click_opens_a_dedicated_view_of_the_files_kind(live: LiveCanvas):
-    """#43: a double-click on a file row opens a dedicated view: a view of the type that
+    """SPEC-32: a double-click on a file row opens a dedicated view: a view of the type that
     shows the file's kind (the registry's typed view, never the preview), fed by a pinned
     link from the project source to exactly that file, so later picks never change it.
     Its label is the file's name and its folder; a file at the root shows the folder as
@@ -301,7 +301,7 @@ def test_a_double_click_opens_a_dedicated_view_of_the_files_kind(live: LiveCanva
 
 def test_opening_a_file_contextually_adds_a_preview_on_the_trees_picks(live: LiveCanvas):
     """Ctrl+double-click on a file row (or the agent's ``canvas.open_file`` in its
-    contextual mode, #106, #122, #43): no preview exists, so one submit adds one beside
+    contextual mode, #106, #122, SPEC-32): no preview exists, so one submit adds one beside
     the file tree in the first free spot, fed by a selection intaker off the tree's
     picks, and the file is picked in the tree (navigation), so the preview shows it now
     and follows later picks. A file of a kind the preview cannot show falls back to the
@@ -415,8 +415,8 @@ def test_an_agent_opens_a_file_through_the_canvas_open_file_command(engine):
     """``canvas.open_file`` is the gesture as a command (the prompt bar's "open this
     file"): the tree defaults to the canvas's file tree, the submit carries the caller's
     origin, and a preferred view of the type is honoured. Its ``mode`` is the gesture's
-    (#43): ``contextual`` stays the command's default (the agent's quick look, as before
-    #43), ``dedicated`` a view of the file's own; the result says which way it went."""
+    (SPEC-32): ``contextual`` stays the command's default (the agent's quick look, as before
+    SPEC-32), ``dedicated`` a view of the file's own; the result says which way it went."""
     from specto_core import CallContext
 
     app_plugins(engine.plugins)

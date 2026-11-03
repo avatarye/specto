@@ -5,7 +5,7 @@ date: 2026-11-03
 
 # A file opens in a dedicated view; the contextual preview is a separate gesture
 
-Issue #43. Amends ADR 0020 decision 3 (the preview as the default for a double-click in the file tree).
+Task SPEC-32. Amends ADR 0020 decision 3 (the preview as the default for a double-click in the file tree).
 
 ## Context
 
@@ -13,7 +13,7 @@ Since #106 and #122 a double-click on a file in the file tree opened the one pre
 
 ## Decision
 
-1. **Two ways to open a file from the file tree, two gestures.** A double-click opens a **dedicated view**; Ctrl+double-click opens (or re-points) the **contextual view**. The context menu offers both ("Open in its own view", "Open in contextual view"), as does `canvas.open_file` through its `mode`. The command keeps `contextual` as its default: an agent's "show me this" was a quick look before #43 and stays one; a dedicated view is asked for by name.
+1. **Two ways to open a file from the file tree, two gestures.** A double-click opens a **dedicated view**; Ctrl+double-click opens (or re-points) the **contextual view**. The context menu offers both ("Open in its own view", "Open in contextual view"), as does `canvas.open_file` through its `mode`. The command keeps `contextual` as its default: an agent's "show me this" was a quick look before SPEC-32 and stays one; a dedicated view is asked for by name.
 2. **A dedicated view is an ordinary view.** Its type is the view type that shows the file's kind, read from the plugin registry (`PluginRegistry.typed_view_for`): among the registered view types that accept one of the file's kinds (in the locators' order), browsers and the context viewer excluded, the one with the narrowest `accepts` list; so a `.md` opens the markdown view rather than the json inspector, a `.geojson` the map, a `.usda` the usd view. It is fed by a **pinned** link from `project.all_files` to exactly that file (an intaker on its `data` port, or `read_contents` on the map's `features`), so later picks never change it. Its label is `<name> · <folder>`, the folder relative to the project (the project's name, or `.`, at the root).
 3. **A dedicated view is recognised by its link, not by a mark.** The view dedicated to a file is any view that is not the context viewer whose file input is fed from the project source with that one file as its sole source (`gestures.dedicated_view_of`). A second double-click focuses and reveals it (selected, panned into the viewport) instead of opening another; a view the agent composed the same way counts. No `params.file`, no flag to keep in step with the link.
 4. **A file no view type shows opens a `text` view** saying `Not supported: <name> (<ext>)`, titled and linked like every dedicated view, so it is recognised the same way. `text` is the smallest new view type: a viewer of one short text in `params.text`, accepting no data kind.

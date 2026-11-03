@@ -61,7 +61,7 @@ def test_right_click_on_a_tree_row_copies_its_path_and_keeps_the_selection(s):
     opened = Opened(s.menus)
     s.tree.bridge.contextMenu(s.tree.model.row_of("notes/alpha.md"), 120.0, 80.0)
     assert opened.calls[-1][1:] == (120.0, 80.0, False)
-    # the tree's open entries (#43), the launchers (#186), then the copy group
+    # the tree's open entries (SPEC-32), the launchers (#186), then the copy group
     assert opened.names() == [
         "tree.open_dedicated",
         "tree.open_contextual",
@@ -79,7 +79,7 @@ def test_right_click_on_a_tree_row_copies_its_path_and_keeps_the_selection(s):
 
 
 def test_the_trees_menu_opens_the_clicked_file_in_its_own_or_the_contextual_view(s):
-    """#43: "Open in its own view" on a tree row opens that file's dedicated view (the
+    """SPEC-32: "Open in its own view" on a tree row opens that file's dedicated view (the
     clicked row, even inside a wider selection); "Open in contextual view" the preview
     on the tree's picks, the file selected; a folder row offers neither."""
     opened = Opened(s.menus)

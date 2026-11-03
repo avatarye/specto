@@ -182,7 +182,7 @@ def test_a_click_on_a_control_taps_only_the_view_on_top(app, spin):
     assert [upper.property("on"), lower.property("on")].count(True) == 1
 
 
-# -- the contextual tag (#43) ---------------------------------------------------------------
+# -- the contextual tag (SPEC-32) ---------------------------------------------------------------
 def add_preview(app, spin, vid: str, *, on_picks: bool, position=(380, 40)) -> None:
     """A preview beside the tree: on the tree's picks (a selection intaker, the
     contextual view) or pinned to the notes folder (the agent's fixed quick look)."""
@@ -217,7 +217,7 @@ def visible(app, name: str) -> bool:
 
 
 def test_a_contextual_preview_says_so_in_its_header_and_on_its_overworld_card(app, spin):
-    """#43: a preview on the file tree's picks is the contextual view: its header carries
+    """SPEC-32: a preview on the file tree's picks is the contextual view: its header carries
     a "Contextual" tag and "follows selection" after the title, and its overworld card the
     same tag, so it cannot be taken for a dedicated view. A preview the agent pinned to
     fixed sources, and every other view (a gallery on the picks included), show none."""

@@ -330,7 +330,7 @@ def test_a_move_lands_in_memory_and_warns_once_while_canvas_json_is_held_open(
 
 
 def test_the_hosts_reveal_brings_a_far_view_on_screen_selected_and_focused(app, spin):
-    """#43: a file whose dedicated view is open already is revealed, not duplicated: the
+    """SPEC-32: a file whose dedicated view is open already is revealed, not duplicated: the
     host context's ``reveal_view`` selects the view, pans it into the viewport and
     focuses it."""
     add_view(app, "kobi", "Far", [3000, 2600])

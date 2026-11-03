@@ -781,7 +781,7 @@ def _tree_with_every_view(engine: Engine, tmp_path: Path, files: list[str]):
 def test_double_click_on_a_file_row_opens_its_dedicated_view_or_reveals_it(
     engine: Engine, tmp_path: Path
 ):
-    """Seam 2 (#43): a double-click on a file row asks ``gestures.open_file`` for the
+    """Seam 2 (SPEC-32): a double-click on a file row asks ``gestures.open_file`` for the
     file's dedicated view: a view of the type that shows its kind, fed that one file by a
     pinned link, beside the tree; the tree's picks are not touched. A second double-click
     on the same file reveals that view through the shell (``ctx.reveal_view``) instead of
@@ -828,7 +828,7 @@ def test_double_click_on_a_file_row_opens_its_dedicated_view_or_reveals_it(
 def test_ctrl_double_click_opens_the_contextual_preview_and_leaves_the_file_selected(
     engine: Engine, tmp_path: Path
 ):
-    """Seam 2 (#43, #106, #122): Ctrl+double-click on a file row asks for the
+    """Seam 2 (SPEC-32, #106, #122): Ctrl+double-click on a file row asks for the
     contextual preview: new beside the tree on the tree's picks when none exists, the
     file picked in the tree, even though the Ctrl click before it toggled the row out of
     the selection; a preview on another link (the shell's selected one first) is

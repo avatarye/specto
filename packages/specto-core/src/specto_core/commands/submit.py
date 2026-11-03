@@ -160,7 +160,7 @@ class CanvasOpenFileResult(Result):
 
 @command(
     "canvas.open_file",
-    doc="Open a file from the file tree, as the user's double-click does (#43). mode "
+    doc="Open a file from the file tree, as the user's double-click does (SPEC-32). mode "
     "contextual (the default; Ctrl+double-click): a quick look in the preview, which "
     "renders the file by its kind; the file is picked in the tree and the preview follows "
     "the tree's picks (a selection intaker), so later picks show in it too; an existing "

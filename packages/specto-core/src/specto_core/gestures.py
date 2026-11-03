@@ -2,7 +2,7 @@
 and unlock a view, collapse and expand it (#114), float and unfloat it and drag it within
 the window (#112), delete a
 link, resize the window frame, open a gallery's image view or preview, open a file from
-the file tree in a dedicated view or the contextual preview (``open_file``, #43), open
+the file tree in a dedicated view or the contextual preview (``open_file``, SPEC-32), open
 the scratch pad and an item of it in a view beside it (#184). Each one
 copies the live document, edits it and submits it with ``origin="user"``, so a gesture
 is one undo step on the same history as the agent's submits and the agent always sees
@@ -37,9 +37,9 @@ OPEN_GAP = IMAGE_GAP  # canvas px between the file tree and a view opened from i
 OPEN_SIZE = (640.0, 480.0)  # a view opened from the file tree
 #: the contextual view a file opens in (ADR 0020): the preview renders it by its kind
 OPEN_TYPE = CONTEXT_VIEWER
-#: the view a file no view type shows opens in (#43): "Not supported: <name> (<ext>)"
+#: the view a file no view type shows opens in (SPEC-32): "Not supported: <name> (<ext>)"
 TEXT_TYPE = "text"
-#: how ``open_file`` opens a file (#43, ADR 0023): in a dedicated view of its own, fed
+#: how ``open_file`` opens a file (SPEC-32, ADR 0023): in a dedicated view of its own, fed
 #: that file alone, or in the contextual preview, which follows the tree's picks
 OPEN_MODES: tuple[str, ...] = ("dedicated", "contextual")
 SCRATCH_TYPE = "scratch"
@@ -408,7 +408,7 @@ def _free_spot_beside(
 
 
 def dedicated_label(path: str, project_name: str | None = None) -> str:
-    """The title of a dedicated view (#43): the file's name, a middle dot, its folder
+    """The title of a dedicated view (SPEC-32): the file's name, a middle dot, its folder
     relative to the project; a file at the root shows the project's name, or "." when
     there is none."""
     p = PurePosixPath(path)
@@ -428,7 +428,7 @@ def _file_feed(doc: dict[str, Any], view_id: str) -> dict[str, Any] | None:
 
 
 def dedicated_view_of(doc: dict[str, Any], path: str) -> str | None:
-    """The view dedicated to ``path`` (#43, ADR 0023), if the canvas has one: a view
+    """The view dedicated to ``path`` (SPEC-32, ADR 0023), if the canvas has one: a view
     that is not the context viewer, whose file input is fed from the project source
     (``project.all_files``) with ``path`` as its one source. Recognised by its link, not
     by a mark on the view, so one the agent composed the same way counts."""
@@ -446,7 +446,7 @@ def dedicated_view_of(doc: dict[str, Any], path: str) -> str | None:
 
 
 def is_contextual(doc: dict[str, Any], view_id: str) -> bool:
-    """Whether ``view_id`` is a contextual view (#43, ADR 0023): the context viewer
+    """Whether ``view_id`` is a contextual view (SPEC-32, ADR 0023): the context viewer
     (a preview) not fed fixed sources from the project source, so it follows a
     selection (the file tree's picks, a gallery's pick) or waits for one. The shell
     tags it "Contextual · follows selection" in its header and on its overworld card."""
@@ -467,7 +467,7 @@ def open_file(
     origin: str = "user",
     plugins: PluginRegistry | None = None,
 ) -> OpenedFile:
-    """Open ``path`` (relative to the tree's root) from file tree ``tree_id`` (#43, ADR
+    """Open ``path`` (relative to the tree's root) from file tree ``tree_id`` (SPEC-32, ADR
     0023), or the agent's ``canvas.open_file``.
 
     ``mode="dedicated"`` (a double-click): a view of its own for that one file, of the

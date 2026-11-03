@@ -322,7 +322,7 @@ def test_a_double_click_puts_the_preview_on_the_tree_picks_and_later_clicks_chan
     steps = len(engine.live.history)
 
     tree.click(rows["mixed/c.md"])
-    ctrl = int(Qt.KeyboardModifier.ControlModifier.value)  # Ctrl+double-click (#43)
+    ctrl = int(Qt.KeyboardModifier.ControlModifier.value)  # Ctrl+double-click (SPEC-32)
     opened = tree.open_row(rows["mixed/c.md"], ctrl)
     assert opened is not None and (opened.view, opened.action) == ("pela", "repointed")
     assert len(engine.live.history) == steps + 1

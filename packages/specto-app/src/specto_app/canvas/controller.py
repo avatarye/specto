@@ -357,7 +357,7 @@ class CanvasController(QObject):
                 *reversed(self._selected),
                 *([self._focused] if self._focused else []),
             ]
-            # a file whose dedicated view is open already (#43): the view is selected,
+            # a file whose dedicated view is open already (SPEC-32): the view is selected,
             # panned into the viewport and focused instead of being opened again
             hosts.ctx.reveal_view = self.reveal
         self._nav_timer = QTimer(self)
@@ -1066,7 +1066,7 @@ class CanvasController(QObject):
                 # the host's own gesture line for its state (#39), else the type's
                 "keys": getattr(host, "nav_keys", "") or "",
                 "locked": bool(v.get("locked")),
-                # the contextual view (#43): the preview on a selection, tagged in its
+                # the contextual view (SPEC-32): the preview on a selection, tagged in its
                 # header and on its overworld card so it is not taken for a dedicated one
                 "contextual": is_contextual(self.data, vid),
                 # the header's auto-update switch (#102): None when no intaker feeds it,
@@ -1585,7 +1585,7 @@ class CanvasController(QObject):
             self.focusChanged.emit()
 
     def reveal(self, view_id: str) -> bool:
-        """Bring a view to the user (#43, the hosts' ``ctx.reveal_view``): the selection
+        """Bring a view to the user (SPEC-32, the hosts' ``ctx.reveal_view``): the selection
         becomes this view, the canvas pans until it is on screen, and it is focused."""
         if view_id not in self._views:
             return False

@@ -25,7 +25,7 @@ Item {
     readonly property string health: info.health || "ok"
     readonly property bool fedByIntaker: info.autoUpdate === true || info.autoUpdate === false
     readonly property bool autoUpdate: info.autoUpdate === true
-    // the contextual view (#43): the preview on a selection says so after its title
+    // the contextual view (SPEC-32): the preview on a selection says so after its title
     readonly property bool contextual: info.contextual === true
 
     // auto-update (#102): the eye says "this view follows its files"; one undo step. It
@@ -94,7 +94,7 @@ Item {
                     font.pixelSize: theme.metrics.font_px
                 }
             }
-            // the contextual tag (#43): "Contextual" and "follows selection", so the
+            // the contextual tag (SPEC-32): "Contextual" and "follows selection", so the
             // preview on the picks is never taken for a view dedicated to one file
             Pill {
                 id: contextualTag

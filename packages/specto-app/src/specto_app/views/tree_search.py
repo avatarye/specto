@@ -11,7 +11,7 @@ Hits pass the tree's lister (its sources, pattern and screener),
 so the index is asked for more than the limit. A click picks a hit: ``selected_files``
 carries that file (with the stat the search saw) and ``params.selected`` remembers it,
 as a pick in the tree does; Ctrl toggles more hits in; a double-click opens its
-dedicated view (Ctrl+double-click the contextual preview, #43); ``reveal`` clears the
+dedicated view (Ctrl+double-click the contextual preview, SPEC-32); ``reveal`` clears the
 search and loads the folders down to the hit, selected and scrolled into view. The
 item's ``searchNote`` says how many hits there are, that there are more than shown, or,
 for a miss, which backend ran, so a miss can be
@@ -218,7 +218,7 @@ class TreeSearch:
         return True
 
     def open(self, row: int, modifiers: int = 0) -> OpenedFile | None:
-        """Double-click on a hit (#43): its dedicated view, or with Ctrl the contextual
+        """Double-click on a hit (SPEC-32): its dedicated view, or with Ctrl the contextual
         preview, as a row's double-click does (``FileTreeHost.open_path``)."""
         h = self.hit(row)
         if h is None:

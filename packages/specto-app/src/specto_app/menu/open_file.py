@@ -1,4 +1,4 @@
-"""The file tree's open entries (#43): "Open in its own view" (the file's dedicated
+"""The file tree's open entries (SPEC-32): "Open in its own view" (the file's dedicated
 view, what a double-click opens) and "Open in contextual view" (the preview on the
 tree's picks, what Ctrl+double-click opens). Each acts on one file: the row that was
 right-clicked (``target.data["clicked"]``, the tree sets it) even when it sits inside a

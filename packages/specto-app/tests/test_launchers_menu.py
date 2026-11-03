@@ -155,7 +155,7 @@ def right_click(s: SimpleNamespace, rel: str) -> Opened:
 def test_a_blend_row_opens_with_its_default_launcher_one_argv_item_per_placeholder(s):
     opened = right_click(s, "scenes/b c & d.blend")
     rows = opened.rows()
-    # after the tree's own open entries (#43), the launchers lead
+    # after the tree's own open entries (SPEC-32), the launchers lead
     assert list(rows)[:4] == [
         "tree.open_dedicated", "tree.open_contextual", "launch.default", "launch.open_with",
     ]  # fmt: skip
@@ -489,7 +489,7 @@ def test_the_open_with_submenu_opens_beside_its_row_and_launches(shell_app, spin
     assert rec["argv"] == [os.path.join(str(app.project.root), "scenes", "a.blend")]
 
     # from the keyboard: Down four times to "Open with" (a right-click's menu starts with
-    # no row; the tree's two open entries of #43 lead), Right opens it with the keys, Left
+    # no row; the tree's two open entries of SPEC-32 lead), Right opens it with the keys, Left
     # closes it, Right again and Enter run its first row
     QTest.mouseClick(app.window, Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier,
                      _centre(app, row))  # fmt: skip

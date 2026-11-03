@@ -37,7 +37,7 @@ def pin(
 
 
 def app_plugins(reg: PluginRegistry | None = None) -> PluginRegistry:
-    """The registry as the app fills it (#43): core's built-in views plus the typed
+    """The registry as the app fills it (SPEC-32): core's built-in views plus the typed
     views the app hosts (what each accepts, as its manifest says) and the context
     viewer, so a headless test resolves a file's kind to its view type as the app does.
     ``reg`` (an engine's) is filled in place; otherwise a fresh one."""

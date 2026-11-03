@@ -14,7 +14,7 @@ recursively on the worker at pick time), whenever the selection changes. All fil
 come from the project source, not from here (#83).
 
 A double-click on a file row opens it (``open_row`` -> ``specto_core.gestures.open_file``,
-#43, ADR 0023): its dedicated view, of the type that shows the file's kind, fed that one
+SPEC-32, ADR 0023): its dedicated view, of the type that shows the file's kind, fed that one
 file by a pinned link from the project source, beside the tree; the same file again
 reveals that view (``ctx.reveal_view``). Ctrl+double-click opens the contextual preview
 instead (it renders the file by its kind, #106) fed by a selection intaker off this
@@ -662,7 +662,7 @@ class FileTreeBridge(QObject):
 
     @Slot(int, int)
     def open(self, row: int, modifiers: int) -> None:
-        """Double-click on a file row (#43): its dedicated view; with Ctrl the contextual
+        """Double-click on a file row (SPEC-32): its dedicated view; with Ctrl the contextual
         preview."""
         self._host.open_row(int(row), int(modifiers))
 
@@ -1104,7 +1104,7 @@ class FileTreeHost(QuickViewHost):
                 self._request(path)
 
     def open_row(self, row: int, modifiers: int = 0) -> OpenedFile | None:
-        """Double-click on a row (#43): a file opens in its dedicated view, or, with
+        """Double-click on a row (SPEC-32): a file opens in its dedicated view, or, with
         Ctrl, in the contextual preview (``open_path``); a folder is not opened here
         (None)."""
         if not 0 <= row < len(self.model._rows):
@@ -1178,7 +1178,7 @@ class FileTreeHost(QuickViewHost):
         """A right-clicked row inside the selection stands for every selected row; one
         outside it for itself alone (no pick: a right-click changes nothing). The
         keyboard's target (``hit`` None) is the selection."""
-        clicked: dict[str, Any] = {}  # the row under the cursor, for the open entries (#43)
+        clicked: dict[str, Any] = {}  # the row under the cursor, for the open entries (SPEC-32)
         if hit is not None and hit.get("kind") == "items":
             row = int(hit.get("row", -1))
             if not 0 <= row < len(self.model._rows):

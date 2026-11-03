@@ -1,4 +1,4 @@
-"""The ``text`` view (#43): one short text the document carries in ``params.text``, the
+"""The ``text`` view (SPEC-32): one short text the document carries in ``params.text``, the
 "Not supported: <name> (<ext>)" view a file no view type shows opens in. Seam 2
 (headless host) and the offscreen window (its body and its title)."""
 

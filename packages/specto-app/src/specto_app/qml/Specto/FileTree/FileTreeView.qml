@@ -273,7 +273,7 @@ Item {
                         root.bridge.click(row.index, tap.mods)
                 }
                 // a double-click opens a file's dedicated view, Ctrl+double-click the
-                // contextual preview (#43); the gesture makes sure the file ends up
+                // contextual preview (SPEC-32); the gesture makes sure the file ends up
                 // selected even though the Ctrl taps before it toggled the row
                 onDoubleTapped: {
                     if (!root.bridge) return

@@ -469,7 +469,7 @@ class QtFlow:
         self.click(x, y, count=2)
 
     def op_ctrldblclick(self, a: list[str]) -> None:
-        """Ctrl held through a double-click (#43: the contextual preview)."""
+        """Ctrl held through a double-click (SPEC-32: the contextual preview)."""
         fx, fy = self._fxy(a)
         x, y = self.point(a[0], fx, fy)
         self.move(x, y)

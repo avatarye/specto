@@ -3,7 +3,7 @@
 
 Each file named on the command line (under ``deck/``) is opened the way the user does
 it, a Ctrl+double-click on its row in the file tree (``gestures.open_file`` in its
-contextual mode, #43), so the preview, its link and the html view's page inside it come
+contextual mode, SPEC-32), so the preview, its link and the html view's page inside it come
 up as in the app; the second file re-points the preview. One
 JSON line per file on stdout: whether the view's page came up, what the scheme handler
 served for it (the document and the assets it references relative to itself) and what

@@ -1,4 +1,4 @@
-# v2 #43: what a double-click on a file in the file tree opens. A double-click opens the
+# v2 SPEC-32: what a double-click on a file in the file tree opens. A double-click opens the
 # file's dedicated view: a view of the type that shows its kind, fed that one file by a
 # pinned link, titled "<name> · <folder>", left alone by later picks; the same file again
 # reveals that view instead of adding another; a file no view shows opens the "Not

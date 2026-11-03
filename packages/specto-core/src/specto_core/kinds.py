@@ -298,7 +298,7 @@ class PluginRegistry:
         return self.kinds_for_extension(Path(path).suffix)
 
     def typed_view_for(self, path: str) -> str | None:
-        """The view type that shows a file of ``path``'s kind in a view of its own (#43:
+        """The view type that shows a file of ``path``'s kind in a view of its own (SPEC-32:
         a dedicated view), or None when no registered view type does. Candidates are the
         registered view types that accept one of the path's kinds, except the browsers
         (they show many items) and the context viewer (it follows the picks by design);

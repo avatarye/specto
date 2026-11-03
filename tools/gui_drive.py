@@ -34,7 +34,7 @@ Script lines (one per line, # comments):
                                   write a space in a name as ~ (menu:Open~as~gallery)
     rclick <objectName> [fx fy]   right-click
     dblclick <objectName> [fx fy]
-    ctrldblclick <objectName> [fx fy]   Ctrl held through a double-click (#43: the
+    ctrldblclick <objectName> [fx fy]   Ctrl held through a double-click (SPEC-32: the
                                   contextual preview; a plain one opens a dedicated view)
     expand <view>:<path>          open a file tree folder on its chevron, unless it is open
                                   already (the view's snapshot says), and wait until it is;

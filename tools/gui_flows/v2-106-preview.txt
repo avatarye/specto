@@ -1,10 +1,10 @@
-# v2 #106: one preview shows whatever is Ctrl+double-clicked in the file tree (#43: a
+# v2 #106: one preview shows whatever is Ctrl+double-clicked in the file tree (SPEC-32: a
 # plain double-click opens a dedicated view instead). The project has one file of each
 # kind in look/ (tools/gui_flows/v2-106-seed.py). A Ctrl+double-click on the frame opens
 # a preview beside the tree; each following Ctrl+double-click (a pdf, a note, a video, a
 # point cloud, an html page, a json sidecar) re-points the same preview, which drops the
 # renderer it had and shows the file in the renderer of its kind. Never a second view.
-# A file no renderer shows (the blob) cannot go to the preview since #43: its
+# A file no renderer shows (the blob) cannot go to the preview since SPEC-32: its
 # Ctrl+double-click opens the "Not supported" text view, and a plain click on it shows
 # the preview's card.
 # Then a preview on the tree's picks (v2-106-canvas.json): picking all nine files feeds it
@@ -69,7 +69,7 @@ assert_missing slot:@preview#2
 shot 106-08-json.png
 print snap {"target": "@preview"}
 # a file no renderer shows: Ctrl+double-click falls back to the "Not supported" view
-# (#43); a plain click on it shows the preview's quiet card
+# (SPEC-32); a plain click on it shows the preview's quiet card
 ctrldblclick treeRow:@file_tree:look/h-blob.bin 0.5 0.5
 wait 2500
 assert_missing slot:@preview#2

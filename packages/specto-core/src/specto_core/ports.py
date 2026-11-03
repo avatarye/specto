@@ -58,7 +58,7 @@ VIEW_TYPES: tuple[str, ...] = (
     "scratch",
     "text",
 )
-#: the context viewer (ADR 0020, #43): the one view type that follows the file tree's
+#: the context viewer (ADR 0020, SPEC-32): the one view type that follows the file tree's
 #: picks by design; a dedicated view is never one
 CONTEXT_VIEWER = "preview"
 
@@ -84,7 +84,7 @@ VIEW_ROLES: dict[str, ViewRole] = {
     "usd": "player",
     # the scratch pad (#184) shows many items and outputs a selection (and its items)
     "scratch": "browser",
-    # a short text the document carries (#43: "Not supported: <name> (<ext>)")
+    # a short text the document carries (SPEC-32: "Not supported: <name> (<ext>)")
     "text": "viewer",
 }
 
@@ -220,7 +220,7 @@ VIEW_PORTS: dict[str, PortDecl] = {
         inputs={"selection": "selection"},
         outputs={"items": "collection", "selection": "selection"},
     ),
-    # a short text the document carries in params.text (#43): the "Not supported" view a
+    # a short text the document carries in params.text (SPEC-32): the "Not supported" view a
     # file no view type shows opens in. Its data input takes the pinned link that says
     # which file it stands for; nothing is read from it and nothing goes out
     "text": PortDecl(inputs={"data": "collection"}),

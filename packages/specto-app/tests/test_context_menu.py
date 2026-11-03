@@ -124,7 +124,7 @@ def test_a_failing_predicate_hides_its_entry_only():
 def test_browsers_copy_the_absolute_path_with_native_separators():
     reg = default_registry()
     names = [r.get("name") for r in reg.rows(tree_target("runs/front/00001.jpg"))]
-    # the tree's own open entries (#43), the launchers (#186), then the copy group
+    # the tree's own open entries (SPEC-32), the launchers (#186), then the copy group
     assert [n for n in names if n] == [
         "tree.open_dedicated",
         "tree.open_contextual",
@@ -188,7 +188,7 @@ def test_copy_entries_belong_to_browsers_only():
     assert "copy.path" not in [r.get("name") for r in reg.rows(viewer)]
 
 
-# -- the file tree's open entries (#43) -------------------------------------------------
+# -- the file tree's open entries (SPEC-32) -------------------------------------------------
 class FakeTreeHost:
     def __init__(self) -> None:
         self.opened: list[tuple[str, str]] = []

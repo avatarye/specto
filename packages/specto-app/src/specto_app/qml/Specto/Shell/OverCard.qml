@@ -123,7 +123,7 @@ Item {
                     font.bold: true
                     anchors.verticalCenter: parent.verticalCenter
                 }
-                // the contextual tag (#43), as in the normal view's header
+                // the contextual tag (SPEC-32), as in the normal view's header
                 Rectangle {
                     objectName: "overContextual:" + root.viewId
                     visible: root.card.contextual === true

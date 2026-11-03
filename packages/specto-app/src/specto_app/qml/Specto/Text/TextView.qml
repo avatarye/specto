@@ -1,6 +1,6 @@
 import QtQuick
 
-// The text view (#43): one short text the document carries, centred, wrapped; the
+// The text view (SPEC-32): one short text the document carries, centred, wrapped; the
 // "Not supported: <name> (<ext>)" view. Theme tokens only (ADR 0008); standing alone
 // (no shell), the system palette stands in.
 Item {

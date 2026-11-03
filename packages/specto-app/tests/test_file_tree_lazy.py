@@ -249,7 +249,7 @@ def test_restored_picks_the_selection_input_and_params_selected_load_their_folde
 
 
 def test_a_double_click_on_a_file_in_a_folder_listed_on_expand_opens_it(project: Project, no_walk):
-    """Plain: the file's dedicated view, the picks untouched; with Ctrl (#43): the
+    """Plain: the file's dedicated view, the picks untouched; with Ctrl (SPEC-32): the
     contextual preview, the file picked in the tree."""
     from specto_app.views.preview_view import PREVIEW_PLUGIN
 
