@@ -5,12 +5,12 @@ undo step (spec #35 story 31, ADR 0013)."""
 from __future__ import annotations
 
 import pytest
-from doc_helpers import pin
+from doc_helpers import app_plugins, pin
 
 from specto_core import gestures
 from specto_core.canvas_document import file_tree_of
 from specto_core.canvas_example import worked_example
-from specto_core.errors import NotFound
+from specto_core.errors import InvalidArgs, NotFound
 from specto_core.live_canvas import LiveCanvas
 from specto_core.names import is_name
 
@@ -237,13 +237,79 @@ def _picks_link(doc: dict, view: str) -> dict:
     return link
 
 
-def test_opening_a_file_from_the_tree_adds_a_preview_on_the_trees_picks(live: LiveCanvas):
-    """Double-click on a file row (or the agent's ``canvas.open_file``, #106, #122): no
-    preview exists, so one submit adds one beside the file tree in the first free spot,
-    fed by a selection intaker off the tree's picks, and the file is picked in the tree
-    (navigation), so the preview shows it now and follows later picks. A file of a kind
-    no renderer shows opens in a preview too (it shows a card)."""
-    opened = gestures.open_file(live, "fege", "notes/plan.md")
+def test_a_double_click_opens_a_dedicated_view_of_the_files_kind(live: LiveCanvas):
+    """#43: a double-click on a file row opens a dedicated view: a view of the type that
+    shows the file's kind (the registry's typed view, never the preview), fed by a pinned
+    link from the project source to exactly that file, so later picks never change it.
+    Its label is the file's name and its folder; a file at the root shows the folder as
+    "." (headless) or the project's name. One submit, one undo step; the tree's picks
+    are not touched."""
+    plugins = app_plugins()
+    opened = gestures.open_file(live, "fege", "notes/plan.md", mode="dedicated", plugins=plugins)
+    vid = opened.view
+    assert is_name(vid) and opened.action == "created" and opened.submit is not None
+    assert opened.submit.origin == "user" and opened.submit.views["added"] == [vid]
+    doc = live.document()
+    view = doc["views"][vid]
+    assert view["type"] == "markdown" and view["label"] == "plan.md · notes"
+    assert view["layout"]["position"] == [380.0, 820.0]  # beside the tree, first free spot
+    link = _picks_link(doc, vid)
+    assert (link["kind"], link["scope"]) == ("intaker", "pinned")
+    assert link["source"] == {"view": "project", "port": "all_files"}
+    assert link["params"]["sources"] == ["notes/plan.md"]
+    assert "selected" not in doc["views"]["fege"]["params"]
+    assert live.history_summaries()[-1]["label"] == "open plan.md"
+    live.undo()
+    assert vid not in live.document()["views"]
+
+    # the kind's own view: an image, a video, a stage, a point cloud, a pdf, a page; a
+    # geojson file's typed view is the map, fed by read_contents on its features port
+    for path, vtype in [
+        ("look/a.jpg", "image"),
+        ("look/b.mp4", "video"),
+        ("look/c.usda", "usd"),
+        ("look/d.ply", "3d"),
+        ("look/e.pdf", "pdf"),
+        ("look/f.html", "html"),
+        ("look/g.json", "json"),
+        ("look/h.txt", "json"),
+    ]:
+        v = gestures.open_file(live, "fege", path, mode="dedicated", plugins=plugins).view
+        assert live.document()["views"][v]["type"] == vtype, path
+    geo = gestures.open_file(live, "fege", "sites.geojson", mode="dedicated", plugins=plugins)
+    doc = live.document()
+    assert doc["views"][geo.view]["type"] == "map"
+    assert doc["views"][geo.view]["label"] == "sites.geojson · ."
+    (feed,) = [ln for ln in doc["links"].values() if ln["target"]["view"] == geo.view]
+    assert feed["kind"] == "read_contents" and feed["target"]["port"] == "features"
+    assert feed["source"] == {"view": "project", "port": "all_files"}
+    assert feed["params"]["sources"] == ["sites.geojson"]
+
+    # already open: the file's dedicated view is recognised by its link (a view the
+    # agent pinned to that one file counts too), focused, never duplicated, no submit
+    steps = len(live.history)
+    again = gestures.open_file(live, "fege", "sites.geojson", mode="dedicated", plugins=plugins)
+    assert again == gestures.OpenedFile(geo.view, "focused", None, "dedicated")
+    doc = live.document()
+    doc["views"]["lito"] = {"type": "json", "label": "the run", "layout": {"size": [300, 300]}}
+    pin(doc, "lito", sources=["meta/run.json"])
+    live.submit(doc, origin="agent:s1", label="pin the run's json")
+    assert gestures.open_file(live, "fege", "meta/run.json", plugins=plugins).view == "lito"
+    assert gestures.dedicated_view_of(live.document(), "meta/other.json") is None
+    assert len(live.history) == steps + 1  # the agent's pin alone
+
+
+def test_opening_a_file_contextually_adds_a_preview_on_the_trees_picks(live: LiveCanvas):
+    """Ctrl+double-click on a file row (or the agent's ``canvas.open_file`` in its
+    contextual mode, #106, #122, #43): no preview exists, so one submit adds one beside
+    the file tree in the first free spot, fed by a selection intaker off the tree's
+    picks, and the file is picked in the tree (navigation), so the preview shows it now
+    and follows later picks. A file of a kind the preview cannot show falls back to the
+    dedicated open: with no view for it at all, the "Not supported" text view."""
+    plugins = app_plugins()
+    opened = gestures.open_file(
+        live, "fege", "notes/plan.md", mode="contextual", plugins=plugins
+    )
     vid = opened.view
     assert is_name(vid) and opened.action == "created" and opened.submit is not None
     assert opened.submit.origin == "user" and opened.submit.views["added"] == [vid]
@@ -261,10 +327,15 @@ def test_opening_a_file_from_the_tree_adds_a_preview_on_the_trees_picks(live: Li
     assert live.history_summaries()[-1]["label"] == "open plan.md"
     live.undo()
     assert vid not in live.document()["views"]
-    odd = gestures.open_file(live, "fege", "notes/plan.xyz")
-    assert live.document()["views"][odd.view]["type"] == "preview"
+    odd = gestures.open_file(live, "fege", "notes/plan.xyz", mode="contextual", plugins=plugins)
+    assert (odd.action, odd.mode) == ("created", "dedicated")
+    view = live.document()["views"][odd.view]
+    assert view["type"] == "text" and view["label"] == "plan.xyz · notes"
+    assert view["params"]["text"] == "Not supported: plan.xyz (.xyz)"
     with pytest.raises(NotFound):
-        gestures.open_file(live, "kobi", "notes/plan.md")  # not a file tree
+        gestures.open_file(live, "kobi", "notes/plan.md", plugins=plugins)  # not a file tree
+    with pytest.raises(InvalidArgs):
+        gestures.open_file(live, "fege", "notes/plan.md", mode="quick", plugins=plugins)
 
 
 def test_opening_a_file_reuses_a_preview_and_puts_it_on_the_picks(live: LiveCanvas):
@@ -277,7 +348,10 @@ def test_opening_a_file_reuses_a_preview_and_puts_it_on_the_picks(live: LiveCanv
     pin(doc, "lito", sources=["notes"])
     live.submit(doc, origin="agent:s1", label="a pinned preview")
 
-    opened = gestures.open_file(live, "fege", "geo/other.geojson")
+    plugins = app_plugins()
+    opened = gestures.open_file(
+        live, "fege", "geo/other.geojson", mode="contextual", plugins=plugins
+    )
     assert (opened.view, opened.action) == ("lito", "repointed")
     assert opened.submit is not None and opened.submit.origin == "user"
     assert opened.submit.views["added"] == []
@@ -293,8 +367,10 @@ def test_opening_a_file_reuses_a_preview_and_puts_it_on_the_picks(live: LiveCanv
 
     # on the picks already: the pick is the whole gesture
     steps = len(live.history)
-    opened = gestures.open_file(live, "fege", "papers/report.pdf")
-    assert opened == gestures.OpenedFile("lito", "selected", None)
+    opened = gestures.open_file(
+        live, "fege", "papers/report.pdf", mode="contextual", plugins=plugins
+    )
+    assert opened == gestures.OpenedFile("lito", "selected", None, "contextual")
     assert live.document()["views"]["fege"]["params"]["selected"] == ["papers/report.pdf"]
     assert len(live.history) == steps  # navigation, not an undo step
 
@@ -303,8 +379,9 @@ def test_opening_a_file_reuses_a_preview_and_puts_it_on_the_picks(live: LiveCanv
     doc["views"]["mesa"] = {"type": "preview", "label": "third", "layout": {"size": [300, 300]}}
     pin(doc, "mesa", sources=["notes"])
     live.submit(doc, origin="agent:s1", label="another preview")
-    assert gestures.open_file(live, "fege", "notes/c.md", prefer=["kobi", "lito"]).view == "lito"
-    assert gestures.open_file(live, "fege", "notes/b.json").view == "mesa"
+    ctx = dict(mode="contextual", plugins=plugins)
+    assert gestures.open_file(live, "fege", "notes/c.md", prefer=["kobi", "lito"], **ctx).view == "lito"
+    assert gestures.open_file(live, "fege", "notes/b.json", **ctx).view == "mesa"
 
 
 def test_repointing_a_preview_relabels_it_unless_the_label_was_written_by_hand(
@@ -318,7 +395,8 @@ def test_repointing_a_preview_relabels_it_unless_the_label_was_written_by_hand(
     pin(doc, "lito", sources=["notes/plan.md"])
     live.submit(doc, origin="agent:s1", label="show the plan")
     before = live.document()
-    gestures.open_file(live, "fege", "videos/front.mp4")
+    ctx = dict(mode="contextual", plugins=app_plugins())
+    gestures.open_file(live, "fege", "videos/front.mp4", **ctx)
     assert live.document()["views"]["lito"]["label"] == "Files preview"
     assert live.history_summaries()[-1]["label"] == "show the picks of Files in lito"
     live.undo()
@@ -328,7 +406,7 @@ def test_repointing_a_preview_relabels_it_unless_the_label_was_written_by_hand(
     doc = live.document()
     doc["views"]["lito"]["label"] = "quick look"
     live.submit(doc, origin="agent:s1", label="relabel")
-    gestures.open_file(live, "fege", "notes/more.md")
+    gestures.open_file(live, "fege", "notes/more.md", **ctx)
     assert live.document()["views"]["lito"]["label"] == "quick look"
     assert live.history_summaries()[-1]["label"] == "show the picks of Files in quick look"
 
@@ -336,20 +414,37 @@ def test_repointing_a_preview_relabels_it_unless_the_label_was_written_by_hand(
 def test_an_agent_opens_a_file_through_the_canvas_open_file_command(engine):
     """``canvas.open_file`` is the gesture as a command (the prompt bar's "open this
     file"): the tree defaults to the canvas's file tree, the submit carries the caller's
-    origin, and a preferred view of the type is honoured."""
+    origin, and a preferred view of the type is honoured. Its ``mode`` is the gesture's
+    (#43): ``contextual`` stays the command's default (the agent's quick look, as before
+    #43), ``dedicated`` a view of the file's own; the result says which way it went."""
     from specto_core import CallContext
 
+    app_plugins(engine.plugins)
     engine.live.submit(worked_example(), origin="agent:s1", label="compose")
     ctx = CallContext(connection="prompt-bar", origin="agent:s1")
     res = engine.call("canvas.open_file", {"path": "notes/plan.md"}, ctx)
     vid = res["view"]
-    assert is_name(vid) and res["action"] == "created"
+    assert is_name(vid) and (res["action"], res["mode"]) == ("created", "contextual")
     assert res["submit"]["origin"] == "agent:s1" and res["submit"]["views"]["added"] == [vid]
     assert engine.live.document()["views"][vid]["type"] == "preview"
     again = engine.call("canvas.open_file", {"path": "x.png", "prefer": [vid]}, ctx)
     assert again["view"] == vid and again["action"] == "selected"  # it follows the picks
     with pytest.raises(NotFound):
         engine.call("canvas.open_file", {"tree": "kobi", "path": "x.png"}, ctx)
+
+    own = engine.call("canvas.open_file", {"path": "notes/plan.md", "mode": "dedicated"}, ctx)
+    assert (own["action"], own["mode"]) == ("created", "dedicated") and own["view"] != vid
+    doc = engine.live.document()
+    assert doc["views"][own["view"]]["type"] == "markdown"
+    assert doc["views"][own["view"]]["label"] == "plan.md · notes"
+    twice = engine.call("canvas.open_file", {"path": "notes/plan.md", "mode": "dedicated"}, ctx)
+    assert twice == {"view": own["view"], "action": "focused", "submit": None, "mode": "dedicated"}
+    # a stage the preview cannot show: the contextual open falls back to the usd view
+    stage = engine.call("canvas.open_file", {"path": "worlds/a.usda", "mode": "contextual"}, ctx)
+    assert (stage["action"], stage["mode"]) == ("created", "dedicated")
+    assert engine.live.document()["views"][stage["view"]]["type"] == "usd"
+    with pytest.raises(InvalidArgs):
+        engine.call("canvas.open_file", {"path": "x.png", "mode": "quick"}, ctx)
 
 
 def test_the_auto_update_switch_turns_watch_on_and_off_for_the_views_intaker(live: LiveCanvas):

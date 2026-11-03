@@ -4,7 +4,7 @@ canvas.state, canvas.submit, canvas.undo, canvas.redo, canvas.open_file and link
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ConfigDict, Field
 
@@ -120,35 +120,58 @@ def canvas_submit(ctx: CommandContext, args: CanvasSubmitArgs) -> SubmitResult:
 
 class CanvasOpenFileArgs(Args):
     path: str = Field(description="The file, relative to the project folder (POSIX slashes).")
+    mode: Literal["dedicated", "contextual"] = Field(
+        default="contextual",
+        description="contextual (the default, a quick look): the preview, which follows "
+        "the file tree's picks, what Ctrl+double-click on a file row opens. dedicated: a "
+        "view of the file's own, of the type that shows its kind, fed that one file so "
+        "later picks never change it, what a double-click opens.",
+    )
     tree: str | None = Field(
         default=None, description="The file tree to open it from; default: the canvas's file tree."
     )
     prefer: list[str] = Field(
         default_factory=list,
-        description="View ids to reuse first when one of them is a preview "
+        description="Contextual: view ids to reuse first when one of them is a preview "
         "(the shell passes the selected views).",
     )
 
 
 class CanvasOpenFileResult(Result):
-    view: str = Field(description="The preview that shows the file.")
+    view: str = Field(description="The view that shows the file.")
     action: str = Field(
-        description="created (new preview on the tree's picks), repointed (an existing "
-        "preview's link moved onto the picks) or selected (it already follows them)."
+        description="Dedicated: created (a new view fed that file) or focused (its "
+        "dedicated view was on the canvas already; the shell reveals it). Contextual: "
+        "created (new preview on the tree's picks), repointed (an existing preview's "
+        "link moved onto the picks) or selected (it already follows them)."
     )
     submit: SubmitResult | None = Field(
-        default=None, description="The one submit this made; None when the file was picked."
+        default=None,
+        description="The one submit this made; None when the file was picked or its view "
+        "was there already.",
+    )
+    mode: str = Field(
+        default="contextual",
+        description="How it opened: contextual, or dedicated (asked for, or the fallback "
+        "of a contextual open whose kind the preview cannot show; a file no view shows "
+        "opens a text view saying Not supported).",
     )
 
 
 @command(
     "canvas.open_file",
-    doc="Quick look at a file (what a double-click on a file row does): a preview, which "
-    "renders any file by its kind, shows it. The file is picked in the tree and the "
-    "preview follows the tree's picks (a selection intaker), so later picks show in it "
-    "too; an existing preview is reused (its link re-pointed at the picks if it had "
-    "another), else a new one is placed beside the file tree. Compose typed views "
-    "(video, 3d, ...) with submit_canvas when their ports are needed.",
+    doc="Open a file from the file tree, as the user's double-click does (#43). mode "
+    "contextual (the default; Ctrl+double-click): a quick look in the preview, which "
+    "renders the file by its kind; the file is picked in the tree and the preview follows "
+    "the tree's picks (a selection intaker), so later picks show in it too; an existing "
+    "preview is reused (its link re-pointed at the picks if it had another), else a new one "
+    "is placed beside the file tree; a kind the preview cannot show (a usd stage) opens "
+    "dedicated instead. mode dedicated (a double-click): a view of the file's own, of the "
+    "view type that shows its kind (image, video, markdown, json, pdf, html, 3d, usd, "
+    "map), fed by a pinned link from project.all_files to that one file, titled "
+    "'<name> · <folder>'; a file no view shows opens a text view saying 'Not supported: "
+    "<name> (<ext>)'; a file whose dedicated view exists is focused, not duplicated. "
+    "Compose typed views with submit_canvas when their ports need linking.",
     scope="project",
 )
 def canvas_open_file(ctx: CommandContext, args: CanvasOpenFileArgs) -> CanvasOpenFileResult:
@@ -164,10 +187,14 @@ def canvas_open_file(ctx: CommandContext, args: CanvasOpenFileArgs) -> CanvasOpe
         ctx.engine.live,
         tree,
         args.path,
+        mode=args.mode,
         prefer=args.prefer,
         origin=ctx.origin,
+        plugins=ctx.engine.plugins,
     )
-    return CanvasOpenFileResult(view=opened.view, action=opened.action, submit=opened.submit)
+    return CanvasOpenFileResult(
+        view=opened.view, action=opened.action, submit=opened.submit, mode=opened.mode
+    )
 
 
 class CanvasUndoArgs(Args):

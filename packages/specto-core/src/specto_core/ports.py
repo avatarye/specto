@@ -40,6 +40,7 @@ ViewType = Literal[
     "preview",
     "usd",
     "scratch",
+    "text",
 ]
 VIEW_TYPES: tuple[str, ...] = (
     "file_tree",
@@ -55,7 +56,11 @@ VIEW_TYPES: tuple[str, ...] = (
     "preview",
     "usd",
     "scratch",
+    "text",
 )
+#: the context viewer (ADR 0020, #43): the one view type that follows the file tree's
+#: picks by design; a dedicated view is never one
+CONTEXT_VIEWER = "preview"
 
 #: What a view does, not what data it shows (ADR 0020): a browser shows many items of a
 #: collection and outputs a selection; a viewer shows the one selected item in its native
@@ -79,6 +84,8 @@ VIEW_ROLES: dict[str, ViewRole] = {
     "usd": "player",
     # the scratch pad (#184) shows many items and outputs a selection (and its items)
     "scratch": "browser",
+    # a short text the document carries (#43: "Not supported: <name> (<ext>)")
+    "text": "viewer",
 }
 
 #: The roles as the agent reads them (the canvas schema's view type, ADR 0020).
@@ -213,7 +220,27 @@ VIEW_PORTS: dict[str, PortDecl] = {
         inputs={"selection": "selection"},
         outputs={"items": "collection", "selection": "selection"},
     ),
+    # a short text the document carries in params.text (#43): the "Not supported" view a
+    # file no view type shows opens in. Its data input takes the pinned link that says
+    # which file it stands for; nothing is read from it and nothing goes out
+    "text": PortDecl(inputs={"data": "collection"}),
 }
+
+
+def file_input_of(view_type: str) -> tuple[str, str] | None:
+    """The port a view type takes files on and the link kind that feeds it from a files
+    port: its first ``collection`` input by an ``intaker`` (most views, on ``data``), else
+    its first ``content`` input by ``read_contents`` (the map's ``features``); None for
+    a view type with neither (the file tree's own feed is the project intaker)."""
+    decl = VIEW_PORTS.get(view_type)
+    if decl is None:
+        return None
+    for want, kind in (("collection", "intaker"), ("content", "read_contents")):
+        for port, ptype in decl.inputs.items():
+            if ptype == want:
+                return port, kind
+    return None
+
 
 #: view types a canvas holds at most one of (#184: the scratch pad is the project's)
 SINGLE_TYPES: frozenset[str] = frozenset({"scratch"})

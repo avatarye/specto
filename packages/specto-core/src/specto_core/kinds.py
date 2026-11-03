@@ -14,7 +14,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
-from .ports import VIEW_ROLES
+from .ports import CONTEXT_VIEWER, VIEW_ROLES
 
 DATA_KINDS: tuple[str, ...] = (
     "image2d",
@@ -296,6 +296,27 @@ class PluginRegistry:
 
     def kinds_for_path(self, path: str) -> list[DataKind]:
         return self.kinds_for_extension(Path(path).suffix)
+
+    def typed_view_for(self, path: str) -> str | None:
+        """The view type that shows a file of ``path``'s kind in a view of its own (#43:
+        a dedicated view), or None when no registered view type does. Candidates are the
+        registered view types that accept one of the path's kinds, except the browsers
+        (they show many items) and the context viewer (it follows the picks by design);
+        the kinds are tried in the locators' order (a .md file is markdown before text),
+        and among the candidates for one kind the narrowest wins (the fewest accepted
+        kinds: the markdown view over the json inspector, the map over the json
+        inspector for geojson), ties by type name. One table: the manifests."""
+        for kind in self.kinds_for_path(path):
+            found = [
+                m
+                for m in self._views.values()
+                if kind in m.accepts
+                and m.type != CONTEXT_VIEWER
+                and VIEW_ROLES.get(m.type) != "browser"
+            ]
+            if found:
+                return min(found, key=lambda m: (len(m.accepts), m.type)).type
+        return None
 
 
 # ---------------------------------------------------------------------------

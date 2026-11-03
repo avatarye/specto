@@ -27,14 +27,21 @@ from .float_layer import (
     is_floating,
     shown_size,
 )
+from .kinds import PluginRegistry, default_plugins
 from .live_canvas import LiveCanvas, SubmitResult
 from .names import fresh_name
+from .ports import CONTEXT_VIEWER, PROJECT_ID, PROJECT_PORT, file_input_of
 
 IMAGE_GAP = 20.0  # canvas px between a gallery and the image view opened beside it
 OPEN_GAP = IMAGE_GAP  # canvas px between the file tree and a view opened from it
 OPEN_SIZE = (640.0, 480.0)  # a view opened from the file tree
-#: the view a file opens in (ADR 0020): the preview renders it by its kind, whatever it is
-OPEN_TYPE = "preview"
+#: the contextual view a file opens in (ADR 0020): the preview renders it by its kind
+OPEN_TYPE = CONTEXT_VIEWER
+#: the view a file no view type shows opens in (#43): "Not supported: <name> (<ext>)"
+TEXT_TYPE = "text"
+#: how ``open_file`` opens a file (#43, ADR 0023): in a dedicated view of its own, fed
+#: that file alone, or in the contextual preview, which follows the tree's picks
+OPEN_MODES: tuple[str, ...] = ("dedicated", "contextual")
 SCRATCH_TYPE = "scratch"
 SCRATCH_SIZE = (440.0, 520.0)  # a scratch pad the user opens
 
@@ -333,13 +340,18 @@ def open_from_scratch(
 @dataclass(frozen=True)
 class OpenedFile:
     """What ``open_file`` did: the view that shows the file and how it got there.
-    ``created``: a new view on the tree's picks (one submit); ``repointed``: an existing
-    view's link now comes from the tree's picks (one submit); ``selected``: an existing
-    view already follows them. The file is picked in the tree each time (navigation)."""
+    Dedicated: ``created``, a new view fed that file alone (one submit), or ``focused``,
+    the file's dedicated view was on the canvas already (no submit: the shell focuses
+    and reveals it). Contextual: ``created``, a new preview on the tree's picks (one
+    submit); ``repointed``, an existing preview's link now comes from the tree's picks
+    (one submit); ``selected``, an existing preview already follows them; the file is
+    picked in the tree each time (navigation). ``mode`` says which way it went: a
+    contextual open of a kind the preview cannot show falls back to ``dedicated``."""
 
     view: str
     action: str
     submit: SubmitResult | None = None
+    mode: str = "contextual"
 
 
 def _link_into(doc: dict[str, Any], view_id: str, port: str) -> tuple[str, dict[str, Any]] | None:
@@ -395,32 +407,153 @@ def _free_spot_beside(
     return [x, y]
 
 
+def dedicated_label(path: str, project_name: str | None = None) -> str:
+    """The title of a dedicated view (#43): the file's name, a middle dot, its folder
+    relative to the project; a file at the root shows the project's name, or "." when
+    there is none."""
+    p = PurePosixPath(path)
+    folder = p.parent.as_posix()
+    if folder == ".":
+        folder = project_name or "."
+    return f"{p.name} · {folder}"
+
+
+def _file_feed(doc: dict[str, Any], view_id: str) -> dict[str, Any] | None:
+    """The link that feeds ``view_id``'s file input (its intaker or read_contents)."""
+    found = file_input_of(doc["views"][view_id]["type"])
+    if found is None:
+        return None
+    hit = _link_into(doc, view_id, found[0])
+    return hit[1] if hit is not None and hit[1]["kind"] == found[1] else None
+
+
+def dedicated_view_of(doc: dict[str, Any], path: str) -> str | None:
+    """The view dedicated to ``path`` (#43, ADR 0023), if the canvas has one: a view
+    that is not the context viewer, whose file input is fed from the project source
+    (``project.all_files``) with ``path`` as its one source. Recognised by its link, not
+    by a mark on the view, so one the agent composed the same way counts."""
+    for vid, view in doc["views"].items():
+        if view["type"] == CONTEXT_VIEWER:
+            continue
+        feed = _file_feed(doc, vid)
+        if feed is None or feed["source"] != {"view": PROJECT_ID, "port": PROJECT_PORT}:
+            continue
+        if feed.get("kind") == "intaker" and feed.get("scope") != "pinned":
+            continue
+        if (feed.get("params") or {}).get("sources") == [path]:
+            return vid
+    return None
+
+
 def open_file(
     live: LiveCanvas,
     tree_id: str,
     path: str,
     *,
+    mode: str = "dedicated",
     prefer: Iterable[str] = (),
     origin: str = "user",
+    plugins: PluginRegistry | None = None,
 ) -> OpenedFile:
-    """Double-click on a file row of file tree ``tree_id`` (spec #35 story 35), or the
-    agent's ``canvas.open_file``: show ``path`` (relative to the tree's root) in a
-    preview, which renders it by its kind (#106, ADR 0020; a kind it has no renderer for
-    shows as a card), never in a typed view. The preview is fed by a selection intaker
-    off the tree's picks and the file is picked in the tree (navigation, no undo step),
-    so it shows the file now and every later pick (#122). A preview already on the
-    canvas is reused: the first of ``prefer`` (the selected views) that is one, else the
-    newest. Already on this tree's picks, the pick is the whole gesture; otherwise its
-    data link is re-pointed at the picks (one submit). A re-pointed preview whose label
-    is just the name of the file it showed (or no label) is named for the picks; a label
-    the agent or user wrote stays (#86). Without one, a new preview is placed beside the
-    tree in the first free spot (one submit)."""
+    """Open ``path`` (relative to the tree's root) from file tree ``tree_id`` (#43, ADR
+    0023), or the agent's ``canvas.open_file``.
+
+    ``mode="dedicated"`` (a double-click): a view of its own for that one file, of the
+    view type that shows the file's kind (``plugins.typed_view_for``; the usd view for a
+    stage, the map for geojson, never the preview), fed by a pinned link from the
+    project source to exactly that file, so later picks never change it; labelled
+    ``<name> · <folder>``; placed beside the tree in the first free spot (one submit).
+    A file no view type shows opens a ``text`` view saying ``Not supported: <name>
+    (<ext>)`` the same way. A file whose dedicated view is on the canvas already comes
+    back ``focused`` with no submit (the shell focuses and reveals it). The tree's picks
+    are left alone.
+
+    ``mode="contextual"`` (Ctrl+double-click): the preview, which follows the tree's
+    picks (#106, #122): fed by a selection intaker off ``selected_files`` and the file
+    is picked in the tree (navigation, no undo step), so it shows the file now and every
+    later pick. A preview already on the canvas is reused: the first of ``prefer`` (the
+    selected views) that is one, else the newest. Already on this tree's picks, the pick
+    is the whole gesture; otherwise its data link is re-pointed at the picks (one
+    submit). A re-pointed preview whose label is just the name of the file it showed
+    (or no label) is named for the picks; a label the agent or user wrote stays (#86).
+    Without one, a new preview is placed beside the tree (one submit). A kind the
+    preview cannot render (a usd stage) opens dedicated instead, and a file no view
+    shows the ``text`` view: the result's ``mode`` says so.
+
+    ``plugins`` is the registry the kinds and view types are read from (the engine's);
+    without one core's built-in manifests stand in."""
+    if mode not in OPEN_MODES:
+        raise InvalidArgs(
+            f"open_file mode {mode!r} is not one of {', '.join(OPEN_MODES)}",
+            fix="dedicated: a view of its own for the file; contextual: the preview on the picks",
+        )
+    reg = plugins if plugins is not None else default_plugins()
     doc = live.document()
     tree = _view(doc, tree_id)
     if tree["type"] != "file_tree":
         raise NotFound(
             f"{tree_id} is a {tree['type']}, not a file tree", fix="open files from a file tree"
         )
+    if mode == "contextual":
+        shown = reg.view(CONTEXT_VIEWER)
+        kinds = reg.kinds_for_path(path)
+        if shown is None or not kinds or not any(k in shown.accepts for k in kinds):
+            return _open_dedicated(live, tree, path, origin=origin, plugins=reg)
+        return _open_contextual(live, tree_id, path, prefer=prefer, origin=origin)
+    return _open_dedicated(live, tree, path, origin=origin, plugins=reg)
+
+
+def _open_dedicated(
+    live: LiveCanvas,
+    tree: dict[str, Any],
+    path: str,
+    *,
+    origin: str,
+    plugins: PluginRegistry,
+) -> OpenedFile:
+    doc = live.document()
+    have = dedicated_view_of(doc, path)
+    if have is not None:
+        return OpenedFile(have, "focused", None, "dedicated")
+    name = PurePosixPath(path).name
+    label = dedicated_label(path, live.project.name if live.project is not None else None)
+    vtype = plugins.typed_view_for(path) or TEXT_TYPE
+    params: dict[str, Any] = {}
+    if vtype == TEXT_TYPE:
+        ext = PurePosixPath(path).suffix or "no extension"
+        params["text"] = f"Not supported: {name} ({ext})"
+    vid = fresh_name(doc["views"], path)
+    doc["views"][vid] = {
+        "type": vtype,
+        "label": label,
+        "layout": {"position": _free_spot_beside(doc, tree, OPEN_SIZE), "size": list(OPEN_SIZE)},
+        "params": params,
+        "locked": False,
+    }
+    port, kind = file_input_of(vtype) or ("data", "intaker")
+    link: dict[str, Any] = {
+        "kind": kind,
+        "label": name,
+        "source": {"view": PROJECT_ID, "port": PROJECT_PORT},
+        "target": {"view": vid, "port": port},
+        "params": {"sources": [path]},
+        "summary": {"sentence": f"The {vtype} view shows {path}."},
+    }
+    if kind == "intaker":
+        link["scope"] = "pinned"
+    doc["links"][next_id(doc["links"], "l")] = link
+    res = live.submit(doc, origin=origin, label=f"open {name}")
+    return OpenedFile(vid, "created", res, "dedicated")
+
+
+def _open_contextual(
+    live: LiveCanvas,
+    tree_id: str,
+    path: str,
+    *,
+    prefer: Iterable[str],
+    origin: str,
+) -> OpenedFile:
     live.remember(tree_id, {"selected": [path]})
     doc = live.document()
     tree = doc["views"][tree_id]

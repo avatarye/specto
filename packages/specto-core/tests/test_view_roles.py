@@ -24,6 +24,7 @@ SPEC_ROLES = {
     "scratch": "browser",  # #184: many items, a selection out
     "3d": "scene",
     "map": "scene",
+    "text": "viewer",  # #43: the "Not supported" view, one short text in its native form
 }
 
 
