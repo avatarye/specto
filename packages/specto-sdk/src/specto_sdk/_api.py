@@ -6,7 +6,7 @@ Arguments left at ``UNSET`` are not sent, so the server applies its own defaults
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from .client import Client
@@ -63,24 +63,36 @@ class Api:
         self,
         *,
         path: str,
+        mode: Literal["dedicated", "contextual"] = UNSET,
         tree: str | None = UNSET,
         prefer: list[str] = UNSET,
     ) -> dict[str, Any]:
-        """Quick look at a file (what a double-click on a file row does): a preview, which renders
-        any file by its kind, shows it. The file is picked in the tree and the preview follows
-        the tree's picks (a selection intaker), so later picks show in it too; an existing
-        preview is reused (its link re-pointed at the picks if it had another), else a new one
-        is placed beside the file tree. Compose typed views (video, 3d, ...) with submit_canvas
-        when their ports are needed.
+        """Open a file from the file tree, as the user's double-click does (#43). mode contextual
+        (the default; Ctrl+double-click): a quick look in the preview, which renders the file by
+        its kind; the file is picked in the tree and the preview follows the tree's picks (a
+        selection intaker), so later picks show in it too; an existing preview is reused (its
+        link re-pointed at the picks if it had another), else a new one is placed beside the
+        file tree; a kind the preview cannot show (a usd stage) opens dedicated instead. mode
+        dedicated (a double-click): a view of the file's own, of the view type that shows its
+        kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed by a pinned link from
+        project.all_files to that one file, titled '<name> · <folder>'; a file no view shows
+        opens a text view saying 'Not supported: <name> (<ext>)'; a file whose dedicated view
+        exists is focused, not duplicated. Compose typed views with submit_canvas when their
+        ports need linking.
 
         Args:
             path: str -- The file, relative to the project folder (POSIX slashes).
+            mode: Literal["dedicated", "contextual"] (default 'contextual') -- contextual (the
+            default, a quick look): the preview, which follows the file tree's picks, what
+            Ctrl+double-click on a file row opens. dedicated: a view of the file's own, of the
+            type that shows its kind, fed that one file so later picks never change it, what a
+            double-click opens.
             tree: str | None (default None) -- The file tree to open it from; default: the
             canvas's file tree.
-            prefer: list[str] -- View ids to reuse first when one of them is a preview (the
-            shell passes the selected views).
+            prefer: list[str] -- Contextual: view ids to reuse first when one of them is a
+            preview (the shell passes the selected views).
         """
-        return self._call("canvas.open_file", _args(path=path, tree=tree, prefer=prefer))
+        return self._call("canvas.open_file", _args(path=path, mode=mode, tree=tree, prefer=prefer))
 
     def canvas_redo(self) -> dict[str, Any]:
         """Redo the last undone submit. [destructive]"""

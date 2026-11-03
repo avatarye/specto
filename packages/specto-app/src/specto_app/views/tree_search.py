@@ -11,9 +11,10 @@ Hits pass the tree's lister (its sources, pattern and screener),
 so the index is asked for more than the limit. A click picks a hit: ``selected_files``
 carries that file (with the stat the search saw) and ``params.selected`` remembers it,
 as a pick in the tree does; Ctrl toggles more hits in; a double-click opens its
-dedicated view (Ctrl+double-click the contextual preview, #43); ``reveal`` clears the search and loads the folders down to the hit, selected
-and scrolled into view. The item's ``searchNote`` says how many hits there are, that
-there are more than shown, or, for a miss, which backend ran, so a miss can be
+dedicated view (Ctrl+double-click the contextual preview, #43); ``reveal`` clears the
+search and loads the folders down to the hit, selected and scrolled into view. The
+item's ``searchNote`` says how many hits there are, that there are more than shown, or,
+for a miss, which backend ran, so a miss can be
 understood (Everything does not see inside archives).
 """
 

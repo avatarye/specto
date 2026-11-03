@@ -6,7 +6,7 @@ declare namespace SpectoApi {
   type SchemaVersion = 2;
   type Effect = "file" | "job" | "watch" | "process";
   type DataKind = "image2d" | "image_seq" | "video_ref" | "pointcloud" | "mesh" | "splat" | "usd_stage_ref" | "geojson" | "json" | "text" | "markdown" | "html" | "pdf" | "table" | "message_stream" | "pose_track";
-  type ViewType = "3d" | "gallery" | "html" | "image" | "json" | "map" | "markdown" | "pdf" | "preview" | "scratch" | "usd" | "video";
+  type ViewType = "3d" | "gallery" | "html" | "image" | "json" | "map" | "markdown" | "pdf" | "preview" | "scratch" | "text" | "usd" | "video";
   type PortType = "files" | "collection" | "item" | "selection" | "time" | "content" | "camera";
   type LinkKind = "intaker" | "follow" | "read_contents" | "time_map" | "python";
   type CommandName = keyof CommandMap;
@@ -43,18 +43,22 @@ declare namespace SpectoApi {
   interface CanvasOpenFileArgs {
     /** The file, relative to the project folder (POSIX slashes). */
     path: string;
+    /** contextual (the default, a quick look): the preview, which follows the file tree's picks, what Ctrl+double-click on a file row opens. dedicated: a view of the file's own, of the type that shows its kind, fed that one file so later picks never change it, what a double-click opens. default: "contextual" */
+    mode?: "dedicated" | "contextual";
     /** The file tree to open it from; default: the canvas's file tree. default: null */
     tree?: string | null;
-    /** View ids to reuse first when one of them is a preview (the shell passes the selected views). */
+    /** Contextual: view ids to reuse first when one of them is a preview (the shell passes the selected views). */
     prefer?: string[];
   }
   interface CanvasOpenFileResult {
-    /** The preview that shows the file. */
+    /** The view that shows the file. */
     view: string;
-    /** created (new preview on the tree's picks), repointed (an existing preview's link moved onto the picks) or selected (it already follows them). */
+    /** Dedicated: created (a new view fed that file) or focused (its dedicated view was on the canvas already; the shell reveals it). Contextual: created (new preview on the tree's picks), repointed (an existing preview's link moved onto the picks) or selected (it already follows them). */
     action: string;
-    /** The one submit this made; None when the file was picked. default: null */
+    /** The one submit this made; None when the file was picked or its view was there already. default: null */
     submit?: SubmitResult | null;
+    /** How it opened: contextual, or dedicated (asked for, or the fallback of a contextual open whose kind the preview cannot show; a file no view shows opens a text view saying Not supported). default: "contextual" */
+    mode?: string;
   }
   /** What a submit changed. ``empty`` when the document equalled the live one (no undo
 step, nothing journaled). */
@@ -446,6 +450,11 @@ step, nothing journaled). */
     page?: string;
     [key: string]: unknown;
   }
+  interface TextState {
+    /** The text shown. */
+    text?: string;
+    [key: string]: unknown;
+  }
   interface UsdState {
     /** auto: on Windows and Linux, rtx when this machine has the ovrtx capability, otherwise storm (Hydra Storm, any GPU, no RTX look); on macOS always storm. describe view:usd reports renderer_auto, what auto runs here. default: "auto" */
     renderer?: "auto" | "rtx" | "storm";
@@ -478,7 +487,7 @@ step, nothing journaled). */
     "api.info": { args: ApiInfoArgs; result: ApiInfoResult };
     /** The undo history: the newest submits as one line each; with patch=true the detailed diff of each (spec story 15: only when asked for). (read_only: true, destructive: false; scope project) */
     "canvas.history": { args: CanvasHistoryArgs; result: CanvasHistoryResult };
-    /** Quick look at a file (what a double-click on a file row does): a preview, which renders any file by its kind, shows it. The file is picked in the tree and the preview follows the tree's picks (a selection intaker), so later picks show in it too; an existing preview is reused (its link re-pointed at the picks if it had another), else a new one is placed beside the file tree. Compose typed views (video, 3d, ...) with submit_canvas when their ports are needed. (read_only: false, destructive: false; scope project) */
+    /** Open a file from the file tree, as the user's double-click does (#43). mode contextual (the default; Ctrl+double-click): a quick look in the preview, which renders the file by its kind; the file is picked in the tree and the preview follows the tree's picks (a selection intaker), so later picks show in it too; an existing preview is reused (its link re-pointed at the picks if it had another), else a new one is placed beside the file tree; a kind the preview cannot show (a usd stage) opens dedicated instead. mode dedicated (a double-click): a view of the file's own, of the view type that shows its kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed by a pinned link from project.all_files to that one file, titled '<name> · <folder>'; a file no view shows opens a text view saying 'Not supported: <name> (<ext>)'; a file whose dedicated view exists is focused, not duplicated. Compose typed views with submit_canvas when their ports need linking. (read_only: false, destructive: false; scope project) */
     "canvas.open_file": { args: CanvasOpenFileArgs; result: CanvasOpenFileResult };
     /** Redo the last undone submit. (read_only: false, destructive: true; scope project) */
     "canvas.redo": { args: CanvasRedoArgs; result: CanvasRedoResult };
@@ -543,6 +552,8 @@ step, nothing journaled). */
     "preview": PreviewState;
     /** Scratch pad: accepts nothing; host web */
     "scratch": ScratchState;
+    /** Text: accepts nothing; host quick */
+    "text": TextState;
     /** USD: accepts usd_stage_ref; host frame */
     "usd": UsdState;
     /** Video: accepts video_ref; host quick */

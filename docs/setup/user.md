@@ -99,7 +99,14 @@ Claude login").
 video, markdown, json, html, pdf, map, 3D and usd viewers, previews and the scratch pad.
 Views connect by links: picking files in the tree feeds the views linked to it, a gallery's
 pick drives an image view, a video's time drives galleries linked on time. Double-click a
-file in the tree for a preview of it. In a view's header: the auto-update eye, then
+file in the tree to open it in a view of its own (an image view, a markdown view, the usd
+view, whatever shows its kind), titled with its name and folder; it stays on that file
+whatever you pick next, and double-clicking the file again brings that view back instead
+of opening another. Ctrl+double-click opens the contextual preview instead: one view that
+follows your picks in the tree, marked "Contextual · follows selection" in its header. A
+file Specto has no view for opens a small view saying "Not supported". The row's
+right-click menu offers both ("Open in its own view", "Open in contextual view"). In a
+view's header: the auto-update eye, then
 refresh, lock, float, collapse, maximise and close; drag the header to move, a border to
 resize, and views snap to each other and to the window. Ctrl+Z and Ctrl+Y undo and redo
 every change, yours and the agent's, in time order; the status bar shows the undo depth.
@@ -112,7 +119,8 @@ still picks every file under it. To find a file, type in the box at the top of t
 in the file's path below the project folder (`notes readme` finds `docs/notes/readme.md`;
 `docs/read` works too), case does not matter, and the hits replace the tree, best first
 (files whose name holds every word before files reached only through their folders),
-with their folder under the name; click one to pick it, double-click to preview it, the
+with their folder under the name; click one to pick it, double-click to open it (Ctrl for
+the contextual preview), the
 target button at its right to show it in the tree; Escape returns to the tree. On Windows the
 search uses [Everything](https://www.voidtools.com/) when it is running and the project's
 drive is indexed, which answers in a few milliseconds whatever the project's size; without

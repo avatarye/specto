@@ -307,9 +307,7 @@ def test_opening_a_file_contextually_adds_a_preview_on_the_trees_picks(live: Liv
     and follows later picks. A file of a kind the preview cannot show falls back to the
     dedicated open: with no view for it at all, the "Not supported" text view."""
     plugins = app_plugins()
-    opened = gestures.open_file(
-        live, "fege", "notes/plan.md", mode="contextual", plugins=plugins
-    )
+    opened = gestures.open_file(live, "fege", "notes/plan.md", mode="contextual", plugins=plugins)
     vid = opened.view
     assert is_name(vid) and opened.action == "created" and opened.submit is not None
     assert opened.submit.origin == "user" and opened.submit.views["added"] == [vid]
@@ -332,6 +330,7 @@ def test_opening_a_file_contextually_adds_a_preview_on_the_trees_picks(live: Liv
     view = live.document()["views"][odd.view]
     assert view["type"] == "text" and view["label"] == "plan.xyz · notes"
     assert view["params"]["text"] == "Not supported: plan.xyz (.xyz)"
+    assert live.document()["views"]["fege"]["params"]["selected"] == ["notes/plan.xyz"]
     with pytest.raises(NotFound):
         gestures.open_file(live, "kobi", "notes/plan.md", plugins=plugins)  # not a file tree
     with pytest.raises(InvalidArgs):
@@ -380,7 +379,8 @@ def test_opening_a_file_reuses_a_preview_and_puts_it_on_the_picks(live: LiveCanv
     pin(doc, "mesa", sources=["notes"])
     live.submit(doc, origin="agent:s1", label="another preview")
     ctx = dict(mode="contextual", plugins=plugins)
-    assert gestures.open_file(live, "fege", "notes/c.md", prefer=["kobi", "lito"], **ctx).view == "lito"
+    pick = gestures.open_file(live, "fege", "notes/c.md", prefer=["kobi", "lito"], **ctx)
+    assert pick.view == "lito"
     assert gestures.open_file(live, "fege", "notes/b.json", **ctx).view == "mesa"
 
 

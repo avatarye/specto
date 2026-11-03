@@ -664,7 +664,7 @@
     "additionalProperties": false,
     "properties": {
      "type": {
-      "description": "The view type, with its role: file_tree (browser), gallery (browser), image (viewer), video (player), json (viewer), markdown (viewer), map (scene), 3d (scene), html (viewer), pdf (viewer), preview (viewer), usd (player), scratch (browser). A browser shows many items of a collection and outputs a selection; a viewer shows the one selected item in its native form; a player is a viewer whose item has a timeline; a scene places many items in one space. A browser's selection feeds a viewer or player: the gallery browses, the image view or video shows what it picks.",
+      "description": "The view type, with its role: file_tree (browser), gallery (browser), image (viewer), video (player), json (viewer), markdown (viewer), map (scene), 3d (scene), html (viewer), pdf (viewer), preview (viewer), usd (player), scratch (browser), text (viewer). A browser shows many items of a collection and outputs a selection; a viewer shows the one selected item in its native form; a player is a viewer whose item has a timeline; a scene places many items in one space. A browser's selection feeds a viewer or player: the gallery browses, the image view or video shows what it picks.",
       "enum": [
        "file_tree",
        "gallery",
@@ -678,7 +678,8 @@
        "pdf",
        "preview",
        "usd",
-       "scratch"
+       "scratch",
+       "text"
       ],
       "title": "Type",
       "type": "string"
@@ -988,7 +989,7 @@
   },
   {
    "name": "canvas.open_file",
-   "doc": "Quick look at a file (what a double-click on a file row does): a preview, which renders any file by its kind, shows it. The file is picked in the tree and the preview follows the tree's picks (a selection intaker), so later picks show in it too; an existing preview is reused (its link re-pointed at the picks if it had another), else a new one is placed beside the file tree. Compose typed views (video, 3d, ...) with submit_canvas when their ports are needed.",
+   "doc": "Open a file from the file tree, as the user's double-click does (#43). mode contextual (the default; Ctrl+double-click): a quick look in the preview, which renders the file by its kind; the file is picked in the tree and the preview follows the tree's picks (a selection intaker), so later picks show in it too; an existing preview is reused (its link re-pointed at the picks if it had another), else a new one is placed beside the file tree; a kind the preview cannot show (a usd stage) opens dedicated instead. mode dedicated (a double-click): a view of the file's own, of the view type that shows its kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed by a pinned link from project.all_files to that one file, titled '<name> \u00b7 <folder>'; a file no view shows opens a text view saying 'Not supported: <name> (<ext>)'; a file whose dedicated view exists is focused, not duplicated. Compose typed views with submit_canvas when their ports need linking.",
    "read_only": false,
    "destructive": false,
    "effects": [],
@@ -1001,6 +1002,16 @@
      "path": {
       "description": "The file, relative to the project folder (POSIX slashes).",
       "title": "Path",
+      "type": "string"
+     },
+     "mode": {
+      "default": "contextual",
+      "description": "contextual (the default, a quick look): the preview, which follows the file tree's picks, what Ctrl+double-click on a file row opens. dedicated: a view of the file's own, of the type that shows its kind, fed that one file so later picks never change it, what a double-click opens.",
+      "enum": [
+       "dedicated",
+       "contextual"
+      ],
+      "title": "Mode",
       "type": "string"
      },
      "tree": {
@@ -1017,7 +1028,7 @@
       "title": "Tree"
      },
      "prefer": {
-      "description": "View ids to reuse first when one of them is a preview (the shell passes the selected views).",
+      "description": "Contextual: view ids to reuse first when one of them is a preview (the shell passes the selected views).",
       "items": {
        "type": "string"
       },
@@ -1135,12 +1146,12 @@
     "additionalProperties": false,
     "properties": {
      "view": {
-      "description": "The preview that shows the file.",
+      "description": "The view that shows the file.",
       "title": "View",
       "type": "string"
      },
      "action": {
-      "description": "created (new preview on the tree's picks), repointed (an existing preview's link moved onto the picks) or selected (it already follows them).",
+      "description": "Dedicated: created (a new view fed that file) or focused (its dedicated view was on the canvas already; the shell reveals it). Contextual: created (new preview on the tree's picks), repointed (an existing preview's link moved onto the picks) or selected (it already follows them).",
       "title": "Action",
       "type": "string"
      },
@@ -1154,7 +1165,13 @@
        }
       ],
       "default": null,
-      "description": "The one submit this made; None when the file was picked."
+      "description": "The one submit this made; None when the file was picked or its view was there already."
+     },
+     "mode": {
+      "default": "contextual",
+      "description": "How it opened: contextual, or dedicated (asked for, or the fallback of a contextual open whose kind the preview cannot show; a file no view shows opens a text view saying Not supported).",
+      "title": "Mode",
+      "type": "string"
      }
     },
     "required": [
@@ -2737,6 +2754,7 @@
     "markdown",
     "pdf",
     "preview",
+    "text",
     "usd",
     "video"
    ],

@@ -155,9 +155,13 @@ the video shows it), rather than asking one view to both browse and show.
 
 For a quick look ("show me this", "open that file", what the user picks in the file tree), use one \
 preview: it renders the item by its kind (image, video, pdf, markdown, json, html, 3D model; other \
-files as a card with name and size) and is what a double-click on a file opens. Reuse a preview \
-already on the canvas rather than adding another. Add a typed view (image, video, pdf, 3d, ...) \
-only when a link needs its typed ports, such as a video's time for a time_map or a 3D camera.
+files as a card with name and size), is what Ctrl+double-click on a file opens, and shows \
+"Contextual · follows selection" in its header. Reuse a preview already on the canvas rather than \
+adding another. When the user wants a file kept open on its own ("keep the readme up"), use \
+canvas.open_file with mode dedicated, what a plain double-click does: a view of the file's kind \
+fed that one file by a pinned link, titled "<name> · <folder>"; opening it again reveals the \
+existing one. Add a typed view by hand (image, video, pdf, 3d, ...) only when a link needs its \
+typed ports, such as a video's time for a time_map or a 3D camera.
 
 For a USD world or stage (.usd, .usda, .usdc, .usdz), use one usd view: a player for one stage \
 at a time, read-only. Feed it the file tree's picks with a selection intaker (source \

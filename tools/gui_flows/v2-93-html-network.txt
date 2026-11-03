@@ -8,7 +8,7 @@
 resize 1600 900
 wait 3000
 assert_found treeRow:@file_tree:pages/remote-frames.html
-dblclick treeRow:@file_tree:pages/remote-frames.html 0.5 0.5
+ctrldblclick treeRow:@file_tree:pages/remote-frames.html 0.5 0.5
 wait_until slot:@preview 30000
 dblclick header:@preview 0.3 0.5
 wait 15000

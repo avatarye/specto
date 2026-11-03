@@ -13,13 +13,18 @@ toggles, Shift ranges; a picked folder stands for every file under it, resolved
 recursively on the worker at pick time), whenever the selection changes. All files
 come from the project source, not from here (#83).
 
-A double-click on a file row opens it (``open_row`` -> ``specto_core.gestures.open_file``):
-a preview (it renders the file by its kind, #106) fed by a selection intaker off this
+A double-click on a file row opens it (``open_row`` -> ``specto_core.gestures.open_file``,
+#43, ADR 0023): its dedicated view, of the type that shows the file's kind, fed that one
+file by a pinned link from the project source, beside the tree; the same file again
+reveals that view (``ctx.reveal_view``). Ctrl+double-click opens the contextual preview
+instead (it renders the file by its kind, #106) fed by a selection intaker off this
 tree's picks, new beside the tree or an existing one re-pointed, so it shows the file
-and every later pick (#122); a double-click on a folder toggles it.
+and every later pick (#122), the file selected whatever the Ctrl taps toggled. The
+context menu's "Open in its own view" and "Open in contextual view" do the same
+(``open_path``). A double-click on a folder toggles it.
 The picks are also written to ``params.selected`` (navigation): a pick arriving there
-from outside (the open-file gesture, the agent's ``canvas.open_file``) is applied, after
-the folders above it are loaded.
+from outside (the contextual open gesture, the agent's ``canvas.open_file``) is applied,
+after the folders above it are loaded.
 
 A ``selection`` input (#168; keys are relative paths of files or folders, e.g. what a
 per-pick Python link maps another tree's pick to) is shown like a pick: the tree loads

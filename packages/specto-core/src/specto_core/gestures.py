@@ -2,8 +2,8 @@
 and unlock a view, collapse and expand it (#114), float and unfloat it and drag it within
 the window (#112), delete a
 link, resize the window frame, open a gallery's image view or preview, open a file from
-the file tree in a preview (``open_file``), open the scratch pad and an item of it in a
-view beside it (#184). Each one
+the file tree in a dedicated view or the contextual preview (``open_file``, #43), open
+the scratch pad and an item of it in a view beside it (#184). Each one
 copies the live document, edits it and submits it with ``origin="user"``, so a gesture
 is one undo step on the same history as the agent's submits and the agent always sees
 what the user changed. The shell (#40) and the overworld (#45) call these on gesture
@@ -507,9 +507,13 @@ def open_file(
             f"{tree_id} is a {tree['type']}, not a file tree", fix="open files from a file tree"
         )
     if mode == "contextual":
+        # the file is picked in the tree first (navigation): a Ctrl+double-click's own
+        # taps toggled the row, and the file must end up selected either way
+        live.remember(tree_id, {"selected": [path]})
         shown = reg.view(CONTEXT_VIEWER)
         kinds = reg.kinds_for_path(path)
         if shown is None or not kinds or not any(k in shown.accepts for k in kinds):
+            tree = live.document()["views"][tree_id]
             return _open_dedicated(live, tree, path, origin=origin, plugins=reg)
         return _open_contextual(live, tree_id, path, prefer=prefer, origin=origin)
     return _open_dedicated(live, tree, path, origin=origin, plugins=reg)
@@ -566,7 +570,6 @@ def _open_contextual(
     prefer: Iterable[str],
     origin: str,
 ) -> OpenedFile:
-    live.remember(tree_id, {"selected": [path]})
     doc = live.document()
     tree = doc["views"][tree_id]
     label = f"{_name(tree_id, tree)} preview"

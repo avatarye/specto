@@ -258,16 +258,19 @@ Item {
             TapHandler {
                 id: tap
                 acceptedButtons: Qt.LeftButton
-                // the modifiers live on the handler's point (an eventPoint has none)
+                // the modifiers live on the handler's point (an eventPoint has none), and
+                // the point has let go of them by doubleTapped: the latest tap keeps them
+                property int mods: 0
                 onTapped: function (ep) {
                     if (!root.bridge) return
                     root.forceActiveFocus()  // the tree takes the keys (the Menu key, #154)
+                    tap.mods = Number(tap.point.modifiers)
                     var x = ep.position.x
                     if (row.isDir && x >= row.chevronLeft - root.gap
                             && x <= row.chevronLeft + root.chevronPx + root.gap)
                         root.bridge.toggle(row.index)
                     else
-                        root.bridge.click(row.index, Number(tap.point.modifiers))
+                        root.bridge.click(row.index, tap.mods)
                 }
                 // a double-click opens a file's dedicated view, Ctrl+double-click the
                 // contextual preview (#43); the gesture makes sure the file ends up
@@ -275,7 +278,7 @@ Item {
                 onDoubleTapped: {
                     if (!root.bridge) return
                     if (row.isDir) root.bridge.toggle(row.index)
-                    else root.bridge.open(row.index, Number(tap.point.modifiers))
+                    else root.bridge.open(row.index, tap.mods)
                 }
             }
             // a left drag past the platform's drag distance drags the row out, or the
@@ -457,12 +460,14 @@ Item {
             TapHandler {
                 id: hitTap
                 acceptedButtons: Qt.LeftButton
+                property int mods: 0  // the latest tap's modifiers (see the rows' tap)
                 onTapped: {
                     if (!root.bridge) return
                     hits.currentIndex = hit.index
-                    root.bridge.clickHit(hit.index, Number(hitTap.point.modifiers))
+                    hitTap.mods = Number(hitTap.point.modifiers)
+                    root.bridge.clickHit(hit.index, hitTap.mods)
                 }
-                onDoubleTapped: if (root.bridge) root.bridge.openHit(hit.index, Number(hitTap.point.modifiers))
+                onDoubleTapped: if (root.bridge) root.bridge.openHit(hit.index, hitTap.mods)
             }
             TapHandler {
                 acceptedButtons: Qt.RightButton

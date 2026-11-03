@@ -34,6 +34,8 @@ Script lines (one per line, # comments):
                                   write a space in a name as ~ (menu:Open~as~gallery)
     rclick <objectName> [fx fy]   right-click
     dblclick <objectName> [fx fy]
+    ctrldblclick <objectName> [fx fy]   Ctrl held through a double-click (#43: the
+                                  contextual preview; a plain one opens a dedicated view)
     expand <view>:<path>          open a file tree folder on its chevron, unless it is open
                                   already (the view's snapshot says), and wait until it is;
                                   the closed folders above it open first, one by one (#231:
@@ -539,12 +541,16 @@ class Driver:
             pyautogui.moveTo(x + dx, y + dy, duration=0.25)
         elif op in ("expand", "collapse"):
             self.fold(args[0], op == "expand")
-        elif op == "dblclick":
+        elif op in ("dblclick", "ctrldblclick"):
             fx, fy = (float(args[1]), float(args[2])) if len(args) >= 3 else (0.5, 0.5)
             x, y = self.point(args[0], fx, fy)
             pyautogui.moveTo(x, y, duration=0.15)
+            if op == "ctrldblclick":
+                pyautogui.keyDown("ctrl")
             # two clicks 80 ms apart: a zero-interval doubleClick is not always a Qt double click
             pyautogui.click(x, y, clicks=2, interval=0.08)
+            if op == "ctrldblclick":
+                pyautogui.keyUp("ctrl")
         elif op == "wheel":
             fx, fy = (float(args[2]), float(args[3])) if len(args) >= 4 else (0.5, 0.5)
             ctrl = "ctrl" in args[4:]

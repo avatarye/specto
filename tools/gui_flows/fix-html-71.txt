@@ -11,12 +11,12 @@ assert_missing slot:@preview
 wait_until treeRow:@file_tree:reports 20000
 expand @file_tree:reports/diagrams
 expand @file_tree:reports/survey
-dblclick treeRow:@file_tree:reports/diagrams/01-diagram.html 0.5 0.5
+ctrldblclick treeRow:@file_tree:reports/diagrams/01-diagram.html 0.5 0.5
 wait 1000
 wait_until slot:@preview 15000
 wait 4000
 shot fix-html-01-diagram.png
-dblclick treeRow:@file_tree:reports/survey/survey.html 0.5 0.5
+ctrldblclick treeRow:@file_tree:reports/survey/survey.html 0.5 0.5
 wait 5000
 assert_found slot:@preview
 assert_missing slot:@preview#2

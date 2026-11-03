@@ -199,7 +199,7 @@ class FakeTreeHost:
 
 
 def test_the_trees_open_entries_open_the_one_file_under_the_cursor_its_own_way():
-    """"Open in its own view" and "Open in contextual view" lead the file tree's menu for
+    """ "Open in its own view" and "Open in contextual view" lead the file tree's menu for
     a file: the row that was right-clicked (``data.clicked``) even inside a wider
     selection, else the one file the target holds; a folder, or several files with no
     clicked row, show neither. Each runs the host's ``open_path`` with its mode."""
@@ -224,5 +224,6 @@ def test_the_trees_open_entries_open_the_one_file_under_the_cursor_its_own_way()
     host = FakeTreeHost()
     reg.run("tree.open_contextual", MenuCall(target=clicked, host=host))
     assert host.opened == [("notes/b.md", "contextual")]
-    folder = MenuTarget(**{**tree_target("notes", "notes/a.md").__dict__, "data": {"clicked": "notes"}})
+    both = tree_target("notes", "notes/a.md")
+    folder = MenuTarget(**{**both.__dict__, "data": {"clicked": "notes"}})
     assert "tree.open_contextual" not in names(folder)

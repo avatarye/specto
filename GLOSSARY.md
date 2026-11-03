@@ -149,7 +149,7 @@ One live display of data or controls on the canvas (a gallery, a JSON inspector,
 _Avoid_: widget, page, pane, viewer (that is a view role), window
 
 **View type**:
-The kind of a view, with the data kinds it accepts, the ports it declares and its one view role: `file_tree`, `gallery` and `scratch` (browser); `image`, `markdown`, `json`, `html`, `pdf` and `preview` (viewer); `video` and `usd` (player); `3d` and `map` (scene).
+The kind of a view, with the data kinds it accepts, the ports it declares and its one view role: `file_tree`, `gallery` and `scratch` (browser); `image`, `markdown`, `json`, `html`, `pdf`, `preview` and `text` (viewer); `video` and `usd` (player); `3d` and `map` (scene).
 _Avoid_: view class, widget type, page type
 
 **View role**:
@@ -173,8 +173,20 @@ A view role: places many items in one space (3D, map).
 _Avoid_: canvas, viewport, world, canvas document
 
 **Preview**:
-The context viewer: a view type with the viewer role that renders the selected item by its kind (image, video, pdf, markdown, json, html, 3D model) with that view type's own renderer, and any other file as a card with its name and size. The default for a double-click in the file tree and for a quick look from the agent; the specific viewers stay for linked compositions that need typed ports such as time.
+The context viewer: a view type with the viewer role that renders the selected item by its kind (image, video, pdf, markdown, json, html, 3D model) with that view type's own renderer, and any other file as a card with its name and size. On a selection it is the contextual view: what Ctrl+double-click in the file tree opens and the agent's quick look; the specific viewers stay for linked compositions that need typed ports such as time, and for dedicated views.
 _Avoid_: quick look (for the view), generic viewer, inspector
+
+**Dedicated view**:
+A view opened for one file (a double-click on it in the file tree, the context menu's "Open in its own view", the agent's `canvas.open_file` in dedicated mode): a view of the type that shows the file's kind, fed that one file by a pinned link from the project source, so later picks never change it; titled `<name> · <folder>`. A file has at most one: opening it again reveals that view. A file no view type shows opens a text view saying "Not supported".
+_Avoid_: pinned view (a pinned intaker is the mechanism, not the view), own view (in prose), fixed preview
+
+**Contextual view**:
+The preview while it follows a selection (the file tree's picks, a gallery's pick): what Ctrl+double-click in the file tree opens or re-points, and what the agent's quick look reuses. Its header and its overworld card say "Contextual · follows selection". A preview the agent pinned to fixed sources is not one.
+_Avoid_: quick look view, live preview, floating preview (that is a floating view)
+
+**Text view**:
+A view type (`text`, viewer role) showing one short text the canvas document carries; the "Not supported: <name> (<ext>)" view an unsupported file opens in. It accepts no data kind.
+_Avoid_: note (that is a scratch pad page), message view, placeholder
 
 **Scratch pad**:
 The project's one place to keep things while looking (#184): a view type (`scratch`, browser role, at most one per canvas) of named pages (tabs), each page one markdown note `.specto/scratch/<page>.md`, rendered like the markdown view (outline, zoom) and editable in place (a rendered / source toggle, autosaved). What the user drops or pastes there from any view or another app is appended as markdown: text as text, pictures as png files in `<page>.assets/` embedded with `![...]()`, files and prims as links relative to the page, an item from a view as a short quote naming its source; the agent reads and edits the pages with its scratch tools. `pages.json` keeps the order, the names and the active page. It needs no input link (a source of its own, reachable like the project source); the page it shows (`params.page`, else the active page) goes out on `items` (the note, then the files it links) and a clicked file link on `selection`. Every change to a page's text or to the pages is an undo step on the pad's own stack, which shares Ctrl+Z with the canvas in time order; switching pages is navigation. The project node's double-click opens it.

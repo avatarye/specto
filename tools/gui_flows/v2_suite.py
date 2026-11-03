@@ -537,8 +537,9 @@ SUITE: dict[str, dict] = {
         "sessions": [{"flows": ["v2-69-pdf.txt"]}],
     },
     "preview": {
-        # #106: double-clicks on an image, pdf, note, video, point cloud, html page, json
-        # and an unknown file re-point one preview, each in the renderer of its kind
+        # #106: Ctrl+double-clicks (#43) on an image, pdf, note, video, point cloud, html
+        # page and json re-point one preview, each in the renderer of its kind; an
+        # unknown file opens the "Not supported" view
         "seed": seed("v2-106-seed.py", "{project}"),
         "sessions": [{"flows": ["v2-106-preview.txt"]}],
     },
@@ -620,12 +621,20 @@ SUITE: dict[str, dict] = {
     },
     "tree-ux": {
         # #122: type icons in a mixed tree (and at 150 %), the details toggle in the
-        # tree's footer, a double-clicked file's preview following later clicks
+        # tree's footer, a Ctrl+double-clicked file's preview following later clicks
         "seed": seed("v2-122-seed.py", "{project}"),
         "sessions": [
             {"flows": ["v2-122-tree-ux.txt"]},
             {"flows": ["v2-122-icons-150.txt"], "env": {"QT_SCALE_FACTOR": "1.5"}},
         ],
+    },
+    "open-views": {
+        # #43: a double-click opens a file's dedicated view (once; a later pick leaves it,
+        # the same file again reveals it), an unsupported file the "Not supported" view,
+        # Ctrl+double-click the contextual preview, tagged in its header and its card;
+        # the context menu offers both
+        "seed": seed("v2-122-seed.py", "{project}"),
+        "sessions": [{"flows": ["v2-43-open-views.txt"]}],
     },
     "fresh-tree": {
         # #125: a new project's file tree fills the visible canvas at any window height

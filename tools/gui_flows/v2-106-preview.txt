@@ -1,9 +1,12 @@
-# v2 #106: one preview shows whatever is double-clicked in the file tree. The project has
-# one file of each kind in look/ (tools/gui_flows/v2-106-seed.py). A double-click on the
-# frame opens a preview beside the tree; each following double-click (a pdf, a note, a
-# video, a point cloud, an html page, a json sidecar, a file no renderer shows) re-points
-# the same preview, which drops the renderer it had and shows the file in the renderer
-# of its kind; the last one is a card with the file's name and size. Never a second view.
+# v2 #106: one preview shows whatever is Ctrl+double-clicked in the file tree (#43: a
+# plain double-click opens a dedicated view instead). The project has one file of each
+# kind in look/ (tools/gui_flows/v2-106-seed.py). A Ctrl+double-click on the frame opens
+# a preview beside the tree; each following Ctrl+double-click (a pdf, a note, a video, a
+# point cloud, an html page, a json sidecar) re-points the same preview, which drops the
+# renderer it had and shows the file in the renderer of its kind. Never a second view.
+# A file no renderer shows (the blob) cannot go to the preview since #43: its
+# Ctrl+double-click opens the "Not supported" text view, and a plain click on it shows
+# the preview's card.
 # Then a preview on the tree's picks (v2-106-canvas.json): picking all nine files feeds it
 # every file, and stepping (#107) goes through them across kinds: the image's own next
 # control steps into the pdf, the pdf's Right key on into the note. Last, a gallery of
@@ -19,7 +22,7 @@ wait 800
 assert_found treeRow:@file_tree:look/h-blob.bin
 shot 106-01-file-tree.png
 # the image: a new preview beside the tree
-dblclick treeRow:@file_tree:look/a-frame.jpg 0.5 0.5
+ctrldblclick treeRow:@file_tree:look/a-frame.jpg 0.5 0.5
 wait_until slot:@preview 15000
 # off the tree, so the row's hover thumbnail goes
 hover header:@preview 0.5 0.5
@@ -28,48 +31,52 @@ assert_painted slot:@preview 0.9
 shot 106-02-image.png
 print snap {"target": "@preview"}
 # the pdf: the same preview, the image renderer gone, QtPdf's pages instead
-dblclick treeRow:@file_tree:look/b-report.pdf 0.5 0.5
+ctrldblclick treeRow:@file_tree:look/b-report.pdf 0.5 0.5
 wait 3000
 assert_missing slot:@preview#2
 assert_painted slot:@preview 0.9
 shot 106-03-pdf.png
 print snap {"target": "@preview"}
 # the note: the markdown view's page
-dblclick treeRow:@file_tree:look/c-notes.md 0.5 0.5
+ctrldblclick treeRow:@file_tree:look/c-notes.md 0.5 0.5
 wait 4000
 assert_missing slot:@preview#2
 shot 106-04-markdown.png
 print snap {"target": "@preview"}
 # the video: mpv on its first frame
-dblclick treeRow:@file_tree:look/d-cam-a.mp4 0.5 0.5
+ctrldblclick treeRow:@file_tree:look/d-cam-a.mp4 0.5 0.5
 wait 4000
 assert_missing slot:@preview#2
 assert_painted slot:@preview 0.9
 shot 106-05-video.png
 print snap {"target": "@preview"}
 # the point cloud: the 3D view's Babylon page
-dblclick treeRow:@file_tree:look/e-terrain.ply 0.5 0.5
+ctrldblclick treeRow:@file_tree:look/e-terrain.ply 0.5 0.5
 wait 8000
 assert_missing slot:@preview#2
 assert_painted slot:@preview 0.9
 shot 106-06-3d.png
 print snap {"target": "@preview"}
 # the html page, then the json sidecar
-dblclick treeRow:@file_tree:look/f-report.html 0.5 0.5
+ctrldblclick treeRow:@file_tree:look/f-report.html 0.5 0.5
 wait 4000
 assert_missing slot:@preview#2
 assert_painted slot:@preview 0.9
 shot 106-07-html.png
-dblclick treeRow:@file_tree:look/g-sidecar.json 0.5 0.5
+ctrldblclick treeRow:@file_tree:look/g-sidecar.json 0.5 0.5
 wait 4000
 assert_missing slot:@preview#2
 shot 106-08-json.png
 print snap {"target": "@preview"}
-# a file no renderer shows: the quiet card
-dblclick treeRow:@file_tree:look/h-blob.bin 0.5 0.5
+# a file no renderer shows: Ctrl+double-click falls back to the "Not supported" view
+# (#43); a plain click on it shows the preview's quiet card
+ctrldblclick treeRow:@file_tree:look/h-blob.bin 0.5 0.5
 wait 2500
 assert_missing slot:@preview#2
-assert_found preview:@preview:card
+wait_until slot:@text 10000
+assert_text text:@text:body Not supported: h-blob.bin (.bin)
+click treeRow:@file_tree:look/h-blob.bin 0.5 0.5
+wait_until preview:@preview:card 8000
 shot 106-09-card.png
 print snap {"target": "@preview"}
 print snap {"target": "canvas", "layout": true}
