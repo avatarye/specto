@@ -415,7 +415,11 @@ rtx_views=1)`. A view counts by its manifest's `ViewCost` (a usd view with
 `params.renderer: storm` costs no `rtx_views`) when its layout rect touches the window frame
 (what renders; off-screen views are paused and free). `quota_problems(doc, quotas,
 view_cost)` is applied at submit, whoever submits; the problem names the offenders and
-the fix (move views out of the frame or close some). `locked: true` on a view lives in
+the fix (move views out of the frame or close some). The gestures that make a view live
+(`gestures.open_file`, `set_collapsed` expanding; ADR 0025) first call `make_room(doc,
+quotas, view_cost, keep)`: the oldest live views counting toward an exceeded quota
+(floating ones last) collapse in the same submit; `OpenedFile.collapsed` names them with
+the quota. `locked: true` on a view lives in
 the document; the user toggles it from the header (`gestures.set_locked`); a submit by
 any other origin that moves, resizes, deletes, unlocks or relinks it is refused with
 "ask the user" as the fix. Users may move locked views (the lock binds the agent).

@@ -15,6 +15,14 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Opening or expanding a view past a quota makes room instead of failing (SPEC-34, ADR
+  0025). A double-click on a second stage while the first stage's usd view is live was
+  refused with "canvas document has 1 problem" (one live RTX view per canvas) and opened
+  nothing; now the second stage opens its own usd view and the first collapses to its
+  title bar in the same undo step, with a notice naming it. The same holds for every
+  quota (a fifth video, a fourth 3D viewport, a ninth web view) and for the header's
+  expand. `canvas.open_file` reports the views it collapsed in `collapsed`; an agent's
+  `canvas.submit` over a quota is still refused with the fix.
 - A double-click on a file in the file tree opens a dedicated view; Ctrl+double-click the
   contextual preview (SPEC-32, ADR 0023). The dedicated view is of the type that shows the
   file's kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed that one file
