@@ -17,6 +17,9 @@ dependencies = [
     # Storm wherever the OpenUSD imaging build exists (specto_core.machine.detect_storm)
     "PyOpenGL==3.1.10",
     "numpy>=2",
+    # the usd view's collision view: convex hulls with Qhull (SPEC-33; pure Python took
+    # minutes on a dense collider)
+    "scipy>=1.14",
 ]
 
 [project.optional-dependencies]

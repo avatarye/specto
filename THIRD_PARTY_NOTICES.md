@@ -141,6 +141,7 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 | mcp | MIT | The `specto-mcp` server for Claude Code and other MCP clients. |
 | pydantic, pydantic-core | MIT | The canvas document and every validated model. |
 | numpy | BSD-3-Clause (with 0BSD, MIT, Zlib and CC0 parts) | Image buffers, the usd source's frames. |
+| scipy | BSD-3-Clause; its wheels bundle Qhull (Qhull licence), OpenBLAS and LAPACK (BSD-3-Clause variants) and the GCC runtime (GPL-3.0 with the GCC Runtime Library Exception) | Convex hulls (Qhull) for the usd view's collision view. |
 | pillow | MIT-CMU | Image decoding and thumbnails. |
 | PyOpenGL | BSD-3-Clause | The usd view's Storm source draws offscreen with it. |
 | platformdirs | MIT | User and cache directories. |

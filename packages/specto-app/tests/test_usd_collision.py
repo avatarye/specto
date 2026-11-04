@@ -3,6 +3,9 @@ by its approximation, in world space and a shaded flat tint, and what gets hidde
 
 from __future__ import annotations
 
+import threading
+import time
+
 import numpy as np
 import pytest
 
@@ -109,6 +112,22 @@ def test_the_hull_of_points_on_a_sphere_keeps_them_all():
     verts, tris = convex_hull(p)
     assert len(verts) == 300
     assert len(tris) == 2 * 300 - 4  # a closed triangulated sphere: F = 2V - 4
+
+
+def test_the_hull_of_a_dense_scan_takes_well_under_a_second():
+    # SPEC-33: a gripper's 31 k-point collider hull held the render thread for minutes
+    rng = np.random.default_rng(3)
+    p = rng.normal(size=(30000, 3))
+    p /= np.linalg.norm(p, axis=1, keepdims=True)  # every point on the hull: the worst case
+    box: list = []
+    worker = threading.Thread(target=lambda: box.append(convex_hull(p)), daemon=True)
+    t0 = time.perf_counter()
+    worker.start()
+    worker.join(2.0)
+    assert box, "no hull in 2 s"
+    assert time.perf_counter() - t0 < 1.0
+    verts, tris = box[0]
+    assert len(verts) == 30000 and len(tris) == 2 * 30000 - 4
 
 
 def test_flat_or_too_few_points_have_no_hull():

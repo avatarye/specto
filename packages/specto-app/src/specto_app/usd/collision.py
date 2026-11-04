@@ -85,82 +85,22 @@ def fan(counts, indices) -> np.ndarray:
 
 def convex_hull(points) -> tuple[np.ndarray, np.ndarray] | None:
     """The convex hull of ``points`` (N, 3) as (vertices, outward triangles), or None when
-    they are flat or fewer than four. Quickhull: each round takes the farthest point
-    above some face, replaces the faces it sees with a fan from their horizon, and hands
-    the points above the removed faces to the new ones."""
+    they are flat or fewer than four. Qhull (SPEC-33: a dense collider's hull in
+    milliseconds, where pure Python took minutes); its facets come triangulated, each
+    turned to face out along the plane Qhull gives it."""
+    from scipy.spatial import ConvexHull, QhullError
+
     pts = np.unique(np.asarray(points, np.float64).reshape(-1, 3), axis=0)
     if len(pts) < 4:
         return None
-    eps = 1e-9 * max(1.0, float(np.abs(pts).max()))
-    i0 = int(np.argmin(pts[:, 0]))
-    i1 = int(np.argmax(np.linalg.norm(pts - pts[i0], axis=1)))
-    d = pts[i1] - pts[i0]
-    if np.linalg.norm(d) <= eps:
-        return None
-    i2 = int(np.argmax(np.linalg.norm(np.cross(pts - pts[i0], d), axis=1)))
-    n = np.cross(d, pts[i2] - pts[i0])
-    if np.linalg.norm(n) <= eps * np.linalg.norm(d):
-        return None
-    side = (pts - pts[i0]) @ n
-    i3 = int(np.argmax(np.abs(side)))
-    if abs(side[i3]) <= eps * np.linalg.norm(n):
-        return None
-    inside = pts[[i0, i1, i2, i3]].mean(axis=0)
-
-    faces: list[tuple[int, int, int]] = []
-    planes: list[tuple[np.ndarray, float]] = []
-    alive: list[bool] = []
-
-    def add(a: int, b: int, c: int) -> int:
-        nrm = np.cross(pts[b] - pts[a], pts[c] - pts[a])
-        if (inside - pts[a]) @ nrm > 0:
-            a, b, nrm = b, a, -nrm
-        length = np.linalg.norm(nrm)
-        nrm = nrm / length if length > 0 else nrm
-        faces.append((a, b, c))
-        planes.append((nrm, float(nrm @ pts[a])))
-        alive.append(True)
-        return len(faces) - 1
-
-    for tri in ((i0, i1, i2), (i0, i1, i3), (i0, i2, i3), (i1, i2, i3)):
-        add(*tri)
-    owner = np.full(len(pts), -1, np.int64)
-
-    def assign(candidates: np.ndarray, new_faces: list[int]) -> None:
-        left = candidates
-        for f in new_faces:
-            if not len(left):
-                break
-            nrm, off = planes[f]
-            above = pts[left] @ nrm - off > eps
-            owner[left[above]] = f
-            left = left[~above]
-        owner[left] = -1
-
-    assign(np.setdiff1d(np.arange(len(pts)), [i0, i1, i2, i3]), [0, 1, 2, 3])
-    while True:
-        waiting = np.nonzero(owner >= 0)[0]
-        if not len(waiting):
-            break
-        f = int(owner[waiting[0]])
-        mine = waiting[owner[waiting] == f]
-        nrm, off = planes[f]
-        p = int(mine[np.argmax(pts[mine] @ nrm - off)])
-        live = [i for i, a in enumerate(alive) if a]
-        normals = np.array([planes[i][0] for i in live])
-        offsets = np.array([planes[i][1] for i in live])
-        visible = [live[i] for i in np.nonzero(normals @ pts[p] - offsets > eps)[0]]
-        edges = set()
-        for v in visible:
-            a, b, c = faces[v]
-            edges.update(((a, b), (b, c), (c, a)))
-            alive[v] = False
-        horizon = [e for e in edges if (e[1], e[0]) not in edges]
-        new_faces = [add(a, b, p) for a, b in horizon]
-        orphans = np.nonzero(np.isin(owner, visible))[0]
-        owner[p] = -1
-        assign(orphans[orphans != p], new_faces)
-    tris = np.array([faces[i] for i, a in enumerate(alive) if a], np.int64)
+    try:
+        hull = ConvexHull(pts)
+    except (QhullError, ValueError):
+        return None  # flat (or worse): no volume to draw
+    tris = hull.simplices.astype(np.int64)
+    a, b, c = pts[tris[:, 0]], pts[tris[:, 1]], pts[tris[:, 2]]
+    inward = np.einsum("fk,fk->f", np.cross(b - a, c - a), hull.equations[:, :3]) < 0
+    tris[inward] = tris[inward][:, [0, 2, 1]]
     used, tris = np.unique(tris, return_inverse=True)
     return pts[used], tris.reshape(-1, 3)
 
