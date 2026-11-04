@@ -176,7 +176,7 @@ def cover_words(state: str, message: str) -> str:
 RENDERER_LABELS = {"rtx": "RTX", "storm": "Storm", "stub": "Stub"}
 #: the view modes (#153), as the source and the 3d view name them, with the chip's words
 VIEW_MODES = {"lit": "Lit", "unlit": "Unlit", "wireframe": "Wireframe", "collision": "Collision"}
-MODE_TIMEOUT_S = 130.0  # a first collision view builds the overlay (the source waits 120 s)
+MODE_TIMEOUT_S = 130.0  # a first collision view builds the overlay; a sky compiles its MDL
 #: Windows exit codes (NTSTATUS) of a process that crashed, in words
 CRASH_CODES = {
     0xC0000005: "access violation",

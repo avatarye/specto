@@ -96,6 +96,7 @@ import time
 import traceback
 from collections import deque
 from collections.abc import Callable
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Any
 
@@ -119,7 +120,6 @@ SETTLE_STEPS = {"rtx": 120, "storm": 8}
 SKY_SETTLE_STEPS = 600
 MAX_PIXELS = 1920 * 1080
 RENDERERS = ("rtx", "storm")
-PICK_TIMEOUT_S = 10.0
 #: the health phase while the renderer starts
 START_PHASE = {"rtx": "compiling shaders", "storm": "starting"}
 OUTLINE_COLOR = "#2f6fab"  # the theme's accent; the host sends its own
@@ -127,7 +127,6 @@ OUTLINE_COLOR = "#2f6fab"  # the theme's accent; the host sends its own
 STAGE_QUERIES = ("query_tree", "reveal", "properties", "bounds", "view_modes")
 VIEW_MODES = ("lit", "unlit", "wireframe", "collision")
 NO_COLLIDERS = "no prims with UsdPhysics CollisionAPI"
-MODE_TIMEOUT_S = 120.0  # a collision view builds its overlay first
 COLD_MESSAGE = "(first run, about 3 min)"
 
 
@@ -216,8 +215,13 @@ class UsdSource:
         self._want_restart = False
         self._want_time: float | None = None
         self._delta: float | None = None  # the next step's delta_time (None: the default)
-        self._picks: list[tuple[float, float, threading.Event, list]] = []
-        self._calls: list[tuple[Callable[[], dict], threading.Event, list]] = []
+        self._picks: list[tuple[float, float, Future]] = []
+        self._calls: list[tuple[Callable[[], dict], Future]] = []
+        #: the view mode asked last and not yet switched to, with every answer waiting on it
+        self._want_mode: str | None = None
+        self._mode_answers: list[Future] = []
+        #: the collision overlay building off the render thread, for the stage it reads
+        self._overlay: tuple[Any, Future] | None = None
         self.view_mode = "lit"
         self.environment = "stage"  # the environment asked for (SPEC-31), what shows, and why
         self.environment_shown = "stage"
@@ -253,7 +257,7 @@ class UsdSource:
             self._stop = True
             self._cond.notify()
 
-    def handle(self, method: str, params: dict) -> dict:
+    def handle(self, method: str, params: dict) -> dict | Future:
         if method in STAGE_QUERIES:
             with self._info_lock:
                 info = self.info
@@ -272,42 +276,47 @@ class UsdSource:
         if method == "pick":
             return self._ask_pick(float(params["x"]), float(params["y"]))
         if method == "set_view_mode":
-            mode = str(params.get("mode") or "")
-            return self._ask(lambda: self._set_view_mode(mode), MODE_TIMEOUT_S)
+            return self._ask_mode(str(params.get("mode") or ""))
         if method == "set_environment":
             self._take_choice(params)
-            return self._ask(self._set_environment, MODE_TIMEOUT_S)
+            return self._ask(self._set_environment)
         if method == "set_sky_controls":
             self.sky_controls = env.SkyControls.of(params)
-            return self._ask(self._set_sky_controls, MODE_TIMEOUT_S)
+            return self._ask(self._set_sky_controls)
         with self._cond:
             result = self._handle(method, params)
             self._cond.notify()
         return result
 
-    def _ask_pick(self, x: float, y: float) -> dict:
-        """Wait for the render thread to pick at NDC ``(x, y)`` (it owns the renderer)."""
-        done, box = threading.Event(), []
+    def _ask_pick(self, x: float, y: float) -> Future:
+        """The render thread's pick at NDC ``(x, y)`` (it owns the renderer), answered
+        when it comes; the control thread reads on meanwhile."""
+        answer: Future = Future()
         with self._cond:
-            self._picks.append((x, y, done, box))
+            self._picks.append((x, y, answer))
             self._cond.notify()
-        if not done.wait(PICK_TIMEOUT_S):
-            raise TimeoutError(f"no pick in {PICK_TIMEOUT_S} s")
-        if isinstance(box[0], Exception):
-            raise box[0]
-        return box[0]
+        return answer
 
-    def _ask(self, fn: Callable[[], dict], timeout: float) -> dict:
-        """Run ``fn`` on the render thread (it owns the renderer) and answer its result."""
-        done, box = threading.Event(), []
+    def _ask_mode(self, mode: str) -> Future:
+        """Switch to view mode ``mode`` on the render thread. A mode asked while an
+        earlier one waits gives way to it: both answer with the last one's switch."""
+        if mode not in VIEW_MODES:
+            raise ValueError(f"unknown view mode {mode!r} (have: {', '.join(VIEW_MODES)})")
+        answer: Future = Future()
         with self._cond:
-            self._calls.append((fn, done, box))
+            self._want_mode = mode
+            self._mode_answers.append(answer)
             self._cond.notify()
-        if not done.wait(timeout):
-            raise TimeoutError(f"no answer in {timeout} s")
-        if isinstance(box[0], Exception):
-            raise box[0]
-        return box[0]
+        return answer
+
+    def _ask(self, fn: Callable[[], dict]) -> Future:
+        """``fn`` run on the render thread (it owns the renderer), answered when it is
+        done; the control thread reads on meanwhile (SPEC-33)."""
+        answer: Future = Future()
+        with self._cond:
+            self._calls.append((fn, answer))
+            self._cond.notify()
+        return answer
 
     def _view_modes(self, info: Any) -> dict:
         """The loaded stage's view modes: which this renderer can show, and why not."""
@@ -449,11 +458,19 @@ class UsdSource:
                 or self._inflight
                 or self._picks
                 or self._calls
+                or self._mode_ready()
                 or self._wants_steps()
             ):
                 self._cond.wait()
             if self._stop:
                 return False
+            modes = []
+            if self._mode_ready():
+                if self._want_mode == "collision" and self._start_overlay():
+                    pass  # asked again once the overlay is built; frames go on meanwhile
+                else:
+                    modes.append((self._want_mode, self._mode_answers))
+                    self._want_mode, self._mode_answers = None, []
             load, self._want_load = self._want_load, None
             restart, self._want_restart = self._want_restart, False
             size, self._want_size = self._want_size, None
@@ -493,22 +510,71 @@ class UsdSource:
                 self._set_time(timecode)
             self._pick(picks)
             self._call(calls)
+            self._switch(modes)
             self._step()
         except Exception as e:
             self._fail(e)
         finally:
             self._pick(picks)  # each one answered, an error when nothing could pick
             self._call(calls)
+            self._switch(modes)
         return True
 
-    def _call(self, calls: list[tuple[Callable[[], dict], threading.Event, list]]) -> None:
-        while calls:
-            fn, done, box = calls.pop(0)
+    def _mode_ready(self) -> bool:
+        """A view mode is asked and nothing it needs is still building (under ``_cond``)."""
+        if self._want_mode is None:
+            return False
+        if self._want_mode != "collision" or self._overlay is None:
+            return True
+        info, built = self._overlay
+        return info is not self.info or built.done()
+
+    def _start_overlay(self) -> bool:
+        """Start building the loaded stage's collision overlay on a thread of its own
+        (SPEC-33: a stage with many hulls takes a while, and the render loop goes on
+        meanwhile), unless it is built or building; True when it is not built yet. The
+        stage keeps it (:meth:`.stage.StageInfo.collision`)."""
+        info = self.info
+        if info is None or self.renderer is None or self.failed:
+            return False  # nothing to build for: the switch answers why
+        if self._overlay is not None and self._overlay[0] is info:
+            return not self._overlay[1].done()
+        built: Future = Future()
+        self._overlay = (info, built)
+        timecode = self.timecode
+
+        def build() -> None:
             try:
-                box.append(fn())
+                built.set_result(info.collision(timecode))
             except Exception as e:
-                box.append(e)
-            done.set()
+                built.set_exception(e)
+            with self._cond:
+                self._cond.notify()  # the switch waiting on it goes ahead
+
+        threading.Thread(target=build, name="usd-collision", daemon=True).start()
+        return True
+
+    def _switch(self, modes: list[tuple[str, list[Future]]]) -> None:
+        """Switch to the view mode taken this turn; every answer waiting on it gets it."""
+        while modes:
+            mode, answers = modes.pop(0)
+            try:
+                result, error = self._set_view_mode(mode), None
+            except Exception as e:
+                result, error = None, e
+            for answer in answers:
+                if error is not None:
+                    answer.set_exception(error)
+                else:
+                    answer.set_result(result)
+
+    def _call(self, calls: list[tuple[Callable[[], dict], Future]]) -> None:
+        while calls:
+            fn, answer = calls.pop(0)
+            try:
+                answer.set_result(fn())
+            except Exception as e:
+                answer.set_exception(e)
 
     def _set_view_mode(self, mode: str) -> dict:
         """Switch the renderer to ``mode`` (#153); the answer is the mode in effect."""
@@ -520,7 +586,11 @@ class UsdSource:
             raise ValueError(f"the {self.renderer_name} renderer has no view modes")
         overlay = None
         if mode == "collision":
-            overlay = self.info.collision(self.timecode)
+            built = self._overlay
+            if built is not None and built[0] is self.info:
+                overlay = built[1].result()  # done: the switch waited for it
+            else:
+                overlay = self.info.collision(self.timecode)
             if not overlay.colliders:
                 raise ValueError(NO_COLLIDERS)
             if not overlay.sources:
@@ -630,10 +700,10 @@ class UsdSource:
         """The steps after an environment switch: a sky's MDL compiles for some seconds."""
         return max(self.settle_steps, SKY_SETTLE_STEPS) if shown == "sky" else self.settle_steps
 
-    def _pick(self, picks: list[tuple[float, float, threading.Event, list]]) -> None:
+    def _pick(self, picks: list[tuple[float, float, Future]]) -> None:
         """Answer the picks taken this turn, against the camera of this turn."""
         while picks:
-            x, y, done, box = picks.pop(0)
+            x, y, answer = picks.pop(0)
             try:
                 if self.renderer is None or self.info is None or self.failed:
                     raise ValueError("no stage is rendering")
@@ -644,10 +714,9 @@ class UsdSource:
                 if hit and self.view_mode == "collision":
                     collider = self.info.collision().source_of(hit["path"])
                     hit = {**hit, "path": collider or hit["path"]}
-                box.append({"hit": True, **hit} if hit else {"hit": False})
+                answer.set_result({"hit": True, **hit} if hit else {"hit": False})
             except Exception as e:
-                box.append(e)
-            done.set()
+                answer.set_exception(e)
 
     def _usd_camera(self) -> dict[str, Any]:
         """The camera as the renderer takes it (rtx: :func:`.nav.usd_camera`)."""

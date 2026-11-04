@@ -37,6 +37,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Sequence
+from concurrent.futures import Future
 from typing import IO, Any
 
 STDERR_TAIL = 200  # the source's last stderr lines kept by the host
@@ -49,12 +50,15 @@ class SourceError(RuntimeError):
 # -- source side ---------------------------------------------------------------------
 class ControlServer:
     """Reads requests from stdin on a daemon thread and answers through ``handler``
-    (``handler(method, params) -> dict``; raising answers with an error). ``on_eof``
-    runs when the host closes stdin."""
+    (``handler(method, params) -> dict``; raising answers with an error). A handler that
+    cannot answer at once returns a :class:`~concurrent.futures.Future` instead: the
+    answer goes out when it resolves, and the thread reads on meanwhile (SPEC-33: a
+    slow command must not stop the camera moves behind it). ``on_eof`` runs when the
+    host closes stdin."""
 
     def __init__(
         self,
-        handler: Callable[[str, dict], dict | None],
+        handler: Callable[[str, dict], dict | Future | None],
         on_eof: Callable[[], None],
         stdin: IO[bytes] | None = None,
         stdout: IO[bytes] | None = None,
@@ -93,12 +97,28 @@ class ControlServer:
             try:
                 result = self._handler(msg.get("method", ""), msg.get("params") or {})
             except Exception as exc:
-                if rid is not None:
-                    self._write({"id": rid, "error": {"message": str(exc)}})
+                self._answer(rid, None, exc)
                 continue
-            if rid is not None:
-                self._write({"id": rid, "result": result or {}})
+            if isinstance(result, Future):
+                result.add_done_callback(lambda f, rid=rid: self._answer_later(rid, f))
+            else:
+                self._answer(rid, result, None)
         self._on_eof()
+
+    def _answer(self, rid: Any, result: dict | None, error: BaseException | None) -> None:
+        if rid is None:
+            return
+        if error is not None:
+            self._write({"id": rid, "error": {"message": str(error)}})
+        else:
+            self._write({"id": rid, "result": result or {}})
+
+    def _answer_later(self, rid: Any, future: Future) -> None:
+        if future.cancelled():
+            self._answer(rid, None, SourceError("cancelled"))
+            return
+        error = future.exception()
+        self._answer(rid, None if error is not None else future.result(), error)
 
 
 # -- host side -----------------------------------------------------------------------
