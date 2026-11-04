@@ -7,15 +7,16 @@ Status: v2 on the mainline, released as 0.2.0 and under active development; buil
 tested on Windows 11, with Ubuntu 24.04 and macOS routes that are run less often. The
 design background is in [DESIGN.md](DESIGN.md); decisions in `docs/adr/`.
 
-Issue numbers in the code and docs (`#NNN`) refer to the prior tracker, not to this
-repository's issues; they are kept as history and do not resolve here.
+Issue numbers in the code and docs (`#NNN`) are history and do not resolve here. Current
+work is tracked as `SPEC-n` tasks; see [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+How work is done: [docs/agents/workflow.md](docs/agents/workflow.md).
 
 Licence: [MIT](LICENSE). Third-party components and what they are licensed under:
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Setup guides: [docs/setup/developer.md](docs/setup/developer.md) (build, test and run a
 checkout on Windows 11 or Ubuntu 24.04) and [docs/setup/user.md](docs/setup/user.md)
-(the first launch, the agent and the basics). There is no installer yet (#200).
+(the first launch, the agent and the basics). There is no installer yet (SPEC-24).
 Releases and the versioning rule: [CHANGELOG.md](CHANGELOG.md); `specto --version`
 prints the installed one.
 
@@ -40,7 +41,7 @@ uv sync                       # creates .venv with every workspace member (edita
 uv run pytest                 # all package tests
 uv run pytest packages/specto-core
 uv run ruff check . && uv run ruff format --check .
-uv run python tools/gen_api.py   # regenerate specto_sdk/{api-info.json,_api.py} (--check in CI)
+uv run python tools/gen_api.py   # regenerate specto_sdk/{api-info.json,_api.py} (--check before merging)
 ```
 
 The native Qt Quick module (`Specto.Native`: the gallery, the frame item, rounded clips

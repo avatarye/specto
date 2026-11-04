@@ -19,6 +19,8 @@ The agent-first v2 model (ADRs 0011-0016) replaces the canvas document, the chan
 - Test v2 at three agreed seams: submit to resolved state (headless core), view-host port emit/receive, and scripted human flows. Delete obsolete tests rather than port them.
 - The MCP and in-process agent tool set is state, describe, schema, submit_canvas, snap and undo.
 
+Amended 2026-11-03: the integration branch merged into `main` for 0.2.0, and work now branches from `main`, one branch per task (`docs/agents/workflow.md`). The other decisions stand.
+
 ## Consequences
 
 - A v1 project opened in v2 is refused with a clear message.

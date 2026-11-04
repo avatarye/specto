@@ -365,13 +365,16 @@ uv run python tools/gui_flows/v2_suite.py --work <scratch folder> [--out out/ver
     [--tier offscreen] [--jobs 4] [--only open views ...] [--live] [--net]
 
 # the GPU window: a real window that never takes the focus, one entry at a time, for RTX,
-# Storm, mpv video, the WebGL pages and the pixel asserts that need the real scene graph
+# Storm, mpv video, the WebGL pages and the pixel asserts that need the real scene graph;
+# run it when render, video or WebGL code changed, under a guard that stops the run if the
+# foreground window, the cursor or the clipboard changes
 uv run python tools/gui_flows/v2_suite.py --work <scratch folder> --tier gpu [--heavy]
 
 # the real mouse: pyautogui under the desktop lock, when nobody is using the machine; only
 # what Qt events cannot reach (native drag and drop into another application)
-uv venv /tmp/pyauto && uv pip install --python /tmp/pyauto/Scripts/python.exe pyautogui pillow
-uv run python tools/desktop_lock.py run <name> -- /tmp/pyauto/Scripts/python.exe \
+# (the venv's python is <venv>/Scripts/python.exe on Windows, <venv>/bin/python elsewhere)
+uv venv <scratch>/pyauto && uv pip install --python <scratch>/pyauto/Scripts/python.exe pyautogui pillow
+uv run python tools/desktop_lock.py run <name> -- <scratch>/pyauto/Scripts/python.exe \
     tools/gui_flows/v2_suite.py --work <scratch folder> --tier mouse
 ```
 
@@ -479,18 +482,18 @@ must be on the PATH of whatever runs them (the plan warns when they are not).
 
 ## Worktrees
 
-Each ticket is built on its own branch in its own worktree:
+Each task is built on its own branch in its own worktree, off `main` (`docs/agents/workflow.md`):
 
 ```text
 git fetch origin
-git worktree add ../specto-wt/<name> -b v2/<name> origin/v2/integration
+git worktree add ../specto-wt/<name> -b fix/<slug> origin/main     # or feat/, docs/
 cd ../specto-wt/<name>
 uv sync --extra rtx --extra storm
 ```
 
 A worktree is a fresh checkout as far as the git-ignored artefacts go: it needs its own
 `web/vendor/` (step 2, or copy the folder from a built checkout), its own native plugin
-(step 4: copying the folder works until the C++ changes, so rebuild after copying) and
+(step 4: always build it in the worktree; a copied plugin goes stale silently) and
 test data. For the test data, either build the worktree's own (step 6) or point it at the
 main checkout's: `SPECTO_TESTDATA=<main checkout>/testdata` (the seeds honour
 it). NEVER junction or symlink `testdata/` into a worktree: `git worktree remove --force`

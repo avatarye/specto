@@ -227,7 +227,7 @@ user dir to forget recents, approvals and settings.
 
 ## Known limits
 
-- No installer or packaged app: a built checkout and a shell are needed (#200).
+- No installer or packaged app: a built checkout and a shell are needed (SPEC-24).
 - Windows 11 and Ubuntu 24.04; macOS untested.
 - The agent needs a Claude Code login; `ANTHROPIC_API_KEY` in the environment is ignored
   unless `SPECTO_AGENT_KEEP_API_KEY=1`.
@@ -236,11 +236,12 @@ user dir to forget recents, approvals and settings.
 - The usd view needs an extra: `rtx` (NVIDIA GPU, a 2.3 GB download) or `storm`; without
   one it shows a test pattern. The video view needs libmpv built in.
 - Nothing loads from the network except the map's basemap tiles (when a view has the
-  `net:tiles` capability) and pages the html view is allowed to reach.
+  `net:tiles` capability), pages the html view is allowed to reach, and the usd view's
+  skies and HDRIs, fetched once on first use.
 - The file tree's search finds files on disk by their path under the project, not
   archive members; with Everything, only what its index holds (its exclude settings
   apply). The project node
   shows no file count until a view pinned to the whole folder has scanned it; the tree
   never scans the whole project.
-- The seam-3 GUI tests take over the mouse and keyboard; do not run them while using the
-  desktop.
+- The real-mouse tier of the GUI tests takes over the mouse and keyboard; do not run it
+  while using the desktop. The offscreen and GPU tiers leave the desktop alone.

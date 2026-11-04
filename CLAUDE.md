@@ -2,7 +2,9 @@
 
 Personal desktop viewer for agent-produced data, agent-first with a minimal canvas: the agent composes views and links, the user looks, interacts and arranges. Vocabulary: `GLOSSARY.md`. Decisions: `docs/adr/` (0011-0017 are the v2 set and supersede `docs/review/hld.md` where they conflict). Background: `DESIGN.md`. Package contracts: `docs/contracts.md`.
 
-Active work: open tasks labelled `spec`; each is built with `implement-spec` on an integration branch named after it.
+## How work is done
+
+Read `docs/agents/workflow.md` before doing anything. In short: every request becomes a board task first. A builder takes one task in its own worktree off `main`, works test-first and opens a pull request. The lead reviews it on two axes, then fast-forwards `main` and closes the task.
 
 ## Agent skills
 

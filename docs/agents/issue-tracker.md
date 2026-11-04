@@ -6,6 +6,13 @@ GitHub Issues stay open as a public inbox. The maintainer's intake step copies e
 
 The `backlog` CLI finds the board through the `BACKLOG_CWD` environment variable, so commands work from any checkout or worktree. Task ids look like `SPEC-12`.
 
+## Two rules
+
+- **A task before any work.** Every bug, feature or docs request becomes a task before anyone writes code. A builder is given its task id.
+- **Close with the evidence.** When the work merges, set the task `Done` with a final summary naming the cause, the fix, the pull request and the merge commit, then commit and push the board.
+
+The full process is in `docs/agents/workflow.md`.
+
 ## Conventions
 
 - **Create a task**: `backlog task create "<title>" -d "<description>" -l <labels> --ac "<criterion>"` (repeat `--ac` once per criterion). On Windows, call the CLI through `node <npm root -g>/backlog.md/cli.js`: the npm shim cuts multi-line arguments at the first newline.
@@ -21,7 +28,7 @@ The board's own repository commits its changes. The board is the only place task
 
 ## Linking to this repo
 
-Commits and pull requests in this public repo name the task id only (`Refs SPEC-12`). They never copy task text beyond what the change itself needs. Plain `#NNN` numbers up to #43 in code and docs refer to the old GitHub issues, since deleted; the board's `backlog/docs/github-issue-map.md` maps them to task ids.
+Commits and pull requests in this public repo name the task id only (`Refs SPEC-12`). They never copy task text beyond what the change itself needs. Plain `#NNN` numbers in code and docs are history. Most come from the tracker used before the repository was republished on 2026-11-01. #1 to #43 of this repository's own GitHub issues were deleted after they were copied to the board, and the board's `backlog/docs/github-issue-map.md` maps them to task ids.
 
 ## When a skill says "publish to the issue tracker"
 

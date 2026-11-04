@@ -214,7 +214,7 @@ Rules that follow:
 - Command API transport is `QLocalServer`: a named pipe on Windows, a Unix socket
   on Linux and macOS, one code path.
 - Paths via `platformdirs` (recipe library, thumbnail cache, config).
-- CI on all three; GPU-backend tests run only on machines that have the backend.
+- Tested on all three before merging (there is no hosted CI yet); GPU-backend tests run only on machines that have the backend.
 
 ## Architecture: modules and the common CLI/SDK layer
 

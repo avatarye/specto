@@ -1,5 +1,7 @@
 # Spike S1, Storm half: the OpenUSD imaging build
 
+> Historical record, not instructions: the branches, paths and tools named below are from the M1/M2 spikes and have moved or been retired.
+
 Date: 2026-10-12. Branch `m2/usd`, script `tools/build_openusd.py`.
 Scope per HLD section 10 (`shell` decision, Storm half) and 5.5: get a Storm-capable
 OpenUSD (imaging, usdview, Python bindings) built against Specto's runtime
