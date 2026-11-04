@@ -59,6 +59,8 @@ declare namespace SpectoApi {
     submit?: SubmitResult | null;
     /** How it opened: contextual, or dedicated (asked for, or the fallback of a contextual open whose kind the preview cannot show; a file no view shows opens a text view saying Not supported). default: "contextual" */
     mode?: string;
+    /** Views collapsed in the same submit to make room for the new one under a quota, each with the quota's name (rtx_views: one live RTX view per canvas, so a second stage's usd view collapses the first). */
+    collapsed?: Record<string, string>;
   }
   /** What a submit changed. ``empty`` when the document equalled the live one (no undo
 step, nothing journaled). */
@@ -501,7 +503,7 @@ step, nothing journaled). */
     "api.info": { args: ApiInfoArgs; result: ApiInfoResult };
     /** The undo history: the newest submits as one line each; with patch=true the detailed diff of each (spec story 15: only when asked for). (read_only: true, destructive: false; scope project) */
     "canvas.history": { args: CanvasHistoryArgs; result: CanvasHistoryResult };
-    /** Open a file from the file tree, as the user's double-click does (SPEC-32). mode contextual (the default; Ctrl+double-click): a quick look in the preview, which renders the file by its kind; the file is picked in the tree and the preview follows the tree's picks (a selection intaker), so later picks show in it too; an existing preview is reused (its link re-pointed at the picks if it had another), else a new one is placed beside the file tree; a kind the preview cannot show (a usd stage) opens dedicated instead. mode dedicated (a double-click): a view of the file's own, of the view type that shows its kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed by a pinned link from project.all_files to that one file, labelled '<name> · <folder>'; a file no view shows opens a text view saying 'Not supported: <name> (<ext>)'; a file whose dedicated view exists is focused, not duplicated. Compose typed views with submit_canvas when their ports need linking. (read_only: false, destructive: false; scope project) */
+    /** Open a file from the file tree, as the user's double-click does (SPEC-32). mode contextual (the default; Ctrl+double-click): a quick look in the preview, which renders the file by its kind; the file is picked in the tree and the preview follows the tree's picks (a selection intaker), so later picks show in it too; an existing preview is reused (its link re-pointed at the picks if it had another), else a new one is placed beside the file tree; a kind the preview cannot show (a usd stage) opens dedicated instead. mode dedicated (a double-click): a view of the file's own, of the view type that shows its kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed by a pinned link from project.all_files to that one file, labelled '<name> · <folder>'; a file no view shows opens a text view saying 'Not supported: <name> (<ext>)'; a file whose dedicated view exists is focused, not duplicated. A new view past a quota collapses the oldest live views in its way (collapsed says which). Compose typed views with submit_canvas when their ports need linking. (read_only: false, destructive: false; scope project) */
     "canvas.open_file": { args: CanvasOpenFileArgs; result: CanvasOpenFileResult };
     /** Redo the last undone submit. (read_only: false, destructive: true; scope project) */
     "canvas.redo": { args: CanvasRedoArgs; result: CanvasRedoResult };

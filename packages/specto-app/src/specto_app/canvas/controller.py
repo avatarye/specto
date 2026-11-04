@@ -109,6 +109,7 @@ from specto_core.gestures import (
     open_scratch,
     place_floating,
     resize_view,
+    room_notice,
     set_auto_update,
     set_collapsed,
     set_locked,
@@ -516,7 +517,13 @@ class CanvasController(QObject):
             return False
         flag = not self._is_collapsed(view_id)
         what = "collapse view" if flag else "expand view"
-        return self.gesture(lambda: set_collapsed(self.live, view_id, flag), what)
+        before = {v for v in self.data["views"] if self._is_collapsed(v)}
+        done = self.gesture(lambda: set_collapsed(self.live, view_id, flag), what)
+        made_room = [v for v in self.data["views"] if self._is_collapsed(v) and v not in before]
+        if done and not flag and made_room and self.notices is not None:
+            # expanding collapsed the live views in its way (SPEC-34, ADR 0025)
+            self.notices.info(room_notice(self.live, view_id, dict.fromkeys(made_room)))
+        return done
 
     def rects(self) -> dict[str, Rect]:
         return {vid: self.rect_of(vid) for vid in self.data["views"]}

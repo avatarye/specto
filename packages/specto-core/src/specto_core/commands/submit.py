@@ -157,6 +157,12 @@ class CanvasOpenFileResult(Result):
         "of a contextual open whose kind the preview cannot show; a file no view shows "
         "opens a text view saying Not supported).",
     )
+    collapsed: dict[str, str] = Field(
+        default_factory=dict,
+        description="Views collapsed in the same submit to make room for the new one "
+        "under a quota, each with the quota's name (rtx_views: one live RTX view per "
+        "canvas, so a second stage's usd view collapses the first).",
+    )
 
 
 @command(
@@ -172,7 +178,8 @@ class CanvasOpenFileResult(Result):
     "map), fed by a pinned link from project.all_files to that one file, labelled "
     "'<name> · <folder>'; a file no view shows opens a text view saying 'Not supported: "
     "<name> (<ext>)'; a file whose dedicated view exists is focused, not duplicated. "
-    "Compose typed views with submit_canvas when their ports need linking.",
+    "A new view past a quota collapses the oldest live views in its way (collapsed says "
+    "which). Compose typed views with submit_canvas when their ports need linking.",
     scope="project",
 )
 def canvas_open_file(ctx: CommandContext, args: CanvasOpenFileArgs) -> CanvasOpenFileResult:
@@ -194,7 +201,11 @@ def canvas_open_file(ctx: CommandContext, args: CanvasOpenFileArgs) -> CanvasOpe
         plugins=ctx.engine.plugins,
     )
     return CanvasOpenFileResult(
-        view=opened.view, action=opened.action, submit=opened.submit, mode=opened.mode
+        view=opened.view,
+        action=opened.action,
+        submit=opened.submit,
+        mode=opened.mode,
+        collapsed=opened.collapsed,
     )
 
 

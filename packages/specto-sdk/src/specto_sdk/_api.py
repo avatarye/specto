@@ -77,8 +77,9 @@ class Api:
         that shows its kind (image, video, markdown, json, pdf, html, 3d, usd, map), fed by a
         pinned link from project.all_files to that one file, labelled '<name> · <folder>'; a
         file no view shows opens a text view saying 'Not supported: <name> (<ext>)'; a file
-        whose dedicated view exists is focused, not duplicated. Compose typed views with
-        submit_canvas when their ports need linking.
+        whose dedicated view exists is focused, not duplicated. A new view past a quota
+        collapses the oldest live views in its way (collapsed says which). Compose typed views
+        with submit_canvas when their ports need linking.
 
         Args:
             path: str -- The file, relative to the project folder (POSIX slashes).

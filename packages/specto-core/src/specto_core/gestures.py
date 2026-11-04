@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -38,6 +38,7 @@ from .ports import (
     OpenMode,
     file_input_of,
 )
+from .quotas import make_room
 
 IMAGE_GAP = 20.0  # canvas px between a gallery and the image view opened beside it
 OPEN_GAP = IMAGE_GAP  # canvas px between the file tree and a view opened from it
@@ -127,7 +128,9 @@ def set_locked(live: LiveCanvas, view_id: str, locked: bool) -> SubmitResult:
 def set_collapsed(live: LiveCanvas, view_id: str, collapsed: bool) -> SubmitResult:
     """The header's collapse (#114): the view shrinks to its title bar at the same width
     (its content paused, its links still delivering) or expands back to its stored size.
-    One undo step."""
+    Expanding past a quota collapses the live views in the way, in the same step
+    (SPEC-34: expanding one stage's view collapses the other live usd view). One undo
+    step."""
     doc = live.document()
     view = _view(doc, view_id)
     if collapsed:
@@ -135,7 +138,46 @@ def set_collapsed(live: LiveCanvas, view_id: str, collapsed: bool) -> SubmitResu
     else:
         view["layout"].pop("collapsed", None)
     verb = "collapse" if collapsed else "expand"
-    return live.submit(doc, origin="user", label=f"{verb} {_name(view_id, view)}")
+    tail = _make_room(doc, live, view_id)[1] if not collapsed else ""
+    return live.submit(doc, origin="user", label=f"{verb} {_name(view_id, view)}{tail}")
+
+
+def _make_room(doc: dict[str, Any], live: LiveCanvas, view_id: str) -> tuple[dict[str, str], str]:
+    """Make room in ``doc`` for ``view_id`` going live (SPEC-34): the live views a quota
+    would refuse with it are collapsed (``quotas.make_room``), so opening or expanding a
+    view does not fail on a quota that collapsing others can meet. Returns them (each
+    with its quota) and the submit label's tail naming them ("" when none)."""
+    room = make_room(doc, live.quotas, live.view_cost, keep=view_id)
+    names = ", ".join(_name(v, doc["views"][v]) for v in room)
+    return room, f", collapse {names}" if room else ""
+
+
+#: a quota's views in words, singular (``room_notice``)
+_QUOTA_WORDS = {
+    "web_views": "web view",
+    "viewports3d": "3D viewport",
+    "video_decoders": "video decoder",
+    "rtx_views": "RTX view",
+}
+
+
+def room_notice(live: LiveCanvas, view_id: str, collapsed: Mapping[str, str | None]) -> str:
+    """What the shell tells the user when opening or expanding ``view_id`` collapsed
+    other views to make room (SPEC-34, ADR 0025): their names, and per quota (when
+    known) its ceiling in words, e.g. "one.usda · a collapsed to make room for two.usd ·
+    b: at most 1 live RTX view per canvas"."""
+    views = live.data["views"]
+    names = ", ".join(_name(v, views.get(v) or {}) for v in collapsed)
+    target = _name(view_id, views.get(view_id) or {})
+    limits = []
+    for quota in dict.fromkeys(q for q in collapsed.values() if q):
+        limit = getattr(live.quotas, quota)
+        word = _QUOTA_WORDS.get(quota)
+        what = f"{word}{'' if limit == 1 else 's'}" if word else quota.replace("_", " ")
+        limits.append(f"at most {limit} live {what} per canvas")
+    return f"{names} collapsed to make room for {target}" + (
+        f": {'; '.join(limits)}" if limits else ""
+    )
 
 
 def _intakers_into(doc: dict[str, Any], view_id: str) -> list[str]:
@@ -356,6 +398,9 @@ class OpenedFile:
     action: str
     submit: SubmitResult | None = None
     mode: str = "contextual"
+    #: the views collapsed in the same submit to make room under a quota (SPEC-34),
+    #: each with that quota's name (``rtx_views``: one live RTX view per canvas)
+    collapsed: dict[str, str] = field(default_factory=dict)
 
 
 def _link_into(doc: dict[str, Any], view_id: str, port: str) -> tuple[str, dict[str, Any]] | None:
@@ -503,7 +548,11 @@ def open_file(
     (or no label) is named for the picks; a label the agent or user wrote stays (#86).
     Without one, a new preview is placed beside the tree (one submit). A kind the
     preview cannot render (a usd stage) opens dedicated instead, and a file no view
-    shows the ``text`` view: the result's ``mode`` says so."""
+    shows the ``text`` view: the result's ``mode`` says so.
+
+    A new view that would exceed a quota collapses the oldest live views counting
+    toward it in the same submit (SPEC-34: a second stage's usd view collapses the
+    first, one live RTX view per canvas); ``collapsed`` names them with the quota."""
     if mode not in OPEN_MODES:
         raise InvalidArgs(
             f"open_file mode {mode!r} is not one of {', '.join(OPEN_MODES)}",
@@ -568,8 +617,9 @@ def _open_dedicated(
     if kind == "intaker":
         link["scope"] = "pinned"
     doc["links"][next_id(doc["links"], "l")] = link
-    res = live.submit(doc, origin=origin, label=f"open {name}")
-    return OpenedFile(view=vid, action="created", submit=res, mode="dedicated")
+    room, tail = _make_room(doc, live, vid)
+    res = live.submit(doc, origin=origin, label=f"open {name}{tail}")
+    return OpenedFile(view=vid, action="created", submit=res, mode="dedicated", collapsed=room)
 
 
 def _open_contextual(
@@ -610,8 +660,11 @@ def _open_contextual(
     }
     doc["links"][next_id(doc["links"], "l")] = _picks_link(tree_id, tree, vid)
     name = PurePosixPath(path).name
-    submitted = live.submit(doc, origin=origin, label=f"open {name}")
-    return OpenedFile(view=vid, action="created", submit=submitted, mode="contextual")
+    room, tail = _make_room(doc, live, vid)
+    submitted = live.submit(doc, origin=origin, label=f"open {name}{tail}")
+    return OpenedFile(
+        view=vid, action="created", submit=submitted, mode="contextual", collapsed=room
+    )
 
 
 def float_view(live: LiveCanvas, view_id: str) -> SubmitResult:

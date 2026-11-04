@@ -8,11 +8,13 @@ import pytest
 from doc_helpers import app_plugins, pin
 
 from specto_core import gestures
-from specto_core.canvas_document import file_tree_of
+from specto_core.canvas_document import CanvasInvalid, file_tree_of
 from specto_core.canvas_example import worked_example
 from specto_core.errors import InvalidArgs, NotFound
+from specto_core.kinds import ViewCost
 from specto_core.live_canvas import LiveCanvas
 from specto_core.names import is_name
+from specto_core.quotas import Quotas
 
 
 @pytest.fixture
@@ -302,6 +304,100 @@ def test_a_double_click_opens_a_dedicated_view_of_the_files_kind(live: LiveCanva
     assert len(live.history) == steps + 1  # the agent's pin alone
 
 
+#: what the app's manifests say each costly view type costs (quotas)
+APP_COSTS = {
+    "usd": ViewCost(viewports3d=1, rtx_views=1),
+    "3d": ViewCost(web_views=1, viewports3d=1),
+    "video": ViewCost(video_decoders=1),
+    "markdown": ViewCost(web_views=1),
+}
+
+
+def _costed(quotas: Quotas | None = None) -> LiveCanvas:
+    """A fresh canvas (its file tree only) that counts the app's view costs."""
+    return LiveCanvas.headless("demo", quotas=quotas, view_cost=APP_COSTS.get)
+
+
+def test_a_second_stage_opens_its_own_view_and_collapses_the_first_to_make_room():
+    """SPEC-34: one live RTX view per canvas (quota rtx_views=1). A double-click on a
+    second stage while the first one's dedicated usd view is live opens the second's own
+    usd view and collapses the first to its title bar (paused, costing no quota, its
+    link kept), in the same one submit, instead of failing with the quota problem. The
+    result names the collapsed view and the quota it made room under; undo brings the
+    first view back expanded."""
+    live = _costed()
+    plugins = app_plugins()
+    tree = file_tree_of(live.data["views"])
+    first = gestures.open_file(live, tree, "a/one.usda", mode="dedicated", plugins=plugins)
+    assert first.collapsed == {}
+    second = gestures.open_file(live, tree, "b/two.usd", mode="dedicated", plugins=plugins)
+    assert second.action == "created" and second.view != first.view
+    assert second.collapsed == {first.view: "rtx_views"}
+    doc = live.document()
+    assert doc["views"][second.view]["type"] == "usd"
+    assert doc["views"][first.view]["layout"]["collapsed"] is True
+    assert not doc["views"][second.view]["layout"].get("collapsed")
+    assert gestures.dedicated_view_of(doc, "a/one.usda") == first.view  # still its view
+    assert second.submit is not None and second.submit.views["changed"] == [first.view]
+    assert live.history_summaries()[-1]["label"] == "open two.usd, collapse one.usda · a"
+    assert gestures.room_notice(live, second.view, second.collapsed) == (
+        "one.usda · a collapsed to make room for two.usd · b: at most 1 live RTX view per canvas"
+    )
+    live.undo()
+    doc = live.document()
+    assert second.view not in doc["views"]
+    assert not doc["views"][first.view]["layout"].get("collapsed")
+
+
+def test_expanding_a_collapsed_stage_collapses_the_live_one_to_make_room():
+    """SPEC-34: the header's expand on the first stage's collapsed view (made room for
+    the second) collapses the second in the same one undo step, rather than failing
+    with the quota problem."""
+    live = _costed()
+    plugins = app_plugins()
+    tree = file_tree_of(live.data["views"])
+    first = gestures.open_file(live, tree, "a/one.usda", mode="dedicated", plugins=plugins)
+    second = gestures.open_file(live, tree, "b/two.usd", mode="dedicated", plugins=plugins)
+    res = gestures.set_collapsed(live, first.view, False)
+    doc = live.document()
+    assert not doc["views"][first.view]["layout"].get("collapsed")
+    assert doc["views"][second.view]["layout"]["collapsed"] is True
+    assert sorted(res.views["changed"]) == sorted([first.view, second.view])
+    assert res.label == "expand one.usda · a, collapse two.usd · b"
+
+
+@pytest.mark.parametrize(
+    ("ext", "quota", "limit"),
+    [("mp4", "video_decoders", 4), ("ply", "viewports3d", 3), ("md", "web_views", 8)],
+)
+def test_one_more_dedicated_view_than_a_quota_allows_collapses_the_oldest(ext, quota, limit):
+    """SPEC-34 for every costly view type: the dedicated view one past a quota opens and
+    the oldest live view counting toward that quota collapses to make room."""
+    live = _costed()
+    gestures.set_window_frame(live, (4000.0, 8000.0))  # every view opened lands inside
+    plugins = app_plugins()
+    tree = file_tree_of(live.data["views"])
+    opened = [
+        gestures.open_file(live, tree, f"f/{i}.{ext}", mode="dedicated", plugins=plugins)
+        for i in range(limit + 1)
+    ]
+    assert [o.collapsed for o in opened[:limit]] == [{}] * limit
+    assert opened[limit].collapsed == {opened[0].view: quota}
+
+
+def test_a_quota_no_collapse_can_meet_still_says_its_problem():
+    """SPEC-34: when collapsing the other views cannot make room (a quota of zero), the
+    open fails with the quota's own problem and fix, and nothing changes."""
+    live = _costed(Quotas(rtx_views=0))
+    tree = file_tree_of(live.data["views"])
+    before = live.document()
+    with pytest.raises(CanvasInvalid) as e:
+        gestures.open_file(live, tree, "a/one.usda", mode="dedicated", plugins=app_plugins())
+    (problem,) = e.value.problems
+    assert problem["message"].startswith("quota rtx_views=0 would be exceeded")
+    assert live.document() == before
+
+
 def test_opening_a_file_contextually_adds_a_preview_on_the_trees_picks(live: LiveCanvas):
     """Ctrl+double-click on a file row (or the agent's ``canvas.open_file`` in its
     contextual mode, #106, #122, SPEC-32): no preview exists, so one submit adds one beside
@@ -465,7 +561,13 @@ def test_an_agent_opens_a_file_through_the_canvas_open_file_command(engine):
     assert doc["views"][own["view"]]["type"] == "markdown"
     assert doc["views"][own["view"]]["label"] == "plan.md · notes"
     twice = engine.call("canvas.open_file", {"path": "notes/plan.md", "mode": "dedicated"}, ctx)
-    assert twice == {"view": own["view"], "action": "focused", "submit": None, "mode": "dedicated"}
+    assert twice == {
+        "view": own["view"],
+        "action": "focused",
+        "submit": None,
+        "mode": "dedicated",
+        "collapsed": {},
+    }
     # a stage the preview cannot show: the contextual open falls back to the usd view
     stage = engine.call("canvas.open_file", {"path": "worlds/a.usda", "mode": "contextual"}, ctx)
     assert (stage["action"], stage["mode"]) == ("created", "dedicated")

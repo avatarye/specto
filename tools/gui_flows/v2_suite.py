@@ -648,6 +648,21 @@ SUITE: dict[str, dict] = {
         "seed": seed("v2-122-seed.py", "{project}"),
         "sessions": [{"flows": ["v2-open-views.txt"]}],
     },
+    "open-usd-twice": {
+        # SPEC-34: a second stage double-clicked opens its own usd view and collapses the
+        # first to make room (one live RTX view), with a notice; expanding the first
+        # collapses the second (the stub USD source: no picture judged)
+        "seed": seed("v2-open-usd-seed.py", "{project}"),
+        "sessions": [
+            {
+                "flows": ["v2-open-usd-twice.txt"],
+                "env": {
+                    "SPECTO_USD_STUB_PHASE_MS": "200",
+                    "SPECTO_DISABLE_CAPABILITIES": "ovrtx,storm",
+                },
+            }
+        ],
+    },
     "fresh-tree": {
         # #125: a new project's file tree fills the visible canvas at any window height
         "seed": seed("v2-39-seed.py", "{project}"),

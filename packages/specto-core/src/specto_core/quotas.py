@@ -62,8 +62,10 @@ def in_window_frame(doc: dict[str, Any], view: dict[str, Any]) -> bool:
     )
 
 
-def quota_problems(doc: dict[str, Any], quotas: Quotas, view_cost: ViewCostFn) -> list[Problem]:
-    """One problem per quota the document's live views would exceed."""
+def _usage(
+    doc: dict[str, Any], view_cost: ViewCostFn
+) -> tuple[dict[str, int], dict[str, list[str]]]:
+    """Per quota: what the live views use, and which views count (document order)."""
     used: dict[str, int] = dict.fromkeys(QUOTA_NAMES, 0)
     counted: dict[str, list[str]] = {name: [] for name in QUOTA_NAMES}
     for vid, view in (doc.get("views") or {}).items():
@@ -76,6 +78,39 @@ def quota_problems(doc: dict[str, Any], quotas: Quotas, view_cost: ViewCostFn) -
             if n > 0:
                 used[name] += n
                 counted[name].append(vid)
+    return used, counted
+
+
+def make_room(
+    doc: dict[str, Any], quotas: Quotas, view_cost: ViewCostFn, keep: str
+) -> dict[str, str]:
+    """Collapse live views in ``doc`` (in place) until no quota is exceeded, never
+    ``keep`` (the view a user gesture is making live, SPEC-34): per exceeded quota the
+    oldest counted view first (document order), floating ones last (the user keeps
+    those in sight on purpose). A collapsed view is paused and costs nothing, its links
+    keep delivering, and expanding it is the user's to do. Returns each collapsed view
+    with the quota it made room under; a quota collapsing cannot meet (``keep`` alone
+    exceeds it) is left for ``quota_problems`` to report."""
+    collapsed: dict[str, str] = {}
+    while True:
+        used, counted = _usage(doc, view_cost)
+        over = [n for n in QUOTA_NAMES if used[n] > getattr(quotas, n)]
+        pick = None
+        for name in over:
+            others = [v for v in counted[name] if v != keep]
+            others.sort(key=lambda v: is_floating(doc["views"][v]))  # stable: oldest first
+            if others:
+                pick = (others[0], name)
+                break
+        if pick is None:
+            return collapsed
+        doc["views"][pick[0]]["layout"]["collapsed"] = True
+        collapsed[pick[0]] = pick[1]
+
+
+def quota_problems(doc: dict[str, Any], quotas: Quotas, view_cost: ViewCostFn) -> list[Problem]:
+    """One problem per quota the document's live views would exceed."""
+    used, counted = _usage(doc, view_cost)
     out: list[Problem] = []
     frame = doc["window_frame"]["rect"]
     for name in QUOTA_NAMES:

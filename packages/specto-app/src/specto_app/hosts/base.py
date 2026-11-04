@@ -145,6 +145,14 @@ class HostContext:
         """Show a failed gesture or command to the user (a notice, or stderr headless)."""
         self._notice(e, command)
 
+    def inform(self, message: str) -> None:
+        """Tell the user what a gesture did beyond its own view (an info notice that
+        expires, or stdout headless): the views collapsed to make room (SPEC-34)."""
+        if self.notices is not None:
+            self.notices.info(message)
+        else:
+            print(f"[OK] {message}")
+
     def _notice(self, e: SpectoError, command: str) -> None:
         if self.notices is not None:
             self.notices.error(e.message, fix=e.fix, code=e.code, command=command)

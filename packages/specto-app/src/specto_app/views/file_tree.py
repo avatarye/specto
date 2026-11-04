@@ -96,7 +96,7 @@ from specto_app.hosts.base import HostContext, QuickViewHost
 from specto_app.members import image_url_for
 from specto_app.menu import MenuItemRef, MenuTarget
 from specto_core.errors import SpectoError
-from specto_core.gestures import OpenedFile, open_file
+from specto_core.gestures import OpenedFile, open_file, room_notice
 from specto_core.jobs import InlineJobManager
 from specto_core.kinds import PluginManifest, ViewManifest
 from specto_core.links import Collection, FilesValue, Selection
@@ -1130,6 +1130,8 @@ class FileTreeHost(QuickViewHost):
         except SpectoError as e:
             self.ctx.notice(e, "open file")
             return None
+        if opened.collapsed:
+            self.ctx.inform(room_notice(self.ctx.live, opened.view, opened.collapsed))
         if opened.action == "focused":
             self.ctx.reveal_view(opened.view)
         return opened

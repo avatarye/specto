@@ -84,9 +84,18 @@ def test_collapsed_views_cost_no_quota():
     # two web views inside the window frame, one of them collapsed: within a quota of one
     live.submit(doc, origin=AGENT, label="two web views, one collapsed")
 
-    # expanding it would render a second web view: refused, naming it
+    # expanding it would render a second web view: the other one collapses to make room
+    # in the same step (SPEC-34, ADR 0025)
+    res = gestures.set_collapsed(live, "tamu", False)
+    layouts = {v: live.document()["views"][v]["layout"] for v in ("kobi", "tamu")}
+    assert layouts["kobi"].get("collapsed") is True and "collapsed" not in layouts["tamu"]
+    assert res.label == "expand tamu, collapse kobi"
+
+    # an agent's submit over the quota is still refused, naming it, with the fix
+    doc = live.document()
+    doc["views"]["kobi"]["layout"].pop("collapsed")
     with pytest.raises(CanvasInvalid) as e:
-        gestures.set_collapsed(live, "tamu", False)
+        live.submit(doc, origin=AGENT, label="expand both")
     [problem] = e.value.problems
     assert "web_views" in problem["message"] and "tamu" in problem["message"]
     assert "collapse" in problem["fix"]

@@ -35,6 +35,7 @@ Column {
                 anchors.rightMargin: 30
                 spacing: 2
                 Text {
+                    objectName: "noticeText:" + card.modelData.level  // the flows' assert_text
                     width: parent.width
                     wrapMode: Text.Wrap
                     text: (card.modelData.level === "error" ? "[ERROR] " : card.modelData.level === "warn" ? "[WARN] " : "")
