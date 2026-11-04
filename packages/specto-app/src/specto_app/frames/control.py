@@ -102,8 +102,24 @@ class ControlServer:
 
 
 # -- host side -----------------------------------------------------------------------
+#: requests that set one piece of the source's state, the newest winning: a queued one
+#: not yet written gives way to a newer one of its kind. They touch separate state, so
+#: they may pass each other; any other request keeps its place between them
+LATEST_WINS = frozenset({"set_camera", "set_time", "resize"})
+
+
+def _merged(old: dict, new: dict) -> dict:
+    """``new``'s params over ``old``'s: a camera cut (a jump) survives the moves after it."""
+    return {**new, "cut": True} if old.get("cut") else new
+
+
 class FrameSourceProcess:
-    """The host's handle on one source process."""
+    """The host's handle on one source process.
+
+    Requests go out through a writer thread (SPEC-33): :meth:`send` and :meth:`call`
+    queue the request and return at once, so a source busy with a slow command (its
+    control pipe full) never blocks the caller, the GUI thread among them. Queued
+    :data:`LATEST_WINS` requests from :meth:`send` collapse to the newest."""
 
     def __init__(self, proc: subprocess.Popen) -> None:
         self.proc = proc
@@ -111,7 +127,10 @@ class FrameSourceProcess:
         self._pending: dict[int, tuple[threading.Event, list]] = {}
         self._events: queue.Queue[tuple[str, dict]] = queue.Queue()
         self._held: list[tuple[str, dict]] = []
-        self._write_lock = threading.Lock()
+        #: requests not written yet: [msg, collapsible]; None closes the source's stdin
+        self._out: deque[list | None] = deque()
+        self._out_ready = threading.Condition()
+        self._gone: str | None = None  # why the source's stdin took no more
         self._stderr: deque[str] = deque(maxlen=STDERR_TAIL)
         self._stderr_done: threading.Thread | None = None
         if proc.stderr is not None:
@@ -120,6 +139,8 @@ class FrameSourceProcess:
             )
             self._stderr_done.start()
         threading.Thread(target=self._read, name="frame-source-out", daemon=True).start()
+        self._writer = threading.Thread(target=self._write, name="frame-source-in", daemon=True)
+        self._writer.start()
 
     @classmethod
     def spawn(cls, argv: Sequence[str], **popen: Any) -> FrameSourceProcess:
@@ -130,9 +151,11 @@ class FrameSourceProcess:
         return cls(proc)
 
     def send(self, method: str, **params: Any) -> int:
-        """Fire a request without waiting (camera moves from the GUI thread)."""
+        """Fire a request without waiting (camera moves from the GUI thread); it is
+        queued, never written here. A :data:`LATEST_WINS` request replaces a queued one
+        of its kind (its id then never answers)."""
         rid = next(self._ids)
-        self._send({"id": rid, "method": method, "params": params})
+        self._send({"id": rid, "method": method, "params": params}, method in LATEST_WINS)
         return rid
 
     def call(self, method: str, timeout: float = 10.0, **params: Any) -> dict:
@@ -140,7 +163,11 @@ class FrameSourceProcess:
         rid = next(self._ids)
         done, box = threading.Event(), []
         self._pending[rid] = (done, box)
-        self._send({"id": rid, "method": method, "params": params})
+        try:
+            self._send({"id": rid, "method": method, "params": params})
+        except SourceError:
+            self._pending.pop(rid, None)
+            raise
         if not done.wait(timeout):
             self._pending.pop(rid, None)
             raise SourceError(f"{method}: no answer in {timeout} s")
@@ -181,27 +208,73 @@ class FrameSourceProcess:
                 raise SourceError(f"the source exited ({params.get('code')}) before {name!r}")
 
     def close(self, timeout: float = 5.0) -> int | None:
-        """Ask the source to stop, close its stdin and wait; kill it if it hangs."""
+        """Ask the source to stop, close its stdin (after what is queued) and wait; kill
+        it if it hangs."""
         if self.proc.poll() is None:
             with contextlib.suppress(SourceError):
                 self.send("shutdown")
-            with contextlib.suppress(OSError):
-                self.proc.stdin.close()
+            with self._out_ready:
+                self._out.append(None)  # the writer closes stdin: never under its write
+                self._out_ready.notify()
             try:
                 self.proc.wait(timeout)
             except subprocess.TimeoutExpired:
-                self.proc.kill()
+                self.proc.kill()  # breaks the pipe under a write that hangs
                 self.proc.wait()
         return self.proc.returncode
 
-    def _send(self, msg: dict) -> None:
-        line = json.dumps(msg, separators=(",", ":")).encode() + b"\n"
-        with self._write_lock:
+    def _send(self, msg: dict, collapsible: bool = False) -> None:
+        """Queue ``msg`` for the writer; a collapsible one replaces a queued one of its
+        method among the collapsible requests at the queue's end."""
+        with self._out_ready:
+            if self._gone is not None:
+                raise SourceError(f"the source is gone: {self._gone}")
+            if collapsible:
+                for entry in reversed(self._out):
+                    if entry is None or not entry[1]:
+                        break  # another request: nothing passes it
+                    if entry[0]["method"] == msg["method"]:
+                        msg = {**msg, "params": _merged(entry[0]["params"], msg["params"])}
+                        entry[0] = msg
+                        return
+            self._out.append([msg, collapsible])
+            self._out_ready.notify()
+
+    def _write(self) -> None:
+        """The writer thread: the queued requests, oldest first, into the source's stdin."""
+        while True:
+            with self._out_ready:
+                while not self._out:
+                    self._out_ready.wait()
+                entry = self._out.popleft()
             try:
+                if entry is None:
+                    self._fail_pending(self._stop_queue("its control channel is closed"))
+                    self.proc.stdin.close()
+                    return
+                line = json.dumps(entry[0], separators=(",", ":")).encode() + b"\n"
                 self.proc.stdin.write(line)
                 self.proc.stdin.flush()
             except (OSError, ValueError) as exc:
-                raise SourceError(f"the source is gone: {exc}") from None
+                dropped = self._stop_queue(str(exc) or type(exc).__name__)
+                self._fail_pending([entry[0], *dropped] if entry is not None else dropped)
+                return
+
+    def _stop_queue(self, why: str) -> list[dict]:
+        """Take no more requests (``why``); the ones still queued, never to be written."""
+        with self._out_ready:
+            self._gone = why
+            dropped = [e[0] for e in self._out if e is not None]
+            self._out.clear()
+        return dropped
+
+    def _fail_pending(self, msgs: list[dict]) -> None:
+        """Answer the waiters of requests that never reached the source."""
+        for msg in msgs:
+            waiter = self._pending.pop(msg.get("id"), None)
+            if waiter is not None:
+                waiter[1].append({"error": {"message": f"the source is gone: {self._gone}"}})
+                waiter[0].set()
 
     def _read(self) -> None:
         for raw in self.proc.stdout:
@@ -223,6 +296,9 @@ class FrameSourceProcess:
             box.append({"error": {"message": f"the source exited ({code})"}})
             done.set()
         self._pending.clear()
+        with self._out_ready:
+            self._out.append(None)  # the writer ends too
+            self._out_ready.notify()
         self._events.put(("exited", {"code": code}))
 
     def _read_stderr(self) -> None:
