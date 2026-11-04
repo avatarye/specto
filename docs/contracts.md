@@ -416,10 +416,14 @@ rtx_views=1)`. A view counts by its manifest's `ViewCost` (a usd view with
 (what renders; off-screen views are paused and free). `quota_problems(doc, quotas,
 view_cost)` is applied at submit, whoever submits; the problem names the offenders and
 the fix (move views out of the frame or close some). The gestures that make a view live
-(`gestures.open_file`, `set_collapsed` expanding; ADR 0025) first call `make_room(doc,
-quotas, view_cost, keep)`: the oldest live views counting toward an exceeded quota
-(floating ones last) collapse in the same submit; `OpenedFile.collapsed` names them with
-the quota. `locked: true` on a view lives in
+(`gestures.open_file`, which also expands a file's collapsed dedicated view, and
+`set_collapsed` expanding; ADR 0025) first call `make_room(doc, quotas, view_cost, keep)`:
+unlocked live views counting toward an exceeded quota collapse in the same submit, the
+one counting toward the most exceeded quotas first, then the oldest, floating ones last;
+`keep` and locked views never collapse. It returns each collapsed view with every quota
+it was collapsed for (`gestures.RoomMade`), which `OpenedFile.collapsed`, `set_collapsed`'s
+second value and `canvas.open_file`'s `collapsed` carry; `gestures.room_notice` words it
+with `quotas.ceiling_words`. `locked: true` on a view lives in
 the document; the user toggles it from the header (`gestures.set_locked`); a submit by
 any other origin that moves, resizes, deletes, unlocks or relinks it is refused with
 "ask the user" as the fix. Users may move locked views (the lock binds the agent).
@@ -516,7 +520,9 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   (project-scoped commands as the user), `set_health`, `health_of`, `create_item`,
   `selected_views()` (the shell's selection, newest first) and `reveal_view(view_id)`
   (the shell selects the view, pans it into the viewport and focuses it; SPEC-32: a
-  file whose dedicated view is open already; headless: nothing).
+  file whose dedicated view is open already; headless: nothing) and `inform(message)`
+  (an info notice that expires, through `notices.inform`, the route the header's expand
+  shares; SPEC-34: the views collapsed to make room; headless: stdout).
   `QuickViewHost` wraps them as `self.emit/set_health` and exposes `self.view` /
   `self.params` (read-only, never cached). Picks go through `ctx.live.remember`.
 - `HostBridge(host)` is handed to QML as `host` so an item can `host.emit(port, value)`,

@@ -529,7 +529,7 @@ A view's current condition (`ok`, `loading`, `paused`, `error`) with a message, 
 _Avoid_: status, state
 
 **Quota**:
-A per-canvas ceiling on costly live views (web views, 3D viewports, resident points, video decoders, RTX views), enforced when a view would become live. When the user opens or expands a view past one, the oldest live views in the way collapse to make room (one undo step); a submit from the agent over one is refused with the fix.
+A per-canvas ceiling on costly live views (web views, 3D viewports, resident points, video decoders, RTX views), enforced when a view would become live. When a view is opened or expanded past one, the unlocked live views in the way collapse to make room (one undo step); a canvas the agent submits over one is refused with the fix.
 _Avoid_: limit, budget (for the enforced ceiling)
 
 **Frame source**:

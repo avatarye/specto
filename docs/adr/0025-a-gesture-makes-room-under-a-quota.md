@@ -3,7 +3,7 @@ status: accepted
 date: 2026-11-03
 ---
 
-# Opening or expanding a view makes room under a quota by collapsing the oldest live views
+# Opening or expanding a view makes room under a quota by collapsing the views in its way
 
 Task SPEC-34. Builds on ADR 0021's collapse amendment (#114) and ADR 0023 (dedicated views).
 
@@ -13,11 +13,16 @@ A canvas allows one live RTX view (quota `rtx_views=1`, #132), and ceilings on 3
 
 ## Decision
 
-1. **The view the user asked for goes live; the oldest views in its way collapse.** When a new view opened from the file tree (dedicated or contextual), or a collapsed view the user expands, would exceed a quota, the live views counting toward that quota are collapsed, oldest first (document order), floating views last, in the same submit: one undo step brings the old layout back. The view being opened or expanded is never collapsed.
-2. **Collapse, not close, re-point or re-render.** A collapsed view keeps its file, its link and its size; it is paused and costs no quota (ADR 0021), and expanding it is one click, which in turn collapses the view now in the way. Each dedicated view stays the one view of its file (ADR 0023).
-3. **Said, not silent.** The submit's label names what collapsed ("open two.usd, collapse one.usda · a"), `open_file`'s result carries `collapsed` (view to quota), and the shell posts a notice naming the collapsed views.
-4. **A quota collapsing cannot meet still refuses.** When the opened view alone exceeds a quota (a quota of zero), the submit fails with the quota's own problem and fix, as before.
-5. **Agents' submits are unchanged.** `canvas.submit` still refuses a document over a quota with the fix-it; only the gestures (and `canvas.open_file`, the gesture as a command) make room.
+1. **The view asked for goes live; the views in its way collapse.** When a new view opened from the file tree (dedicated or contextual), or a collapsed view being expanded, would exceed a quota, unlocked live views counting toward an exceeded quota are collapsed in the same submit, so one undo step brings the old layout back. The first to go is the view counting toward the most exceeded quotas (a usd view counts toward both 3D viewports and RTX views, so one collapse can relieve both), then the oldest (document order), floating views last. The view being opened or expanded is never collapsed.
+2. **Collapse, not close, re-point or re-render.** A collapsed view keeps its file, its link and its size; it is paused and costs no quota (ADR 0021). The way back is the same gesture: a double-click on its file (or "Open in its own view", or `canvas.open_file` in dedicated mode) expands a collapsed dedicated view instead of only revealing it, as does the header's expand, each making room the same way. Each dedicated view stays the one view of its file (ADR 0023). A new view is placed clear of the collapsed views' stored size, so expanding one later covers nothing.
+3. **Locked views are never touched.** A view the user locked is not collapsed to make room. When only locked views (and the view asked for) stand in the way, the submit is refused with the quota's own problem and fix, as before; so is a quota the asked-for view alone exceeds (a quota of zero).
+4. **An agent's open can collapse the user's views.** `canvas.open_file` is the gesture as a command: when the agent opens or expands a file's view past a quota, the user's unlocked views in the way collapse, as they would for the user's own double-click, and the result's `collapsed` says which. A lock is how the user keeps a view live.
+5. **Said, not silent.** The submit's label names what collapsed ("open two.usd, collapse one.usda · a"); `open_file`'s result and the header's expand carry every collapsed view with every quota it was collapsed for; the shell posts one notice naming them and each quota's ceiling ("at most 1 live RTX view per canvas").
+6. **Agents' submits are unchanged.** `canvas.submit` still refuses a document over a quota with the fix-it; only the gestures and `canvas.open_file` make room.
+
+## Consequences
+
+- Known gap (SPEC-36): a usd view with `renderer: auto` counts as an RTX view even where auto resolves to Storm (macOS, no ovrtx), so those machines collapse a stage's view to make room that Storm would not need.
 
 ## Considered options
 
@@ -25,3 +30,4 @@ A canvas allows one live RTX view (quota `rtx_views=1`, #132), and ceilings on 3
 - Re-point the open usd view at the new stage: rejected; a dedicated view is fixed on its file (ADR 0023), and the first stage would be gone from the canvas.
 - Place the new view outside the window frame: rejected; the user double-clicked to see the file.
 - Keep the refusal and word it better: rejected; the user would still have to collapse a view by hand before every second stage.
+- Place the new view in the first free spot after the collapse (under the collapsed view's title bar): rejected; expanding the collapsed view would then cover the new one, header and all.
