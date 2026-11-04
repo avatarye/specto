@@ -38,7 +38,7 @@ from .ports import (
     OpenMode,
     file_input_of,
 )
-from .quotas import make_room
+from .quotas import ceiling_words, is_collapsed, make_room
 
 IMAGE_GAP = 20.0  # canvas px between a gallery and the image view opened beside it
 OPEN_GAP = IMAGE_GAP  # canvas px between the file tree and a view opened from it
@@ -125,59 +125,59 @@ def set_locked(live: LiveCanvas, view_id: str, locked: bool) -> SubmitResult:
     return live.submit(doc, origin="user", label=f"{verb} {_name(view_id, view)}")
 
 
-def set_collapsed(live: LiveCanvas, view_id: str, collapsed: bool) -> SubmitResult:
+#: views collapsed to make room, each with every quota it was collapsed for (SPEC-34)
+RoomMade = dict[str, list[str]]
+
+
+def set_collapsed(live: LiveCanvas, view_id: str, collapsed: bool) -> tuple[SubmitResult, RoomMade]:
     """The header's collapse (#114): the view shrinks to its title bar at the same width
     (its content paused, its links still delivering) or expands back to its stored size.
-    Expanding past a quota collapses the live views in the way, in the same step
-    (SPEC-34: expanding one stage's view collapses the other live usd view). One undo
-    step."""
+    Expanding past a quota collapses the views in the way in the same step (SPEC-34, ADR
+    0025: expanding one stage's view collapses the other live usd view); the map names
+    them with their quotas. One undo step."""
+    if not collapsed:
+        return _expand(live, view_id, origin="user")
     doc = live.document()
     view = _view(doc, view_id)
-    if collapsed:
-        view["layout"]["collapsed"] = True
-    else:
-        view["layout"].pop("collapsed", None)
-    verb = "collapse" if collapsed else "expand"
-    tail = _make_room(doc, live, view_id)[1] if not collapsed else ""
-    return live.submit(doc, origin="user", label=f"{verb} {_name(view_id, view)}{tail}")
+    view["layout"]["collapsed"] = True
+    return live.submit(doc, origin="user", label=f"collapse {_name(view_id, view)}"), {}
 
 
-def _make_room(doc: dict[str, Any], live: LiveCanvas, view_id: str) -> tuple[dict[str, str], str]:
-    """Make room in ``doc`` for ``view_id`` going live (SPEC-34): the live views a quota
-    would refuse with it are collapsed (``quotas.make_room``), so opening or expanding a
-    view does not fail on a quota that collapsing others can meet. Returns them (each
-    with its quota) and the submit label's tail naming them ("" when none)."""
-    room = make_room(doc, live.quotas, live.view_cost, keep=view_id)
-    names = ", ".join(_name(v, doc["views"][v]) for v in room)
-    return room, f", collapse {names}" if room else ""
+def _expand(live: LiveCanvas, view_id: str, *, origin: str) -> tuple[SubmitResult, RoomMade]:
+    """Expand ``view_id``, making room under the quotas (``_make_room``): one submit."""
+    doc = live.document()
+    view = _view(doc, view_id)
+    view["layout"].pop("collapsed", None)
+    room = _make_room(doc, live, view_id)
+    label = f"expand {_name(view_id, view)}{_room_tail(doc, room)}"
+    return live.submit(doc, origin=origin, label=label), room
 
 
-#: a quota's views in words, singular (``room_notice``)
-_QUOTA_WORDS = {
-    "web_views": "web view",
-    "viewports3d": "3D viewport",
-    "video_decoders": "video decoder",
-    "rtx_views": "RTX view",
-}
+def _make_room(doc: dict[str, Any], live: LiveCanvas, view_id: str) -> RoomMade:
+    """Make room in ``doc`` for ``view_id`` going live (SPEC-34): the unlocked live views
+    a quota would refuse with it are collapsed (``quotas.make_room``), so opening or
+    expanding a view does not fail on a quota that collapsing others can meet."""
+    return make_room(doc, live.quotas, live.view_cost, keep=view_id)
 
 
-def room_notice(live: LiveCanvas, view_id: str, collapsed: Mapping[str, str | None]) -> str:
+def _room_tail(doc: dict[str, Any], room: RoomMade) -> str:
+    """The submit label's tail naming the views collapsed to make room ("" for none)."""
+    if not room:
+        return ""
+    return ", collapse " + ", ".join(_name(v, doc["views"][v]) for v in room)
+
+
+def room_notice(live: LiveCanvas, view_id: str, room: RoomMade) -> str:
     """What the shell tells the user when opening or expanding ``view_id`` collapsed
-    other views to make room (SPEC-34, ADR 0025): their names, and per quota (when
-    known) its ceiling in words, e.g. "one.usda · a collapsed to make room for two.usd ·
-    b: at most 1 live RTX view per canvas"."""
+    other views to make room (SPEC-34, ADR 0025): their names and each quota's ceiling
+    in words, e.g. "one.usda · a collapsed to make room for two.usd · b: at most 1 live
+    RTX view per canvas"."""
     views = live.data["views"]
-    names = ", ".join(_name(v, views.get(v) or {}) for v in collapsed)
+    names = ", ".join(_name(v, views.get(v) or {}) for v in room)
     target = _name(view_id, views.get(view_id) or {})
-    limits = []
-    for quota in dict.fromkeys(q for q in collapsed.values() if q):
-        limit = getattr(live.quotas, quota)
-        word = _QUOTA_WORDS.get(quota)
-        what = f"{word}{'' if limit == 1 else 's'}" if word else quota.replace("_", " ")
-        limits.append(f"at most {limit} live {what} per canvas")
-    return f"{names} collapsed to make room for {target}" + (
-        f": {'; '.join(limits)}" if limits else ""
-    )
+    quotas = dict.fromkeys(q for qs in room.values() for q in qs)
+    ceilings = "; ".join(ceiling_words(live.quotas, q) for q in quotas)
+    return f"{names} collapsed to make room for {target}" + (f": {ceilings}" if ceilings else "")
 
 
 def _intakers_into(doc: dict[str, Any], view_id: str) -> list[str]:
@@ -386,21 +386,22 @@ def open_from_scratch(
 @dataclass(frozen=True)
 class OpenedFile:
     """What ``open_file`` did: the view that shows the file and how it got there.
-    Dedicated: ``created``, a new view fed that file alone (one submit), or ``focused``,
+    Dedicated: ``created``, a new view fed that file alone (one submit); ``focused``,
     the file's dedicated view was on the canvas already (no submit: the shell focuses
-    and reveals it). Contextual: ``created``, a new preview on the tree's picks (one
-    submit); ``repointed``, an existing preview's link now comes from the tree's picks
-    (one submit); ``selected``, an existing preview already follows them; the file is
-    picked in the tree each time (navigation). ``mode`` says which way it went: a
+    and reveals it); ``expanded``, it was there collapsed and is expanded, making room
+    (one submit; the shell reveals it too). Contextual: ``created``, a new preview on
+    the tree's picks (one submit); ``repointed``, an existing preview's link now comes
+    from the tree's picks (one submit); ``selected``, an existing preview already follows
+    them; the file is picked in the tree each time (navigation). ``mode`` says which way it went: a
     contextual open of a kind the preview cannot show falls back to ``dedicated``."""
 
     view: str
     action: str
     submit: SubmitResult | None = None
     mode: str = "contextual"
-    #: the views collapsed in the same submit to make room under a quota (SPEC-34),
-    #: each with that quota's name (``rtx_views``: one live RTX view per canvas)
-    collapsed: dict[str, str] = field(default_factory=dict)
+    #: the views collapsed in the same submit to make room under the quotas (SPEC-34),
+    #: each with every quota it was collapsed for (``rtx_views``: one live RTX view)
+    collapsed: RoomMade = field(default_factory=dict)
 
 
 def _link_into(doc: dict[str, Any], view_id: str, port: str) -> tuple[str, dict[str, Any]] | None:
@@ -440,7 +441,8 @@ def _free_spot_beside(
     doc: dict[str, Any], tree: dict[str, Any], size: tuple[float, float]
 ) -> list[float]:
     """The first spot beside the tree (same top, one gap to the right) that no view
-    overlaps, walking down past the views in the way."""
+    overlaps, walking down past the views in the way. A collapsed view keeps the room of
+    its stored size, so expanding it later covers nothing (SPEC-34)."""
     (tx, ty), (tw, _th) = tree["layout"]["position"], tree["layout"]["size"]
     x, y = float(tx + tw + OPEN_GAP), float(ty)
     rects: list[Rect] = [
@@ -535,8 +537,9 @@ def open_file(
     spot (one submit).
     A file no view type shows opens a ``text`` view saying ``Not supported: <name>
     (<ext>)`` the same way. A file whose dedicated view is on the canvas already comes
-    back ``focused`` with no submit (the shell focuses and reveals it). The tree's picks
-    are left alone.
+    back ``focused`` with no submit (the shell focuses and reveals it), or, when that
+    view is collapsed, ``expanded`` (one submit, making room as below). The tree's
+    picks are left alone.
 
     ``mode="contextual"`` (Ctrl+double-click): the preview, which follows the tree's
     picks (#106, #122): fed by a selection intaker off ``selected_files`` and the file
@@ -550,9 +553,11 @@ def open_file(
     preview cannot render (a usd stage) opens dedicated instead, and a file no view
     shows the ``text`` view: the result's ``mode`` says so.
 
-    A new view that would exceed a quota collapses the oldest live views counting
-    toward it in the same submit (SPEC-34: a second stage's usd view collapses the
-    first, one live RTX view per canvas); ``collapsed`` names them with the quota."""
+    A new or expanded view that would exceed a quota collapses the unlocked live views
+    in its way in the same submit (``quotas.make_room``; SPEC-34, ADR 0025: a second
+    stage's usd view collapses the first, one live RTX view per canvas); ``collapsed``
+    names them with their quotas. A new view is placed clear of the collapsed views'
+    stored size, so expanding one later covers nothing."""
     if mode not in OPEN_MODES:
         raise InvalidArgs(
             f"open_file mode {mode!r} is not one of {', '.join(OPEN_MODES)}",
@@ -588,6 +593,11 @@ def _open_dedicated(
 ) -> OpenedFile:
     doc = live.document()
     have = dedicated_view_of(doc, path)
+    if have is not None and is_collapsed(doc["views"][have]):
+        res, room = _expand(live, have, origin=origin)
+        return OpenedFile(
+            view=have, action="expanded", submit=res, mode="dedicated", collapsed=room
+        )
     if have is not None:
         return OpenedFile(view=have, action="focused", submit=None, mode="dedicated")
     name = PurePosixPath(path).name
@@ -617,8 +627,8 @@ def _open_dedicated(
     if kind == "intaker":
         link["scope"] = "pinned"
     doc["links"][next_id(doc["links"], "l")] = link
-    room, tail = _make_room(doc, live, vid)
-    res = live.submit(doc, origin=origin, label=f"open {name}{tail}")
+    room = _make_room(doc, live, vid)
+    res = live.submit(doc, origin=origin, label=f"open {name}{_room_tail(doc, room)}")
     return OpenedFile(view=vid, action="created", submit=res, mode="dedicated", collapsed=room)
 
 
@@ -660,8 +670,8 @@ def _open_contextual(
     }
     doc["links"][next_id(doc["links"], "l")] = _picks_link(tree_id, tree, vid)
     name = PurePosixPath(path).name
-    room, tail = _make_room(doc, live, vid)
-    submitted = live.submit(doc, origin=origin, label=f"open {name}{tail}")
+    room = _make_room(doc, live, vid)
+    submitted = live.submit(doc, origin=origin, label=f"open {name}{_room_tail(doc, room)}")
     return OpenedFile(
         view=vid, action="created", submit=submitted, mode="contextual", collapsed=room
     )

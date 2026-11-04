@@ -78,4 +78,14 @@ class Notices(QObject):
         return len(self._items)
 
 
-__all__ = ["LEVELS", "Notices"]
+def inform(notices: Notices | None, message: str) -> None:
+    """Tell the user what a gesture did beyond its own view: an info notice that
+    expires, or stdout headless. The one route for the views collapsed to make room
+    (SPEC-34), from the file tree's open and the header's expand alike."""
+    if notices is not None:
+        notices.info(message)
+    else:
+        print(f"[OK] {message}")
+
+
+__all__ = ["LEVELS", "Notices", "inform"]

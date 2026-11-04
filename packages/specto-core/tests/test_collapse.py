@@ -20,7 +20,7 @@ def live() -> LiveCanvas:
 
 
 def test_collapse_keeps_the_size_and_is_one_undo_step(live: LiveCanvas):
-    res = gestures.set_collapsed(live, "tamu", True)
+    res, _ = gestures.set_collapsed(live, "tamu", True)
 
     lay = live.document()["views"]["tamu"]["layout"]
     assert lay == {"position": [380.0, 420.0], "size": [640.0, 380.0], "collapsed": True}
@@ -86,10 +86,10 @@ def test_collapsed_views_cost_no_quota():
 
     # expanding it would render a second web view: the other one collapses to make room
     # in the same step (SPEC-34, ADR 0025)
-    res = gestures.set_collapsed(live, "tamu", False)
+    res, room = gestures.set_collapsed(live, "tamu", False)
     layouts = {v: live.document()["views"][v]["layout"] for v in ("kobi", "tamu")}
     assert layouts["kobi"].get("collapsed") is True and "collapsed" not in layouts["tamu"]
-    assert res.label == "expand tamu, collapse kobi"
+    assert res.label == "expand tamu, collapse kobi" and room == {"kobi": ["web_views"]}
 
     # an agent's submit over the quota is still refused, naming it, with the fix
     doc = live.document()

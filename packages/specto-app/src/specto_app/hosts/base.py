@@ -44,6 +44,7 @@ from specto_core.ports import VIEW_ROLES
 
 from ..drag.payload import DragPayload, payload_for
 from ..menu.registry import MenuItemRef, MenuTarget
+from ..notices import inform
 
 if TYPE_CHECKING:
     from specto_app.notices import Notices
@@ -146,12 +147,10 @@ class HostContext:
         self._notice(e, command)
 
     def inform(self, message: str) -> None:
-        """Tell the user what a gesture did beyond its own view (an info notice that
-        expires, or stdout headless): the views collapsed to make room (SPEC-34)."""
-        if self.notices is not None:
-            self.notices.info(message)
-        else:
-            print(f"[OK] {message}")
+        """Tell the user what a gesture did beyond its own view (``notices.inform``: an
+        info notice that expires, or stdout headless), e.g. the views collapsed to make
+        room (SPEC-34)."""
+        inform(self.notices, message)
 
     def _notice(self, e: SpectoError, command: str) -> None:
         if self.notices is not None:

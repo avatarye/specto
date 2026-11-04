@@ -1132,7 +1132,7 @@ class FileTreeHost(QuickViewHost):
             return None
         if opened.collapsed:
             self.ctx.inform(room_notice(self.ctx.live, opened.view, opened.collapsed))
-        if opened.action == "focused":
+        if opened.action in ("focused", "expanded"):
             self.ctx.reveal_view(opened.view)
         return opened
 

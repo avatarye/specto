@@ -20,6 +20,14 @@ from .float_layer import is_floating
 from .kinds import ViewCost
 
 QUOTA_NAMES = ("web_views", "viewports3d", "video_decoders", "resident_points", "rtx_views")
+#: what each quota counts, in words, singular (``ceiling_words``)
+QUOTA_WORDS = {
+    "web_views": "web view",
+    "viewports3d": "3D viewport",
+    "video_decoders": "video decoder",
+    "resident_points": "resident point",
+    "rtx_views": "RTX view",
+}
 
 #: ``view_cost(view type) -> ViewCost | None`` (None: a type without a manifest, free)
 ViewCostFn = Callable[[str], ViewCost | None]
@@ -32,6 +40,13 @@ class Quotas(BaseModel):
     resident_points: int = 20_000_000
     video_decoders: int = 4
     rtx_views: int = 1  # #132: one live RTX view per canvas
+
+
+def ceiling_words(quotas: Quotas, name: str) -> str:
+    """A quota's ceiling in words, for the user: "at most 1 live RTX view per canvas"."""
+    ceiling = getattr(quotas, name)
+    word = QUOTA_WORDS.get(name, name.replace("_", " "))
+    return f"at most {ceiling} live {word}{'' if ceiling == 1 else 's'} per canvas"
 
 
 def is_collapsed(view: dict[str, Any]) -> bool:
@@ -83,29 +98,31 @@ def _usage(
 
 def make_room(
     doc: dict[str, Any], quotas: Quotas, view_cost: ViewCostFn, keep: str
-) -> dict[str, str]:
-    """Collapse live views in ``doc`` (in place) until no quota is exceeded, never
-    ``keep`` (the view a user gesture is making live, SPEC-34): per exceeded quota the
-    oldest counted view first (document order), floating ones last (the user keeps
-    those in sight on purpose). A collapsed view is paused and costs nothing, its links
-    keep delivering, and expanding it is the user's to do. Returns each collapsed view
-    with the quota it made room under; a quota collapsing cannot meet (``keep`` alone
-    exceeds it) is left for ``quota_problems`` to report."""
-    collapsed: dict[str, str] = {}
+) -> dict[str, list[str]]:
+    """Collapse live views in ``doc`` (in place) until no quota is exceeded, for ``keep``
+    (the view an open or an expand makes live, SPEC-34, ADR 0025), which is never
+    collapsed, nor is a locked view. Among the views counting toward an exceeded quota
+    the first to go is the one counting toward the most exceeded quotas (a usd view
+    counts toward both 3D viewports and RTX views), then the oldest (document order);
+    floating views last, as the user keeps those in sight on purpose. A collapsed view
+    is paused and costs nothing; its links keep delivering. Returns each collapsed view
+    with every quota it was collapsed for; a quota collapsing cannot meet (``keep``
+    and locked views alone exceed it) is left for ``quota_problems`` to report."""
+    order = {vid: i for i, vid in enumerate(doc["views"])}
+    collapsed: dict[str, list[str]] = {}
     while True:
         used, counted = _usage(doc, view_cost)
         over = [n for n in QUOTA_NAMES if used[n] > getattr(quotas, n)]
-        pick = None
-        for name in over:
-            others = [v for v in counted[name] if v != keep]
-            others.sort(key=lambda v: is_floating(doc["views"][v]))  # stable: oldest first
-            if others:
-                pick = (others[0], name)
-                break
-        if pick is None:
+        candidates = {
+            v for n in over for v in counted[n] if v != keep and not doc["views"][v].get("locked")
+        }
+        if not candidates:
             return collapsed
-        doc["views"][pick[0]]["layout"]["collapsed"] = True
-        collapsed[pick[0]] = pick[1]
+
+        hits = {v: sum(v in counted[n] for n in over) for v in candidates}
+        vid = min(candidates, key=lambda v: (is_floating(doc["views"][v]), -hits[v], order[v]))
+        doc["views"][vid]["layout"]["collapsed"] = True
+        collapsed[vid] = [n for n in over if vid in counted[n]]
 
 
 def quota_problems(doc: dict[str, Any], quotas: Quotas, view_cost: ViewCostFn) -> list[Problem]:

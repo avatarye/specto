@@ -11,7 +11,7 @@ from specto_core import gestures
 from specto_core.canvas_document import CanvasInvalid, file_tree_of
 from specto_core.canvas_example import worked_example
 from specto_core.errors import InvalidArgs, NotFound
-from specto_core.kinds import ViewCost
+from specto_core.gestures import OPEN_GAP, OPEN_SIZE
 from specto_core.live_canvas import LiveCanvas
 from specto_core.names import is_name
 from specto_core.quotas import Quotas
@@ -304,18 +304,22 @@ def test_a_double_click_opens_a_dedicated_view_of_the_files_kind(live: LiveCanva
     assert len(live.history) == steps + 1  # the agent's pin alone
 
 
-#: what the app's manifests say each costly view type costs (quotas)
-APP_COSTS = {
-    "usd": ViewCost(viewports3d=1, rtx_views=1),
-    "3d": ViewCost(web_views=1, viewports3d=1),
-    "video": ViewCost(video_decoders=1),
-    "markdown": ViewCost(web_views=1),
-}
+def _costed(quotas: Quotas | None = None) -> tuple[LiveCanvas, str]:
+    """A fresh canvas (its file tree only) counting the registry's view costs, as the
+    engine does (the usd view's manifest: one 3D viewport, one RTX view), and its tree.
+    The other view types' costs are the app's (``specto-app`` tests/test_open_make_room)."""
+    plugins = app_plugins()
+
+    def view_cost(view_type: str):
+        m = plugins.view(view_type)
+        return m.cost if m is not None else None
+
+    live = LiveCanvas.headless("demo", quotas=quotas, view_cost=view_cost)
+    return live, file_tree_of(live.data["views"])
 
 
-def _costed(quotas: Quotas | None = None) -> LiveCanvas:
-    """A fresh canvas (its file tree only) that counts the app's view costs."""
-    return LiveCanvas.headless("demo", quotas=quotas, view_cost=APP_COSTS.get)
+def _open(live: LiveCanvas, tree: str, path: str) -> gestures.OpenedFile:
+    return gestures.open_file(live, tree, path, mode="dedicated", plugins=app_plugins())
 
 
 def test_a_second_stage_opens_its_own_view_and_collapses_the_first_to_make_room():
@@ -323,20 +327,22 @@ def test_a_second_stage_opens_its_own_view_and_collapses_the_first_to_make_room(
     second stage while the first one's dedicated usd view is live opens the second's own
     usd view and collapses the first to its title bar (paused, costing no quota, its
     link kept), in the same one submit, instead of failing with the quota problem. The
-    result names the collapsed view and the quota it made room under; undo brings the
-    first view back expanded."""
-    live = _costed()
-    plugins = app_plugins()
-    tree = file_tree_of(live.data["views"])
-    first = gestures.open_file(live, tree, "a/one.usda", mode="dedicated", plugins=plugins)
+    new view is placed clear of the first one's stored size, so expanding it later covers
+    nothing.
+    The result names the collapsed view and its quota; undo brings the first back."""
+    live, tree = _costed()
+    first = _open(live, tree, "a/one.usda")
     assert first.collapsed == {}
-    second = gestures.open_file(live, tree, "b/two.usd", mode="dedicated", plugins=plugins)
+    second = _open(live, tree, "b/two.usd")
     assert second.action == "created" and second.view != first.view
-    assert second.collapsed == {first.view: "rtx_views"}
+    assert second.collapsed == {first.view: ["rtx_views"]}
     doc = live.document()
     assert doc["views"][second.view]["type"] == "usd"
     assert doc["views"][first.view]["layout"]["collapsed"] is True
     assert not doc["views"][second.view]["layout"].get("collapsed")
+    # placed clear of the first view's stored size: expanding it later covers nothing
+    (x, y), (_w, h) = doc["views"][first.view]["layout"]["position"], OPEN_SIZE
+    assert doc["views"][second.view]["layout"]["position"] == [x, y + h + OPEN_GAP]
     assert gestures.dedicated_view_of(doc, "a/one.usda") == first.view  # still its view
     assert second.submit is not None and second.submit.views["changed"] == [first.view]
     assert live.history_summaries()[-1]["label"] == "open two.usd, collapse one.usda · a"
@@ -349,50 +355,73 @@ def test_a_second_stage_opens_its_own_view_and_collapses_the_first_to_make_room(
     assert not doc["views"][first.view]["layout"].get("collapsed")
 
 
-def test_expanding_a_collapsed_stage_collapses_the_live_one_to_make_room():
+def test_expanding_a_collapsed_stage_collapses_the_live_one_and_undo_restores_both():
     """SPEC-34: the header's expand on the first stage's collapsed view (made room for
     the second) collapses the second in the same one undo step, rather than failing
-    with the quota problem."""
-    live = _costed()
-    plugins = app_plugins()
-    tree = file_tree_of(live.data["views"])
-    first = gestures.open_file(live, tree, "a/one.usda", mode="dedicated", plugins=plugins)
-    second = gestures.open_file(live, tree, "b/two.usd", mode="dedicated", plugins=plugins)
-    res = gestures.set_collapsed(live, first.view, False)
+    with the quota problem; the result names it with its quota, and undo brings back
+    the first collapsed and the second live."""
+    live, tree = _costed()
+    first = _open(live, tree, "a/one.usda")
+    second = _open(live, tree, "b/two.usd")
+    res, room = gestures.set_collapsed(live, first.view, False)
     doc = live.document()
     assert not doc["views"][first.view]["layout"].get("collapsed")
     assert doc["views"][second.view]["layout"]["collapsed"] is True
+    assert room == {second.view: ["rtx_views"]}
     assert sorted(res.views["changed"]) == sorted([first.view, second.view])
     assert res.label == "expand one.usda · a, collapse two.usd · b"
+    live.undo()
+    doc = live.document()
+    assert doc["views"][first.view]["layout"]["collapsed"] is True
+    assert not doc["views"][second.view]["layout"].get("collapsed")
+    assert gestures.set_collapsed(live, second.view, True)[1] == {}  # a collapse makes no room
 
 
-@pytest.mark.parametrize(
-    ("ext", "quota", "limit"),
-    [("mp4", "video_decoders", 4), ("ply", "viewports3d", 3), ("md", "web_views", 8)],
-)
-def test_one_more_dedicated_view_than_a_quota_allows_collapses_the_oldest(ext, quota, limit):
-    """SPEC-34 for every costly view type: the dedicated view one past a quota opens and
-    the oldest live view counting toward that quota collapses to make room."""
-    live = _costed()
-    gestures.set_window_frame(live, (4000.0, 8000.0))  # every view opened lands inside
-    plugins = app_plugins()
-    tree = file_tree_of(live.data["views"])
-    opened = [
-        gestures.open_file(live, tree, f"f/{i}.{ext}", mode="dedicated", plugins=plugins)
-        for i in range(limit + 1)
-    ]
-    assert [o.collapsed for o in opened[:limit]] == [{}] * limit
-    assert opened[limit].collapsed == {opened[0].view: quota}
+def test_opening_a_file_whose_dedicated_view_is_collapsed_expands_it():
+    """SPEC-34: a double-click on the first stage again, its view collapsed to make room
+    for the second, expands it (the way back to it) and collapses the second, in one
+    submit, instead of only revealing a title bar. The result is ``expanded``."""
+    live, tree = _costed()
+    first = _open(live, tree, "a/one.usda")
+    second = _open(live, tree, "b/two.usd")
+    again = _open(live, tree, "a/one.usda")
+    assert (again.view, again.action, again.mode) == (first.view, "expanded", "dedicated")
+    assert again.collapsed == {second.view: ["rtx_views"]}
+    assert again.submit is not None and again.submit.origin == "user"
+    doc = live.document()
+    assert not doc["views"][first.view]["layout"].get("collapsed")
+    assert doc["views"][second.view]["layout"]["collapsed"] is True
+    assert live.history_summaries()[-1]["label"] == "expand one.usda · a, collapse two.usd · b"
+    # live already: only focused, no submit
+    steps = len(live.history)
+    assert _open(live, tree, "a/one.usda").action == "focused" and len(live.history) == steps
+
+
+def test_a_locked_view_is_never_collapsed_to_make_room():
+    """SPEC-34: making room never touches a locked view. With the first stage's view
+    locked, the second stage's open is refused with the quota's own problem and fix,
+    and nothing changes; unlocked, the same open collapses it."""
+    live, tree = _costed()
+    first = _open(live, tree, "a/one.usda")
+    gestures.set_locked(live, first.view, True)
+    before = live.document()
+    with pytest.raises(CanvasInvalid) as e:
+        _open(live, tree, "b/two.usd")
+    (problem,) = e.value.problems
+    assert problem["message"].startswith("quota rtx_views=1 would be exceeded")
+    assert "collapse it (layout.collapsed: true)" in problem["fix"]
+    assert live.document() == before
+    gestures.set_locked(live, first.view, False)
+    assert _open(live, tree, "b/two.usd").collapsed == {first.view: ["rtx_views"]}
 
 
 def test_a_quota_no_collapse_can_meet_still_says_its_problem():
     """SPEC-34: when collapsing the other views cannot make room (a quota of zero), the
     open fails with the quota's own problem and fix, and nothing changes."""
-    live = _costed(Quotas(rtx_views=0))
-    tree = file_tree_of(live.data["views"])
+    live, tree = _costed(Quotas(rtx_views=0))
     before = live.document()
     with pytest.raises(CanvasInvalid) as e:
-        gestures.open_file(live, tree, "a/one.usda", mode="dedicated", plugins=app_plugins())
+        _open(live, tree, "a/one.usda")
     (problem,) = e.value.problems
     assert problem["message"].startswith("quota rtx_views=0 would be exceeded")
     assert live.document() == before

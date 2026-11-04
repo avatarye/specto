@@ -141,8 +141,9 @@ class CanvasOpenFileArgs(Args):
 class CanvasOpenFileResult(Result):
     view: str = Field(description="The view that shows the file.")
     action: str = Field(
-        description="Dedicated: created (a new view fed that file) or focused (its "
-        "dedicated view was on the canvas already; the shell reveals it). Contextual: "
+        description="Dedicated: created (a new view fed that file), focused (its "
+        "dedicated view was on the canvas already; the shell reveals it) or expanded (it "
+        "was there collapsed and is expanded, making room). Contextual: "
         "created (new preview on the tree's picks), repointed (an existing preview's "
         "link moved onto the picks) or selected (it already follows them)."
     )
@@ -157,11 +158,12 @@ class CanvasOpenFileResult(Result):
         "of a contextual open whose kind the preview cannot show; a file no view shows "
         "opens a text view saying Not supported).",
     )
-    collapsed: dict[str, str] = Field(
+    collapsed: dict[str, list[str]] = Field(
         default_factory=dict,
-        description="Views collapsed in the same submit to make room for the new one "
-        "under a quota, each with the quota's name (rtx_views: one live RTX view per "
-        "canvas, so a second stage's usd view collapses the first).",
+        description="Views collapsed in the same submit to make room for the view opened "
+        "or expanded, each with every quota it was collapsed for (rtx_views: one live RTX "
+        "view per canvas, so a second stage's usd view collapses the first). Locked views "
+        "are never collapsed.",
     )
 
 
@@ -177,9 +179,10 @@ class CanvasOpenFileResult(Result):
     "view type that shows its kind (image, video, markdown, json, pdf, html, 3d, usd, "
     "map), fed by a pinned link from project.all_files to that one file, labelled "
     "'<name> · <folder>'; a file no view shows opens a text view saying 'Not supported: "
-    "<name> (<ext>)'; a file whose dedicated view exists is focused, not duplicated. "
-    "A new view past a quota collapses the oldest live views in its way (collapsed says "
-    "which). Compose typed views with submit_canvas when their ports need linking.",
+    "<name> (<ext>)'; a file whose dedicated view exists is focused, not duplicated "
+    "(expanded when collapsed). A view opened or expanded past a quota collapses the "
+    "user's unlocked live views in its way, oldest first (collapsed says which). "
+    "Compose typed views with submit_canvas when their ports need linking.",
     scope="project",
 )
 def canvas_open_file(ctx: CommandContext, args: CanvasOpenFileArgs) -> CanvasOpenFileResult:

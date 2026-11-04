@@ -119,6 +119,7 @@ from specto_core.links import FilesValue
 from specto_core.ports import PROJECT_ID, PROJECT_PORT
 
 from ..hosts.stepping import step_hint
+from ..notices import inform
 from ..theme import METRICS
 from .capsules import CapsuleTracker, port_pairs
 from .chains import (
@@ -517,12 +518,10 @@ class CanvasController(QObject):
             return False
         flag = not self._is_collapsed(view_id)
         what = "collapse view" if flag else "expand view"
-        before = {v for v in self.data["views"] if self._is_collapsed(v)}
-        done = self.gesture(lambda: set_collapsed(self.live, view_id, flag), what)
-        made_room = [v for v in self.data["views"] if self._is_collapsed(v) and v not in before]
-        if done and not flag and made_room and self.notices is not None:
-            # expanding collapsed the live views in its way (SPEC-34, ADR 0025)
-            self.notices.info(room_notice(self.live, view_id, dict.fromkeys(made_room)))
+        room: dict[str, list[str]] = {}
+        done = self.gesture(lambda: room.update(set_collapsed(self.live, view_id, flag)[1]), what)
+        if room:  # expanding collapsed the live views in its way (SPEC-34, ADR 0025)
+            inform(self.notices, room_notice(self.live, view_id, room))
         return done
 
     def rects(self) -> dict[str, Rect]:
