@@ -366,8 +366,8 @@ uv run python tools/gui_flows/v2_suite.py --work <scratch folder> [--out out/ver
 
 # the GPU window: a real window that never takes the focus, one entry at a time, for RTX,
 # Storm, mpv video, the WebGL pages and the pixel asserts that need the real scene graph;
-# run it when render, video or WebGL code changed, under a guard that stops the run if the
-# foreground window, the cursor or the clipboard changes
+# run it when render, video or WebGL code changed, one entry at a time under
+# tools/gpu_guard.py (Windows), which kills the run if the app takes the foreground
 uv run python tools/gui_flows/v2_suite.py --work <scratch folder> --tier gpu [--heavy]
 
 # the real mouse: pyautogui under the desktop lock, when nobody is using the machine; only

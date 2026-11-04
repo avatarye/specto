@@ -1,6 +1,6 @@
 # User guide: running Specto from a checkout
 
-There is no installer yet (#200 is planned), so Specto runs from a developer checkout
+There is no installer yet (SPEC-24 plans one), so Specto runs from a developer checkout
 built as in [developer.md](developer.md). This guide starts once that is done and covers
 the first launch, the agent, and the few things worth knowing on day one. Vocabulary is in
 `GLOSSARY.md`.

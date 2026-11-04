@@ -24,4 +24,4 @@ The skills speak of five triage roles; the label string equals the role name.
 | `ready-for-human` | Needs the maintainer's hands (hardware, accounts, judgement)         |
 | `wontfix`         | Will not be done; the final summary says why                         |
 
-Only the maintainer moves a task from `needs-triage` to `ready-for-agent`. When a skill mentions a role, for example "apply the AFK-ready triage label", use the label in this table.
+A task the maintainer asked for directly is filed `ready-for-agent` when it goes to a builder. Anything else starts as `needs-triage`, and only the maintainer moves it on. When a skill mentions a role, for example "apply the AFK-ready triage label", use the label in this table.

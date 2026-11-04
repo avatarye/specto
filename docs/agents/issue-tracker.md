@@ -21,7 +21,7 @@ The full process is in `docs/agents/workflow.md`.
 - **Edit a task**: `backlog task edit SPEC-12` with `-s "In Progress"`, `-l`, `--ac`, `--notes`, `--plan`.
 - **Sub-tasks**: `backlog task create ... -p SPEC-12` makes a child of SPEC-12.
 - **Dependencies**: `--dep SPEC-7`.
-- **Close**: `backlog task edit SPEC-12 -s Done --final-summary "<cause, fix, merge commit>"`.
+- **Close**: `backlog task edit SPEC-12 -s Done --final-summary "<cause, fix, pull request, merge commit>"`.
 - **Statuses**: `To Do`, `In Progress`, `Done`.
 
 The board's own repository commits its changes. The board is the only place task text lives.
