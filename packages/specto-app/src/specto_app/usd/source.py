@@ -54,10 +54,13 @@ source's methods (#139), so the usd host drives either one:
 - view modes (#153): ``set_view_mode {mode}`` (``lit``, ``unlit``, ``wireframe``,
   ``collision``) answers once the render thread has switched, with the mode in effect and
   what it shows (``{mode, note}``; collision: the colliders drawn and how), or an error
-  with the reason (no prims with CollisionAPI, a renderer without view modes). Every load
-  starts lit. ``view_modes`` answers ``{mode, modes: [{mode, available, reason}]}`` for
-  the loaded stage; ``state`` reports ``view_mode``. In collision a pick names the
-  collider, not the overlay prim that draws it;
+  with the reason (no prims with CollisionAPI, a renderer without view modes). A mode
+  asked while another waits to be switched to takes its place, and both answer with
+  its switch (SPEC-33). Collision first builds the stage's overlay on a thread of its
+  own, once a stage, while frames go on. Every load starts lit. ``view_modes`` answers
+  ``{mode, modes: [{mode, available, reason}]}`` for the loaded stage; ``state`` reports
+  ``view_mode``. In collision a pick names the collider, not the overlay prim that draws
+  it;
 - the environment light (SPEC-31, :mod:`.environment`): ``load {path, environment, sky,
   hdri, sky_controls, ground}`` takes the choice (``stage``, ``sky``, ``hdri``), the sky
   and HDRI names, the sky's controls (``{time_of_day, cloudiness, haze}``, each null for

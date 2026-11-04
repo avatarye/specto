@@ -16,6 +16,12 @@ Methods every source answers: ``resize {width, height}``, ``set_camera {position
 target, up, fov_y, near, far}``, ``set_time {t}``, ``pause``, ``resume``, ``shutdown``.
 A source adds its own (``load``, ``pick``, ``query_tree`` ...).
 
+Neither side waits on the other (SPEC-33). The host queues its requests and a writer
+thread writes them, so a source that stops reading never blocks the GUI thread; queued
+``set_camera``, ``set_time`` and ``resize`` collapse to the newest. The source reads on
+while a request is in hand: a handler with no answer yet returns a ``Future`` and the
+answer goes out when it resolves, after any answers to requests read meanwhile.
+
 Events: ``ready {ring, wake, width, height, pid}`` once the first ring exists,
 ``ring {name}`` when frames moved to a bigger ring, ``health {state, message}``, and
 ``exited {code}``, made by the host when the source's stdout closes.
