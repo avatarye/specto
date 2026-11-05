@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import statistics
 import sys
@@ -92,6 +93,11 @@ def main() -> int:
     ap.add_argument("--snapshot", default="", help="PNG of the window at the end")
     ap.add_argument("--stay", action="store_true", help="keep the window open after measuring")
     ap.add_argument("--mixed", default="", help="a mixed-kind folder instead of the frames")
+    ap.add_argument(
+        "--behind",
+        action="store_true",
+        help="open the window without the focus, lowered behind the user's work (gpu_guard runs)",
+    )
     args = ap.parse_args()
 
     ga.require_plugin()
@@ -127,7 +133,13 @@ def main() -> int:
         screen=screen,
         size=(1600, 900),
     )
+    if args.behind:
+        # under tools/gpu_guard.py: never take the focus, and sit below the user's windows
+        # (WindowDoesNotAcceptFocus alone opens on top of the z order); it keeps rendering
+        win.window.setFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
     win.window.show()
+    if args.behind:
+        win.window.lower()
     host = win.hosts[vid]
     item = win.gallery_item(vid)
     # the zoom level is the tile size; the item derives the columns from its width
