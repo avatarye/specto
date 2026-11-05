@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import itertools
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -225,12 +226,15 @@ class StageInfo:
             self._colliders = len(colliders(self.stage))
         return self._colliders
 
-    def collision(self, timecode: float | None = None) -> CollisionOverlay:
+    def collision(
+        self, timecode: float | None = None, cancelled: Callable[[], bool] | None = None
+    ) -> CollisionOverlay:
         """The collision overlay, at ``timecode`` (None: the default time) the first time
-        it is asked for; kept for the stage."""
+        it is asked for; kept for the stage. ``cancelled``: checked between colliders
+        (:func:`.collision.build_overlay`)."""
         if self._collision is None:
             t = Usd.TimeCode.Default() if timecode is None else Usd.TimeCode(timecode)
-            self._collision = build_overlay(self.stage, self.up_axis, t)
+            self._collision = build_overlay(self.stage, self.up_axis, t, cancelled=cancelled)
             self._colliders = self._collision.colliders
         return self._collision
 

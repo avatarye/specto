@@ -22,6 +22,7 @@ which overlay prim draws which collider (a pick maps back).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -248,9 +249,19 @@ def hide_list(stage: Usd.Stage, t: Usd.TimeCode) -> dict[str, str]:
     return out
 
 
+class BuildCancelled(Exception):
+    """The overlay's build stopped between colliders: no one waits for it any more."""
+
+
 def build_overlay(
-    stage: Usd.Stage, up_axis: str = "Y", t: Usd.TimeCode | None = None
+    stage: Usd.Stage,
+    up_axis: str = "Y",
+    t: Usd.TimeCode | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> CollisionOverlay:
+    """The stage's collision overlay. ``cancelled`` is asked before each collider; when it
+    says so the build stops with :class:`BuildCancelled` (SPEC-33: a new stage, or the
+    process's end, needs no old stage's hulls)."""
     t = Usd.TimeCode.Default() if t is None else t
     light = light_dir(up_axis)
     xforms = UsdGeom.XformCache(t)
@@ -262,6 +273,8 @@ def build_overlay(
     hulls = 0
     found = colliders(stage)
     for prim in found:
+        if cancelled is not None and cancelled():
+            raise BuildCancelled(stage.GetRootLayer().identifier)
         geometry, how = collider_geometry(prim, t)
         if geometry is None or not len(geometry[1]):
             skipped.append(how)
@@ -299,4 +312,12 @@ def build_overlay(
     )
 
 
-__all__ = ["ROOT", "CollisionOverlay", "build_overlay", "colliders", "convex_hull", "fan"]
+__all__ = [
+    "ROOT",
+    "BuildCancelled",
+    "CollisionOverlay",
+    "build_overlay",
+    "colliders",
+    "convex_hull",
+    "fan",
+]

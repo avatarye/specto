@@ -104,7 +104,7 @@ import traceback
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -141,13 +141,35 @@ COLD_MESSAGE = "(first run, about 3 min)"
 OVERLAY_TIMEOUT_S = 90.0
 
 
+#: how long the process's end waits for a collision build to stop between colliders
+OVERLAY_JOIN_S = 2.0
+
+
 @dataclass
 class OverlayBuild:
-    """A stage's collision overlay building off the render thread."""
+    """A stage's collision overlay building off the render thread. One runs at a time:
+    a newer one stops the one before (``stop``, asked between colliders) and waits for
+    its thread to end before it starts."""
 
     info: Any  # the stage.StageInfo it reads
     built: Future  # the CollisionOverlay
     started: float  # time.monotonic()
+    stop: threading.Event = field(default_factory=threading.Event)
+    thread: threading.Thread | None = None
+
+
+def settle(answers: list[Future], fn: Callable[[], Any]) -> Any:
+    """Resolve every answer with ``fn()``'s result, or with what it raised; the result,
+    None when it raised."""
+    try:
+        result = fn()
+    except Exception as e:
+        for answer in answers:
+            answer.set_exception(e)
+        return None
+    for answer in answers:
+        answer.set_result(result)
+    return result
 
 
 def shader_cache() -> Path:
@@ -432,9 +454,18 @@ class UsdSource:
             while self._next():
                 pass
         finally:
+            self._end_overlay()
             self._close_renderer()
             self.frames.close()
         return 0
+
+    def _end_overlay(self) -> None:
+        """The process ends: a collision build under way stops between colliders, so no
+        thread is inside pxr or Qhull at exit."""
+        job = self._overlay
+        if job is not None and job.thread is not None:
+            job.stop.set()
+            job.thread.join(OVERLAY_JOIN_S)
 
     def _start_renderer(self) -> None:
         cold = self.kind == "rtx" and shaders_cold()
@@ -554,7 +585,7 @@ class UsdSource:
         if self._want_mode != "collision":
             return True
         job = self._overlay
-        if job is None or job.info is not self.info:
+        if job is None or job.info is not self.info or job.stop.is_set():
             return True  # to start one, or to answer why not
         return job.built.done() or self._overdue(job)
 
@@ -565,7 +596,7 @@ class UsdSource:
         """How long the loop may sleep (under ``_cond``): until the build a collision ask
         waits on is due; None, no bound."""
         job = self._overlay
-        if self._want_mode != "collision" or job is None or job.built.done():
+        if self._want_mode != "collision" or job is None or job.built.done() or job.stop.is_set():
             return None
         return max(0.0, job.started + OVERLAY_TIMEOUT_S - time.monotonic())
 
@@ -581,7 +612,7 @@ class UsdSource:
             waiting = False
             if mode == "collision" and self._rendering():
                 job = self._overlay
-                if job is None or job.info is not self.info:
+                if job is None or job.info is not self.info or job.stop.is_set():
                     job = self._start_overlay()
                 waiting = not job.built.done() and not self._overdue(job)
             if not waiting:
@@ -595,18 +626,24 @@ class UsdSource:
         stage with many hulls takes a while, and the render loop goes on meanwhile). The
         stage keeps what it ends with (:meth:`.stage.StageInfo.collision`)."""
         info, timecode = self.info, self.timecode
+        before = self._overlay
+        if before is not None:
+            before.stop.set()  # the newest wins: the one before stops between colliders
         job = OverlayBuild(info, Future(), time.monotonic())
         self._overlay = job
 
         def build() -> None:
+            if before is not None and before.thread is not None:
+                before.thread.join()  # one build at a time
             try:
-                job.built.set_result(info.collision(timecode))
+                job.built.set_result(info.collision(timecode, cancelled=job.stop.is_set))
             except Exception as e:
                 job.built.set_exception(e)
             with self._cond:
                 self._cond.notify()  # the switch waiting on it goes ahead
 
-        threading.Thread(target=build, name="usd-collision", daemon=True).start()
+        job.thread = threading.Thread(target=build, name="usd-collision", daemon=True)
+        job.thread.start()
         return job
 
     def _show_building(self, on: bool) -> None:
@@ -625,23 +662,25 @@ class UsdSource:
     def _built_overlay(self) -> Any:
         """The loaded stage's collision overlay when it is built, else None."""
         job = self._overlay
-        if job is None or job.info is not self.info or not job.built.done():
+        if job is None or job.info is not self.info or job.stop.is_set():
             return None
-        return job.built.result() if job.built.exception() is None else None
+        if not job.built.done() or job.built.exception() is not None:
+            return None
+        return job.built.result()
 
     def _collision_overlay(self) -> Any:
         """The overlay a collision switch draws: built off this thread, never here. A
         build that failed or is overdue is dropped (a later ask builds again) and the
         switch answers why; a failure is said once as a ``warning`` too."""
         job = self._overlay
-        if job is None or job.info is not self.info:
+        if job is None or job.info is not self.info or job.stop.is_set():
             raise RuntimeError("the collision overlay is not built")
         if not job.built.done():
-            self._overlay = None
+            job.stop.set()  # the next ask starts again, after this one stops
             raise TimeoutError(f"the collision overlay took longer than {OVERLAY_TIMEOUT_S:g} s")
         error = job.built.exception()
         if error is not None:
-            self._overlay = None
+            job.stop.set()  # a later ask builds again
             message = f"the collision overlay failed: {error}"
             print(f"[WARN] {message}", file=sys.stderr, flush=True)
             self.control.emit("warning", message=message)
@@ -653,25 +692,14 @@ class UsdSource:
         and the ``view_mode`` event says the mode the picture shows."""
         while modes:
             mode, answers = modes.pop(0)
-            try:
-                result, error = self._set_view_mode(mode), None
-            except Exception as e:
-                result, error = None, e
+            result = settle(answers, lambda mode=mode: self._set_view_mode(mode))
             if result is not None:
                 self.control.emit("view_mode", **result)
-            for answer in answers:
-                if error is not None:
-                    answer.set_exception(error)
-                else:
-                    answer.set_result(result)
 
     def _call(self, calls: list[tuple[Callable[[], dict], Future]]) -> None:
         while calls:
             fn, answer = calls.pop(0)
-            try:
-                answer.set_result(fn())
-            except Exception as e:
-                answer.set_exception(e)
+            settle([answer], fn)
 
     def _set_view_mode(self, mode: str) -> dict:
         """Switch the renderer to ``mode`` (#153); the answer is the mode in effect."""
@@ -797,20 +825,20 @@ class UsdSource:
         """Answer the picks taken this turn, against the camera of this turn."""
         while picks:
             x, y, answer = picks.pop(0)
-            try:
-                if self.renderer is None or self.info is None or self.failed:
-                    raise ValueError("no stage is rendering")
-                if not hasattr(self.renderer, "pick"):
-                    raise ValueError(f"the {self.renderer_name} renderer cannot pick")
-                hit = self.renderer.pick(x, y)
-                self._warn()
-                overlay = self._built_overlay()
-                if hit and self.view_mode == "collision" and overlay is not None:
-                    collider = overlay.source_of(hit["path"])
-                    hit = {**hit, "path": collider or hit["path"]}
-                answer.set_result({"hit": True, **hit} if hit else {"hit": False})
-            except Exception as e:
-                answer.set_exception(e)
+            settle([answer], lambda x=x, y=y: self._pick_at(x, y))
+
+    def _pick_at(self, x: float, y: float) -> dict:
+        if not self._rendering():
+            raise ValueError("no stage is rendering")
+        if not hasattr(self.renderer, "pick"):
+            raise ValueError(f"the {self.renderer_name} renderer cannot pick")
+        hit = self.renderer.pick(x, y)
+        self._warn()
+        overlay = self._built_overlay()
+        if hit and self.view_mode == "collision" and overlay is not None:
+            collider = overlay.source_of(hit["path"])
+            hit = {**hit, "path": collider or hit["path"]}
+        return {"hit": True, **hit} if hit else {"hit": False}
 
     def _usd_camera(self) -> dict[str, Any]:
         """The camera as the renderer takes it (rtx: :func:`.nav.usd_camera`)."""
@@ -851,6 +879,8 @@ class UsdSource:
         # a reload of the same stage (a restart) keeps its time; a new one starts at default
         keep = self.timecode if self.info is not None and self.info.path == path else None
         self.timecode = None
+        if self._overlay is not None:
+            self._overlay.stop.set()  # no one needs the old stage's hulls
         with self._info_lock:
             self.info = info
         self.camera = Nav(info.bounds, info.up_axis).state()

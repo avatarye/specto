@@ -13,7 +13,7 @@ pytest.importorskip("pxr", reason="usd-core comes with the rtx extra")
 
 from pxr import Sdf, Usd, UsdGeom
 
-from specto_app.usd.collision import ROOT, build_overlay, convex_hull, fan
+from specto_app.usd.collision import ROOT, BuildCancelled, build_overlay, convex_hull, fan
 
 CUBE = [(x, y, z) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]
 
@@ -201,3 +201,16 @@ def test_a_stage_without_colliders_has_an_empty_overlay():
     overlay = build_overlay(stage)
     assert overlay.colliders == 0 and overlay.sources == {}
     assert overlay.note == "0 colliders"
+
+
+def test_a_cancelled_build_stops_between_colliders(stage):
+    asked: list[int] = []
+
+    def cancelled() -> bool:
+        asked.append(1)
+        return len(asked) > 2  # two colliders, then a new stage wants the thread
+
+    with pytest.raises(BuildCancelled):
+        build_overlay(stage, "Z", cancelled=cancelled)
+    assert len(asked) == 3
+    assert build_overlay(stage, "Z", cancelled=lambda: False).colliders == 5

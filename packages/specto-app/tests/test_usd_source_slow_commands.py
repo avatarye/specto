@@ -20,6 +20,7 @@ pytest.importorskip("pxr", reason="usd-core comes with the rtx extra")
 from specto_app.frames import control
 from specto_app.usd import source as source_mod
 from specto_app.usd import stage as stage_mod
+from specto_app.usd.collision import BuildCancelled
 from specto_app.usd.source import UsdSource
 
 COLLIDERS = """#usda 1.0
@@ -59,16 +60,17 @@ def Xform "World"
     }
 }
 """
-SLOW_S = 2.0
 
 
 class StubRenderer:
-    """Records what the source asks; a view mode in ``slow`` takes ``SLOW_S``."""
+    """Records what the source asks; a view mode in ``slow`` waits for ``release``."""
 
     name = "stub"
 
     def __init__(self) -> None:
         self.slow: set[str] = set()
+        self.entered = threading.Event()  # a slow switch began
+        self.release = threading.Event()  # it may end
         self.modes: list[str] = []
         self.cameras: list[dict] = []
         self.submits = 0
@@ -91,7 +93,8 @@ class StubRenderer:
 
     def set_view_mode(self, mode, overlay=None) -> str:
         if mode in self.slow:
-            time.sleep(SLOW_S)
+            self.entered.set()
+            self.release.wait(10.0)
         self.modes.append(mode)
         return ""
 
@@ -183,26 +186,49 @@ def barrel_stage(tmp_path: Path) -> Path:
 
 
 class Builds:
-    """``stage.build_overlay`` made slow (``delay`` s), or failing (``fail`` times):
-    each build's thread and stage file is recorded."""
+    """``stage.build_overlay`` under the test's hand: ``hold`` keeps a build going until
+    ``release`` (or until it is cancelled, which it notices between colliders and, with
+    ``linger``, takes that long to act on); ``fail`` builds raise. It records each build's
+    thread and stage file, how many were cancelled and how many ran at once."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        self.delay = 0.0
+        self.hold = False
+        self.release = threading.Event()
+        self.started = threading.Event()
+        self.ended = threading.Event()
+        self.linger = 0.0
         self.fail = 0
         self.made: list[tuple[str, str]] = []
+        self.cancelled = 0
+        self.most_at_once = 0
+        self._running = 0
+        self._lock = threading.Lock()
         build = stage_mod.build_overlay
 
-        def slow_build(stage, *args, **kwargs):
-            self.made.append(
-                (threading.current_thread().name, Path(stage.GetRootLayer().realPath).name)
-            )
-            time.sleep(self.delay)
-            if self.fail:
-                self.fail -= 1
-                raise RuntimeError("the hull blew up")
-            return build(stage, *args, **kwargs)
+        def held_build(stage, up_axis="Y", t=None, cancelled=None):
+            with self._lock:
+                self._running += 1
+                self.most_at_once = max(self.most_at_once, self._running)
+                self.made.append(
+                    (threading.current_thread().name, Path(stage.GetRootLayer().realPath).name)
+                )
+            self.started.set()
+            try:
+                while self.hold and not self.release.wait(0.005):
+                    if cancelled is not None and cancelled():
+                        time.sleep(self.linger)  # the collider in hand comes first
+                        self.cancelled += 1
+                        raise BuildCancelled("cancelled")
+                if self.fail:
+                    self.fail -= 1
+                    raise RuntimeError("the hull blew up")
+                return build(stage, up_axis, t, cancelled=cancelled)
+            finally:
+                with self._lock:
+                    self._running -= 1
+                self.ended.set()
 
-        monkeypatch.setattr(stage_mod, "build_overlay", slow_build)
+        monkeypatch.setattr(stage_mod, "build_overlay", held_build)
 
 
 @pytest.fixture
@@ -245,11 +271,28 @@ def in_background(fn):
     return box, done
 
 
+def until(what, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if what():
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"timed out waiting for {what}")
+
+
+def mode_event(src: control.FrameSourceProcess, mode: str) -> dict:
+    """The next ``view_mode`` event that says ``mode``."""
+    while True:
+        event = src.wait_event("view_mode", timeout=10.0)
+        if event["mode"] == mode:
+            return event
+
+
 def test_the_source_keeps_reading_while_a_slow_command_runs(source, renderer, collider_stage):
     load(source, collider_stage)
     renderer.slow.add("unlit")
     mode, mode_done = in_background(lambda: source.call("set_view_mode", mode="unlit"))
-    time.sleep(0.2)  # the render thread is in the switch
+    assert renderer.entered.wait(5.0)  # the render thread is in the switch
     for i in range(2000):
         source.send("set_camera", **camera(float(i)), cut=False)
     t0 = time.monotonic()
@@ -257,7 +300,8 @@ def test_the_source_keeps_reading_while_a_slow_command_runs(source, renderer, co
     assert time.monotonic() - t0 < 0.5
     assert not mode_done.is_set()
     assert state["view_mode"] == "lit"
-    assert mode_done.wait(SLOW_S + 5)
+    renderer.release.set()
+    assert mode_done.wait(5.0)
     assert mode == [{"mode": "unlit", "note": ""}]
     # the moves made meanwhile come out as the latest one, not one each
     until(lambda: 1999.0 in renderer.eyes())
@@ -270,77 +314,60 @@ def test_view_modes_asked_during_a_slow_switch_collapse_to_the_last(
     load(source, collider_stage)
     renderer.slow.add("unlit")
     first, first_done = in_background(lambda: source.call("set_view_mode", mode="unlit"))
-    time.sleep(0.2)  # the render thread is in the switch
-    middle, middle_done = in_background(lambda: source.call("set_view_mode", mode="wireframe"))
-    time.sleep(0.1)
-    last, last_done = in_background(lambda: source.call("set_view_mode", mode="lit"))
-    for done in (first_done, middle_done, last_done):
-        assert done.wait(SLOW_S + 5)
-    assert renderer.modes == ["unlit", "lit"]  # wireframe was never drawn
-    assert first == [{"mode": "unlit", "note": ""}]
-    # a mode given way answers with the one in effect
-    assert middle == last == [{"mode": "lit", "note": ""}]
+    assert renderer.entered.wait(5.0)
+    source.send("set_view_mode", mode="wireframe")
+    source.send("set_view_mode", mode="lit")
+    source.call("state", timeout=1.0)  # both read: they wait behind the switch together
+    renderer.release.set()
+    assert first_done.wait(5.0) and first == [{"mode": "unlit", "note": ""}]
+    until(lambda: renderer.modes == ["unlit", "lit"])  # wireframe was never drawn
     assert source.call("state")["view_mode"] == "lit"
 
 
 def test_the_collision_overlay_builds_beside_the_render_loop_once_a_stage(
-    source, renderer, collider_stage, monkeypatch
+    source, renderer, builds, collider_stage
 ):
-    builds = []
-    build = stage_mod.build_overlay
-
-    def slow_build(*args, **kwargs):
-        builds.append(threading.current_thread().name)
-        time.sleep(SLOW_S)
-        return build(*args, **kwargs)
-
-    monkeypatch.setattr(stage_mod, "build_overlay", slow_build)
     load(source, collider_stage)
+    builds.hold = True
     answer, done = in_background(lambda: source.call("set_view_mode", mode="collision"))
-    time.sleep(0.3)  # the build is under way
-    before = renderer.submits
-    for i in range(10):  # moves keep the loop stepping
+    assert builds.started.wait(5.0)
+    for i in range(10):  # each move is drawn while the overlay builds
+        drawn = renderer.submits
         source.send("set_camera", **camera(float(i)), cut=False)
-        time.sleep(0.05)
+        until(lambda drawn=drawn: renderer.submits > drawn)
     assert not done.is_set()
-    assert renderer.submits > before  # frames go on while the overlay builds
     assert 9.0 in renderer.eyes()
-    assert done.wait(SLOW_S + 5)
+    builds.release.set()
+    assert done.wait(5.0)
     assert answer == [{"mode": "collision", "note": "1 collider"}]
-    assert builds != ["usd-source"]  # not on the render thread
-    # cached a stage: back to lit and to collision again builds nothing new
+    assert builds.made[0][0] != "usd-source"  # not on the render thread
+    # kept for the stage: back to lit and to collision again builds nothing new
     source.call("set_view_mode", mode="lit")
     assert source.call("set_view_mode", mode="collision")["mode"] == "collision"
     assert renderer.modes == ["collision", "lit", "collision"]
-    assert len(builds) == 1
+    assert len(builds.made) == 1
 
 
 def test_a_stage_opened_in_collision_renders_and_answers_while_the_overlay_builds(
-    source, renderer, collider_stage, monkeypatch
+    source, renderer, builds, collider_stage
 ):
     # a canvas saved in collision: the host asks for it right after the load, before the
     # stage's first frame; the overlay must not hold the first frame, a pick or a state
-    build = stage_mod.build_overlay
-
-    def slow_build(*args, **kwargs):
-        time.sleep(SLOW_S)
-        return build(*args, **kwargs)
-
-    monkeypatch.setattr(stage_mod, "build_overlay", slow_build)
+    builds.hold = True
     source.wait_event("ready")
     source.send("load", path=str(collider_stage))
     mode, mode_done = in_background(lambda: source.call("set_view_mode", mode="collision"))
-    t0 = time.monotonic()
-    while source.wait_event("health", timeout=SLOW_S).get("state") != "ok":
-        pass
-    assert time.monotonic() - t0 < SLOW_S and not mode_done.is_set()  # first frame first
+    while source.wait_event("health", timeout=5.0).get("state") != "ok":
+        pass  # the first frame comes while the overlay builds
+    assert not mode_done.is_set()
     assert source.call("pick", x=0.0, y=0.0, timeout=1.0)["path"] == "/World/Crate"
     assert source.call("state", timeout=1.0)["view_mode"] == "lit"
-    before = renderer.submits
+    drawn = renderer.submits
     source.send("set_camera", **camera(3.0), cut=False)
-    until(lambda: renderer.submits > before)
+    until(lambda: renderer.submits > drawn)
     assert not mode_done.is_set()
-    assert mode_done.wait(SLOW_S + 5)
+    builds.release.set()
+    assert mode_done.wait(5.0)
     assert mode == [{"mode": "collision", "note": "1 collider"}]
     assert source.call("state", timeout=1.0)["view_mode"] == "collision"
 
@@ -351,38 +378,53 @@ def test_collision_asked_with_a_load_builds_the_new_stage_off_the_render_thread(
     load(source, collider_stage)
     source.call("set_view_mode", mode="collision")  # the first stage's overlay is built
     source.call("set_view_mode", mode="lit")
+    source.poll()  # the events so far
     renderer.slow.add("unlit")
-    _, held = in_background(lambda: source.call("set_view_mode", mode="unlit"))
-    time.sleep(0.2)  # the render thread is in the switch: the next two come in one turn
+    source.send("set_view_mode", mode="unlit")
+    assert renderer.entered.wait(5.0)
     source.send("load", path=str(barrel_stage))
-    answer, done = in_background(lambda: source.call("set_view_mode", mode="collision"))
-    assert held.wait(SLOW_S + 5) and done.wait(SLOW_S + 5)
-    assert answer == [{"mode": "collision", "note": "2 colliders"}]
+    source.send("set_view_mode", mode="collision")
+    source.call("state", timeout=1.0)  # both read: the render thread takes them in one turn
+    renderer.release.set()
+    assert mode_event(source, "collision") == {"mode": "collision", "note": "2 colliders"}
     barrel_builds = [thread for thread, stage in builds.made if stage == "barrels.usda"]
     assert barrel_builds and "usd-source" not in barrel_builds
 
 
-def test_a_load_mid_build_answers_the_old_ask_and_the_new_stage_stays_lit(
+def test_a_load_mid_build_answers_the_old_ask_stops_its_build_and_stays_lit(
     source, renderer, builds, collider_stage, barrel_stage
 ):
     load(source, collider_stage)
-    builds.delay = SLOW_S
+    builds.hold = True
     answer, done = in_background(lambda: source.call("set_view_mode", mode="collision"))
-    time.sleep(0.3)  # the overlay is building
+    assert builds.started.wait(5.0)
     load(source, barrel_stage, first=False)
     assert done.wait(1.0), "the ask for the old stage is left waiting"
     assert isinstance(answer[0], control.SourceError) and "new stage" in str(answer[0])
-    time.sleep(SLOW_S)  # the old stage's build ends
+    assert builds.ended.wait(2.0) and builds.cancelled == 1  # the old stage's build stopped
     assert source.call("state", timeout=1.0)["view_mode"] == "lit"
     assert "collision" not in renderer.modes
     assert [stage for _, stage in builds.made] == ["crates.usda"]
+
+
+def test_one_build_runs_at_a_time_and_the_newest_wins(source, builds, collider_stage, barrel_stage):
+    load(source, collider_stage)
+    builds.hold, builds.linger = True, 0.3  # the old build takes a while to stop
+    in_background(lambda: source.call("set_view_mode", mode="collision"))
+    assert builds.started.wait(5.0)
+    load(source, barrel_stage, first=False)
+    builds.hold = False
+    answer = source.call("set_view_mode", mode="collision", timeout=5.0)
+    assert answer == {"mode": "collision", "note": "2 colliders"}
+    assert builds.cancelled == 1 and builds.most_at_once == 1
+    assert [stage for _, stage in builds.made] == ["crates.usda", "barrels.usda"]
 
 
 def test_switching_away_mid_build_and_back_reuses_the_running_build(
     source, renderer, builds, collider_stage
 ):
     load(source, collider_stage)
-    builds.delay = SLOW_S
+    builds.hold = True
     first, first_done = in_background(lambda: source.call("set_view_mode", mode="collision"))
     building = source.wait_event("health", timeout=2.0)
     assert building == {"state": "building collision", "message": "1 collider"}
@@ -391,9 +433,9 @@ def test_switching_away_mid_build_and_back_reuses_the_running_build(
     assert time.monotonic() - t0 < 0.5  # lit does not wait on the build
     assert first_done.wait(1.0) and first == [{"mode": "lit", "note": ""}]
     assert source.wait_event("health", timeout=1.0)["state"] == "ok"  # the label is off
-    assert source.call("set_view_mode", mode="collision", timeout=SLOW_S + 5)["mode"] == (
-        "collision"
-    )
+    again, again_done = in_background(lambda: source.call("set_view_mode", mode="collision"))
+    builds.release.set()
+    assert again_done.wait(5.0) and again[0]["mode"] == "collision"
     assert len(builds.made) == 1
     assert renderer.modes == ["lit", "collision"]
 
@@ -415,23 +457,27 @@ def test_a_build_that_fails_is_said_once_and_a_later_ask_builds_again(
     assert source.call("state")["view_mode"] == "collision"
 
 
-def test_a_build_that_never_ends_is_answered_at_the_bound(
+def test_a_build_that_never_ends_is_answered_at_the_bound_and_stopped(
     source, builds, collider_stage, monkeypatch
 ):
     monkeypatch.setattr(source_mod, "OVERLAY_TIMEOUT_S", 0.5)
     load(source, collider_stage)
-    builds.delay = 3.0
+    builds.hold = True  # never released
     t0 = time.monotonic()
     with pytest.raises(control.SourceError, match=r"collision overlay took longer than 0\.5 s"):
         source.call("set_view_mode", mode="collision", timeout=2.5)
     assert time.monotonic() - t0 < 1.5
+    assert builds.ended.wait(2.0) and builds.cancelled == 1
     assert source.call("state", timeout=1.0)["view_mode"] == "lit"
 
 
-def until(what, timeout: float = 5.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if what():
-            return
-        time.sleep(0.01)
-    raise AssertionError(f"timed out waiting for {what}")
+def test_the_source_ends_with_no_build_left_running(source, builds, collider_stage):
+    load(source, collider_stage)
+    builds.hold = True  # never released
+    in_background(lambda: source.call("set_view_mode", mode="collision"))
+    assert builds.started.wait(5.0)
+    t0 = time.monotonic()
+    source.close()
+    assert time.monotonic() - t0 < 3.0
+    assert builds.ended.is_set() and builds.cancelled == 1
+    assert not [t for t in threading.enumerate() if t.name == "usd-collision" and t.is_alive()]
