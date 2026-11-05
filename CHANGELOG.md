@@ -15,6 +15,16 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Switching a usd view's view mode can no longer freeze the app (SPEC-33, ADR 0026). On
+  a stage with dense colliders, collision built its convex hulls for minutes on the
+  renderer's thread, the source stopped reading, and an orbit's camera moves blocked the
+  GUI thread on a full pipe; a canvas saved in collision hung on "streaming textures" the
+  same way. Hulls now come from Qhull (milliseconds), built once a stage on a thread of
+  their own while the picture goes on, with "building the collision overlay" in health
+  and the pill on "Collision…" meanwhile; a failed build is said once and tried again on
+  the next ask, and one past 90 s answers an error. The host queues what it sends a frame
+  source, camera, time and size updates collapsing to the newest, and the source keeps
+  reading while a command runs. **New runtime dependency:** scipy (for Qhull).
 - Opening or expanding a view past a quota makes room instead of failing (SPEC-34, ADR
   0025). A double-click on a second stage while the first stage's usd view is live was
   refused with "canvas document has 1 problem" (one live RTX view per canvas) and opened
