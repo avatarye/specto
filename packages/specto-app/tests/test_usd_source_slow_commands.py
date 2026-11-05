@@ -73,6 +73,9 @@ class StubRenderer:
         self.modes.append(mode)
         return ""
 
+    def pick(self, x, y):
+        return {"path": "/World/Crate", "position": [0.0, 0.0, 1.0], "normal": [0.0, 0.0, 1.0]}
+
     def submit(self, delta):
         self.submits += 1
         return self.submits
@@ -252,6 +255,36 @@ def test_the_collision_overlay_builds_beside_the_render_loop_once_a_stage(
     assert source.call("set_view_mode", mode="collision")["mode"] == "collision"
     assert renderer.modes == ["collision", "lit", "collision"]
     assert len(builds) == 1
+
+
+def test_a_stage_opened_in_collision_renders_and_answers_while_the_overlay_builds(
+    source, renderer, collider_stage, monkeypatch
+):
+    # a canvas saved in collision: the host asks for it right after the load, before the
+    # stage's first frame; the overlay must not hold the first frame, a pick or a state
+    build = stage_mod.build_overlay
+
+    def slow_build(*args, **kwargs):
+        time.sleep(SLOW_S)
+        return build(*args, **kwargs)
+
+    monkeypatch.setattr(stage_mod, "build_overlay", slow_build)
+    source.wait_event("ready")
+    source.send("load", path=str(collider_stage))
+    mode, mode_done = in_background(lambda: source.call("set_view_mode", mode="collision"))
+    t0 = time.monotonic()
+    while source.wait_event("health", timeout=SLOW_S).get("state") != "ok":
+        pass
+    assert time.monotonic() - t0 < SLOW_S and not mode_done.is_set()  # first frame first
+    assert source.call("pick", x=0.0, y=0.0, timeout=1.0)["path"] == "/World/Crate"
+    assert source.call("state", timeout=1.0)["view_mode"] == "lit"
+    before = renderer.submits
+    source.send("set_camera", **camera(3.0), cut=False)
+    until(lambda: renderer.submits > before)
+    assert not mode_done.is_set()
+    assert mode_done.wait(SLOW_S + 5)
+    assert mode == [{"mode": "collision", "note": "1 collider"}]
+    assert source.call("state", timeout=1.0)["view_mode"] == "collision"
 
 
 def until(what, timeout: float = 5.0):
