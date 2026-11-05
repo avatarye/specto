@@ -74,6 +74,10 @@ void GalleryItem::setCount(int n)
         m_selected = -1;
         emit selectedIndexChanged();
     }
+    if (m_current >= n) {
+        m_current = -1;
+        emit currentIndexChanged();
+    }
     if (m_hover >= n)
         setHover(-1, m_hoverPos);
     emit countChanged();
@@ -143,12 +147,14 @@ qreal GalleryItem::targetCellWidth() const
 
 qreal GalleryItem::captionHeight() const
 {
+    // the band on the thumb's bottom edge the scrim covers: the lines plus the padding
+    // above and below them (kCaptionPad each)
     if (m_captionMode <= 0 || m_cellW < m_captionMinW)
         return 0.0;
     const qreal px = m_captionFont.pixelSize() > 0 ? m_captionFont.pixelSize()
                                                     : m_captionFont.pointSizeF() * 1.33;
     const qreal line = std::ceil(px * 1.45);
-    return (m_captionMode >= 2 ? 2 * line : line) + 2.0;
+    return (m_captionMode >= 2 ? 2 * line : line) + 2 * kCaptionPad;
 }
 
 qreal GalleryItem::contentHeight() const
@@ -159,7 +165,7 @@ qreal GalleryItem::contentHeight() const
 
 void GalleryItem::relayout()
 {
-    // Called when width, tile size, gap, margin, aspect or captions change outside a zoom
+    // Called when width, tile size, gap, margin or aspect change outside a zoom
     // animation: snap the cell width to the target and keep the item at the top-left
     // corner at the top (the column count may have changed under it).
     const qreal oldPitch = rowPitch();
@@ -262,7 +268,9 @@ void GalleryItem::setCaptionMode(int mode)
     if (mode == m_captionMode)
         return;
     m_captionMode = mode;
-    relayout();
+    // captions overlay the tiles: the layout stays, only the band changes
+    emit layoutChanged();
+    update();
 }
 
 void GalleryItem::setCaptionMinWidth(qreal px)
@@ -271,7 +279,8 @@ void GalleryItem::setCaptionMinWidth(qreal px)
     if (qFuzzyCompare(1.0 + px, 1.0 + m_captionMinW))
         return;
     m_captionMinW = px;
-    relayout();
+    emit layoutChanged();
+    update();
 }
 
 void GalleryItem::setInteractive(bool on)
@@ -327,6 +336,9 @@ SPECTO_STYLE_SETTER(setHoverColor, m_hoverColor, QColor)
 SPECTO_STYLE_SETTER(setPlaceholderColor, m_placeholderColor, QColor)
 SPECTO_STYLE_SETTER(setFailedColor, m_failedColor, QColor)
 SPECTO_STYLE_SETTER(setCaptionColor, m_captionColor, QColor)
+SPECTO_STYLE_SETTER(setCaptionScrimColor, m_captionScrimColor, QColor)
+SPECTO_STYLE_SETTER(setCurrentColor, m_currentColor, QColor)
+SPECTO_STYLE_SETTER(setCurrentLabel, m_currentLabel, QString)
 #undef SPECTO_STYLE_SETTER
 
 void GalleryItem::setCaptionFont(const QFont &f)
@@ -335,7 +347,8 @@ void GalleryItem::setCaptionFont(const QFont &f)
         return;
     m_captionFont = f;
     emit styleChanged();
-    relayout();
+    emit layoutChanged();   // the caption band's height follows the font
+    update();
 }
 
 void GalleryItem::setRadius(qreal r)
@@ -375,8 +388,7 @@ QRectF GalleryItem::contentCellRect(int index) const
 {
     const int cols = effectiveColumns();
     const int c = index % cols, r = index / cols;
-    return {m_margin + c * (m_cellW + m_gap), m_margin + r * rowPitch(), m_cellW,
-            cellHeight() + captionHeight()};
+    return {m_margin + c * (m_cellW + m_gap), m_margin + r * rowPitch(), m_cellW, cellHeight()};
 }
 
 QRectF GalleryItem::contentThumbRect(int index) const
@@ -427,7 +439,7 @@ int GalleryItem::indexAt(qreal x, qreal y) const
         return -1;
     const qreal pitch = rowPitch();
     const int r = int(std::floor(cy / pitch));
-    if (cy - r * pitch > cellHeight() + captionHeight())
+    if (cy - r * pitch > cellHeight())
         return -1;
     const int i = r * cols + c;
     return i < m_count ? i : -1;
@@ -474,7 +486,7 @@ void GalleryItem::recomputeRanges(bool emitSignals)
         const int cols = effectiveColumns();
         const int nrows = rows();
         const qreal pitch = rowPitch();
-        // a row whose cell (and caption) ended inside the trailing gap is not visible
+        // a row whose cell ended inside the trailing gap is not visible
         const int rowA = std::clamp(int(std::floor((m_scrollY - m_margin + m_gap) / pitch)), 0, nrows - 1);
         const int rowB = std::clamp(int(std::floor((m_scrollY + height() - m_margin) / pitch)), 0,
                                     nrows - 1);
@@ -786,6 +798,17 @@ void GalleryItem::setSelectedIndex(int i)
         return;
     m_selected = i;
     emit selectedIndexChanged();
+    update();
+}
+
+void GalleryItem::setCurrentIndex(int i)
+{
+    // marked, never selected or scrolled to: the host reveals it when it follows a time
+    i = (i < 0 || i >= m_count) ? -1 : i;
+    if (i == m_current)
+        return;
+    m_current = i;
+    emit currentIndexChanged();
     update();
 }
 
@@ -1314,11 +1337,14 @@ GalleryItem::Frame GalleryItem::frameParams() const
     f.captionMode = m_captionMode;
     f.selected = m_selected;
     f.hover = m_hover;
+    f.current = m_current;
     f.focused = m_focused;
     f.now = m_clock.elapsed();
     f.frameNo = m_frameNo;
     f.captionFont = m_captionFont;
     f.captionColor = m_captionColor;
+    f.captionScrimColor = m_captionScrimColor;
+    f.currentLabel = m_currentLabel;
     return f;
 }
 

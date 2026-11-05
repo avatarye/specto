@@ -3,7 +3,8 @@
 One :class:`GalleryHost` per live gallery view. It owns a ``GalleryView.qml`` item whose
 heart is the native ``GalleryItem`` (``Specto.Native``, C++): the item lays out, scrolls,
 zooms (thumbnail size, columns reflowed to the width, anchored under the cursor), draws
-tiles and captions; Python never touches a pixel. The host:
+tiles and their captions (on the thumbnail's bottom edge, SPEC-6); Python never touches
+a pixel. The host:
 
 - receives its collection on the ``data`` input port (what the gallery's intaker link
   resolved) and tells the item the count and the captions (key, file name);
@@ -19,10 +20,13 @@ tiles and captions; Python never touches a pixel. The host:
 - emits ``selection`` (the selected keys and the last one picked) on click and keyboard
   steps, and shows a ``selection`` arriving on its input port without re-emitting it;
 - emits ``time`` with a click when the collection has a clock (the item's stamp, looked
-  up in the global clock's table of this view), and shows a ``time`` arriving on its
-  input port as the nearest frame (highlight and reveal, no emit: following is not
-  selecting), so a time-mapped gallery follows the root view's playback;
-- answers ``snapshot()`` with the visible keys, selection, view and decode health.
+  up in the global clock's table of this view; the clicked frame becomes the current
+  item), and shows a ``time`` arriving on its input port as the nearest frame, the
+  **current item**: marked apart from the selection ring and revealed, never selected
+  and never emitted (following is not selecting), so a time-mapped gallery follows the
+  root view's playback while the selection stays the user's pick;
+- answers ``snapshot()`` with the visible keys, selection, current item, view and
+  decode health.
 
 Interaction map (what the native item does with input):
 
@@ -108,6 +112,8 @@ class GalleryItemLike(Protocol):
     def clear(self) -> None: ...
     def select(self, index: int) -> None: ...
     def selected(self) -> int: ...
+    def set_current(self, index: int) -> None: ...
+    def current(self) -> int: ...
     def reveal(self, index: int, animate: bool = True) -> None: ...
     def set_view(self, columns: int, scroll_rows: float) -> None: ...
     def view(self) -> tuple[int, float]: ...
@@ -275,6 +281,12 @@ class NativeGallery:
     def selected(self) -> int:
         return int(self.item.property("selectedIndex"))
 
+    def set_current(self, index: int) -> None:
+        self.item.setProperty("currentIndex", int(index))
+
+    def current(self) -> int:
+        return int(self.item.property("currentIndex"))
+
     def reveal(self, index: int, animate: bool = True) -> None:
         self.item.revealIndex(int(index), bool(animate))
 
@@ -363,6 +375,9 @@ class GalleryHost(QuickViewHost):
         self.sort = ""  # params.sort: "", key, name, time, with "-" for descending
         self.names: list[str] = []
         self._index_of: dict[str, int] = {}
+        # the current item's key (the frame at the gallery's time, SPEC-6): kept by key so
+        # a re-sort or a reload finds it again
+        self._current_key: str | None = None
         self._refs: dict[int, DataRef | None] = {}
         self._inflight: dict[str, list[int]] = {}  # job id -> indices
         self._inflight_idx: set[int] = set()
@@ -419,7 +434,7 @@ class GalleryHost(QuickViewHost):
         elif port == SELECTION:
             self._show_selection(value)
         elif port == TIME and isinstance(value, TimeValue):
-            self._show_key(self.ctx.links.global_clock.nearest(self.view_id, value))
+            self._follow_key(self.ctx.links.global_clock.nearest(self.view_id, value))
 
     def _show_selection(self, value: Any) -> None:
         key = None
@@ -435,6 +450,17 @@ class GalleryHost(QuickViewHost):
             self.gallery.select(i)
             self.gallery.reveal(i, True)
             self._caption()
+
+    def _follow_key(self, key: str | None) -> None:
+        """A time arriving: the frame nearest to it becomes the current item, marked and
+        revealed; the selection stays the user's pick (following is not selecting)."""
+        i = self.index_of(str(key)) if key is not None else -1
+        if i < 0:
+            return
+        self._current_key = self.keys[i]
+        if i != self.gallery.current():
+            self.gallery.set_current(i)
+            self.gallery.reveal(i, True)
 
     # -- items -------------------------------------------------------------------------
     def reload(self) -> None:
@@ -466,6 +492,9 @@ class GalleryHost(QuickViewHost):
         self._index_of = {k: i for i, k in enumerate(self.keys)}
         self.gallery.set_count(len(self.items))
         self.gallery.set_captions(self.keys, self.names)
+        current = self._index_of.get(self._current_key, -1) if self._current_key else -1
+        if current != self.gallery.current():
+            self.gallery.set_current(current)
         restored = False
         if not grew:
             i = self._index_of.get(selected_key, -1) if selected_key else -1
@@ -784,6 +813,9 @@ class GalleryHost(QuickViewHost):
         self.ctx.live.remember(self.view_id, {"selected": key})  # navigation: no undo step
         time = self.ctx.links.global_clock.time_of(self.view_id, key)
         if time is not None:
+            # the picked frame's time is the clock's now: it is the current item here too
+            self._current_key = key
+            self.gallery.set_current(index)
             self.emit(TIME, time)
 
     def is_image(self, index: int) -> bool:
@@ -999,6 +1031,7 @@ class GalleryHost(QuickViewHost):
         first, last = self.gallery.visible()
         cols, rows = self.gallery.view()
         sel = self.gallery.selected()
+        cur = self.gallery.current()
         wf, wl, tier = self.gallery.wanted()
         keys = self.keys[first : last + 1] if first >= 0 else []
         stats = self.gallery.stats()
@@ -1013,6 +1046,11 @@ class GalleryHost(QuickViewHost):
             "selected": {
                 "index": sel,
                 "key": self.keys[sel] if 0 <= sel < len(self.keys) else None,
+            },
+            # the frame at the gallery's time (a time link), marked apart from the selection
+            "current": {
+                "index": cur,
+                "key": self.keys[cur] if 0 <= cur < len(self.keys) else None,
             },
             "view": {
                 "columns": cols,

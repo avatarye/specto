@@ -616,9 +616,11 @@ step, nothing journaled). */
     "color-error": string;
     "color-focus": string;
     "color-ghost": string;
+    "color-image-scrim": string;
     "color-loading": string;
     "color-lock": string;
     "color-mono-bg": string;
+    "color-now": string;
     "color-ok": string;
     "color-paused": string;
     "color-removed": string;
@@ -633,6 +635,7 @@ step, nothing journaled). */
     "color-text": string;
     "color-text-faint": string;
     "color-text-muted": string;
+    "color-text-on-image": string;
     "color-tip-port-bg": string;
     "color-tip-port-border": string;
     "color-tip-port-text": string;

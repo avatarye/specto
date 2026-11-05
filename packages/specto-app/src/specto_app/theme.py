@@ -67,6 +67,12 @@ COLORS: dict[str, str] = {
     "drop_zone": "#662f6fab",
     "mono_bg": "#f3efe7",
     "video_bg": "#141210",
+    # a caption on a thumbnail (SPEC-6): light text over a dark scrim on the image's
+    # bottom band, readable on light and dark images; the current item's mark (the frame
+    # at a time link's now), apart from the selection's accent
+    "image_scrim": "#a81a1714",
+    "text_on_image": "#ffffff",
+    "now": "#e3a21a",
     # transparency behind an image (#171): neutral greys, so they tint no colour
     "checker_light": "#f2f2f2",
     "checker_dark": "#c4c4c4",

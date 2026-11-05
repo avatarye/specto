@@ -92,6 +92,10 @@ def test_qmldir_and_qmltypes_describe_the_item():
         "zoomTo",
         "setView",
         "setCaptions",
+        "currentIndex",
+        "currentColor",
+        "currentLabel",
+        "captionScrimColor",
     ):
         assert f'name: "{name}"' in types, name
 
@@ -308,16 +312,63 @@ def test_captions_and_aspect(app):
     )
     assert g.property("cellWidth") == (1000 - 16 - 32) / 5
     assert abs(g.property("cellHeight") - g.property("cellWidth") / 2) < 1e-9
-    assert g.property("captionHeight") > 0
-    assert g.property("rowPitch") == g.property("cellHeight") + g.property("captionHeight") + 8
+    # the caption overlays the thumbnail's bottom edge (SPEC-6): a band on the tile, no
+    # height of its own in the row pitch, the cell, the content or the hit test
+    one_line = g.property("captionHeight")
+    assert one_line > 0
+    assert g.property("rowPitch") == g.property("cellHeight") + 8
+    assert g.cellRectOf(0).height() == g.property("cellHeight")
+    content = g.property("contentHeight")
+    g.setProperty("captionMode", 2)
+    assert g.property("captionHeight") > one_line  # two lines: a taller band
+    assert g.property("contentHeight") == content
+    assert g.property("rowPitch") == g.property("cellHeight") + 8
     g.setCaptions([f"k{i}" for i in range(10)], [f"f{i}.jpg" for i in range(10)])
     assert g.captionOf(3) == "k3  f3.jpg"
+    # the gap under a row is a gap: no caption strip to hit any more
+    below = g.cellRectOf(0).bottom() + 4
+    assert g.indexAt(g.cellRectOf(0).center().x(), below) == -1
     g.setProperty("captionMode", 0)
     assert g.property("captionHeight") == 0
+    assert g.property("contentHeight") == content
     # narrow tiles hide captions (captionMinWidth)
     g.setProperty("captionMode", 1)
     g.setProperty("columns", 20)
     assert g.property("cellWidth") < 72 and g.property("captionHeight") == 0
+    del g, comp, engine
+    app.processEvents()
+
+
+@gui_test
+def test_the_current_item_is_marked_apart_from_the_selection(app):
+    """The current (linked) item, the frame a time link points at, is its own index on
+    the item: setting it moves neither the selection nor the scroll, and a shrinking
+    collection drops it like the selection."""
+    from PySide6.QtGui import QColor
+
+    engine, comp, g = _item(app, GRID % (10, 1000, 600, 5))
+    assert g.property("currentIndex") == -1
+    changes: list[int] = []
+    g.currentIndexChanged.connect(lambda item=g: changes.append(item.property("currentIndex")))
+    g.setProperty("selectedIndex", 2)
+    g.setProperty("currentIndex", 7)
+    assert g.property("currentIndex") == 7 and g.property("selectedIndex") == 2
+    assert changes == [7]
+    g.setProperty("currentIndex", 99)  # out of range: none
+    assert g.property("currentIndex") == -1
+    g.setProperty("currentIndex", 4)
+    g.setProperty("count", 3)
+    assert g.property("currentIndex") == -1
+    # its marker has its own colour token, and the caption its own scrim and label; the
+    # item's defaults (what a gallery standing alone draws) are the theme's tokens
+    from specto_app.theme import COLORS
+
+    assert g.property("currentColor") == QColor(COLORS["now"])
+    assert g.property("captionScrimColor") == QColor(COLORS["image_scrim"])
+    assert g.property("captionColor") == QColor(COLORS["text_on_image"])
+    assert g.property("currentLabel") == "now"
+    g.setProperty("currentColor", QColor("#123456"))
+    assert g.property("currentColor") == QColor("#123456")
     del g, comp, engine
     app.processEvents()
 

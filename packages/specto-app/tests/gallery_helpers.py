@@ -58,6 +58,7 @@ class FakeGallery:
         self.pixels: dict[int, bytes] = {}  # RGBA of what push_bytes received
         self.failed_idx: set[int] = set()
         self._selected = -1
+        self._current = -1
         self.revealed: list[int] = []
         self._columns = 4
         self._tile = 0.0
@@ -122,6 +123,12 @@ class FakeGallery:
 
     def selected(self) -> int:
         return self._selected
+
+    def set_current(self, index: int) -> None:
+        self._current = index if 0 <= index < self._count else -1
+
+    def current(self) -> int:
+        return self._current
 
     def reveal(self, index: int, animate: bool = True) -> None:
         self.revealed.append(index)

@@ -26,7 +26,15 @@ struct TileUniforms {
     float radius = 8.0f;    // device px
     float border = 2.0f;    // device px
     QColor selection, hover, placeholder, failed;
+    QColor current;         // the current item's bar
+    QColor scrim;           // under the overlay captions
+    float scrimPx = 0.0f;   // device px: the caption band on the thumb's bottom edge; 0 = none
+    float barPx = 3.0f;     // device px: the current item's bar
 };
+
+// A vertex's `state` adds this when the tile is the current item (the shader takes it
+// off before reading the kind and the ring).
+constexpr float kCurrentState = 16.0f;
 
 class TileMaterial : public QSGMaterial
 {
@@ -54,7 +62,7 @@ struct TileVertex {
     float x, y;       // content px
     float u, v;       // atlas
     float lx, ly;     // 0..1 inside the thumb quad
-    float state;      // 0 normal, 1 selected, 2 hover, 3 placeholder, 4 failed
+    float state;      // 0 normal, 1 selected, 2 hover, 3 placeholder, 4 failed; +16 current
     float alpha;      // fade-in
     float w, h;       // thumb size in px
 };
@@ -77,9 +85,10 @@ private:
     };
     struct Caption {
         QSGTransformNode *xform = nullptr;   // child of m_captionRoot; owns the text node
-        int cellW = -1;                      // layout width the text was built for
+        int textW = -1;                      // layout width the text was built for
         int mode = -1;
         QString key, name;                   // the text it was built for (a re-sort changes it)
+        QRgb color = 0;
         uint32_t lastUse = 0;
     };
 
@@ -104,6 +113,10 @@ private:
     TileUniforms m_uniforms;
     QSGNode *m_captionRoot = nullptr;
     std::unordered_map<int, Caption> m_captions;
+    // the thumb rect (content px) of every built tile this frame, from builtFirst on:
+    // buildGeometry fills it, buildCaptions places the overlay captions on it
+    std::vector<QRectF> m_thumbRects;
+    int m_thumbFirst = 0;
     bool m_glChecked = false, m_glOk = false;
 };
 

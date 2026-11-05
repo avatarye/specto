@@ -19,6 +19,10 @@ layout(std140, binding = 0) uniform buf {
     vec4 hover;
     vec4 placeholder;
     vec4 failed;
+    vec4 current;
+    vec4 scrim;
+    float scrimPx;
+    float barPx;
 } ubuf;
 
 out gl_PerVertex { vec4 gl_Position; };

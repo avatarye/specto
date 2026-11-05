@@ -292,7 +292,9 @@ def test_a_gallery_follows_time_through_the_clock_and_emits_the_time_of_a_click(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Two galleries at different frame phases (cam-a, cam-b) time-mapped two-way: a click
-    in one highlights the frame nearest in time in the other, which says nothing back."""
+    in one marks the frame nearest in time in the other as its current item, which says
+    nothing back. Following is not selecting (SPEC-6): the selection stays the user's own
+    pick, and the current item is marked apart from it."""
     monkeypatch.setenv("SPECTO_CACHE_DIR", str(tmp_path / "cache"))
     proj = Project.init(tmp_path / "proj", "frames")
     copy_frames(proj.root / "runs" / "run-001" / "cam-a", 12, "cam-a")
@@ -343,14 +345,18 @@ def test_a_gallery_follows_time_through_the_clock_and_emits_the_time_of_a_click(
     fakes["kobi"].user_click(4)  # cam-a/00004 at FRAME_4
 
     assert emitted(ctx, "kobi", "time") == TimeValue(t=FRAME_4, timeline="stamp")
+    assert fakes["kobi"].current() == 4  # the clicked frame is now the clock's frame here
     assert (
-        fakes["tamu"].selected() == 1 and fakes["tamu"].revealed[-1] == 1
+        fakes["tamu"].current() == 1 and fakes["tamu"].revealed[-1] == 1
     )  # cam-b/00001, 12.5 ms before
+    assert fakes["tamu"].selected() == -1  # followed, not picked
+    assert rear.snapshot()["current"] == {"index": 1, "key": "cam-b/00001"}
     assert emitted(ctx, "tamu", "time") is None and emitted(ctx, "tamu", "selection") is None
 
     fakes["tamu"].user_click(4)  # cam-b/00004: the cam-a frame nearest is 00010
     assert emitted(ctx, "tamu", "time") == TimeValue(t=REAR_4, timeline="stamp")
-    assert fakes["kobi"].selected() == 10
+    assert fakes["tamu"].current() == 4
+    assert fakes["kobi"].current() == 10 and fakes["kobi"].selected() == 4
     assert emitted(ctx, "kobi", "time") == TimeValue(t=FRAME_4, timeline="stamp")  # no echo
 
 

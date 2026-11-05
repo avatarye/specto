@@ -13,8 +13,15 @@
 // every thumb is letterboxed inside its cell. Zooming (Ctrl+wheel, pinch, +/-) steps the
 // column count by one at the current width (it sets `tileWidth` to the size that lands
 // there), keeps the item under the cursor anchored and animates the cell size; a resize
-// keeps the top-left item at the top. The plain wheel scrolls, dragging pans with inertia. Captions (key, optional name) are
-// drawn under the tiles by the scene graph (QSGTextNode), nothing per-frame in QML.
+// keeps the top-left item at the top. The plain wheel scrolls, dragging pans with inertia.
+//
+// Captions (key, optional name) overlay each thumbnail's bottom edge (SPEC-6, the Calm
+// Canvas mockup): light text (QSGTextNode, with a dark offset shadow) over a dark scrim
+// the tile shader blends into the thumb's bottom band, so they read on light and dark
+// images alike. They take no row height: the row pitch is the cell plus the gap. The
+// current item (`currentIndex`, the frame a time link points at) is marked apart from the
+// selection ring: a bar along its bottom edge in `currentColor` and `currentLabel`
+// ("now") after its caption. Nothing per-frame in QML.
 //
 // Data path: a worker decodes a thumbnail (uint8 RGBA, HWC) into shared memory; the
 // GUI thread calls pushThumbShm(index, shm name, offset, w, h) (or pushThumb with the
@@ -125,6 +132,8 @@ class GalleryItem : public QQuickItem
     Q_PROPERTY(int lastVisible READ lastVisible NOTIFY scrollChanged)
     // -- selection and hover ---------------------------------------------------------
     Q_PROPERTY(int selectedIndex READ selectedIndex WRITE setSelectedIndex NOTIFY selectedIndexChanged)
+    // the current (linked) item: marked apart from the selection; -1 = none
+    Q_PROPERTY(int currentIndex READ currentIndex WRITE setCurrentIndex NOTIFY currentIndexChanged)
     Q_PROPERTY(int hoverIndex READ hoverIndex NOTIFY hoverIndexChanged)
     Q_PROPERTY(QPointF hoverPos READ hoverPos NOTIFY hoverIndexChanged)
     Q_PROPERTY(QRectF selectedRect READ selectedRect NOTIFY scrollChanged)
@@ -155,8 +164,12 @@ class GalleryItem : public QQuickItem
     Q_PROPERTY(QColor hoverColor READ hoverColor WRITE setHoverColor NOTIFY styleChanged)
     Q_PROPERTY(QColor placeholderColor READ placeholderColor WRITE setPlaceholderColor NOTIFY styleChanged)
     Q_PROPERTY(QColor failedColor READ failedColor WRITE setFailedColor NOTIFY styleChanged)
+    // caption text on the image (light), the scrim under it (dark, translucent)
     Q_PROPERTY(QColor captionColor READ captionColor WRITE setCaptionColor NOTIFY styleChanged)
+    Q_PROPERTY(QColor captionScrimColor READ captionScrimColor WRITE setCaptionScrimColor NOTIFY styleChanged)
     Q_PROPERTY(QFont captionFont READ captionFont WRITE setCaptionFont NOTIFY styleChanged)
+    Q_PROPERTY(QColor currentColor READ currentColor WRITE setCurrentColor NOTIFY styleChanged)
+    Q_PROPERTY(QString currentLabel READ currentLabel WRITE setCurrentLabel NOTIFY styleChanged)
     Q_PROPERTY(qreal radius READ radius WRITE setRadius NOTIFY styleChanged)
     Q_PROPERTY(qreal borderWidth READ borderWidth WRITE setBorderWidth NOTIFY styleChanged)
 
@@ -170,6 +183,9 @@ public:
     static constexpr int kFullCell = 192, kFullGutter = 8, kFullLevels = 4;     // 176 px thumbs
     static constexpr int kLargeCell = 400, kLargeGutter = 8, kLargeLevels = 5;  // 384 px thumbs
     static constexpr int kMaxUploadsPerFrame = 24;
+    // overlay captions (px): padding around the lines inside the band, the inset of the
+    // text from the thumb's left edge, and the current item's bar along the bottom edge
+    static constexpr qreal kCaptionPad = 4.0, kCaptionInset = 7.0, kCurrentBar = 3.0;
     static int tierCell(int tier)
     {
         return tier == TierMini ? kMiniCell : tier == TierFull ? kFullCell : kLargeCell;
@@ -216,10 +232,11 @@ public:
     void setMinCellWidth(qreal px);
     int captionMode() const { return m_captionMode; }
     void setCaptionMode(int mode);
+    // the caption band's height on the thumb (its lines plus padding); 0 when hidden
     qreal captionHeight() const;
     qreal captionMinWidth() const { return m_captionMinW; }
     void setCaptionMinWidth(qreal px);
-    qreal rowPitch() const { return cellHeight() + captionHeight() + m_gap; }
+    qreal rowPitch() const { return cellHeight() + m_gap; }
 
     qreal scrollY() const { return m_scrollY; }
     void setScrollY(qreal y) { setScroll(y, false); }
@@ -238,6 +255,8 @@ public:
 
     int selectedIndex() const { return m_selected; }
     void setSelectedIndex(int i);
+    int currentIndex() const { return m_current; }
+    void setCurrentIndex(int i);
     int hoverIndex() const { return m_hover; }
     QPointF hoverPos() const { return m_hoverPos; }
     QRectF selectedRect() const { return rectOf(m_selected); }
@@ -278,8 +297,14 @@ public:
     void setFailedColor(const QColor &c);
     QColor captionColor() const { return m_captionColor; }
     void setCaptionColor(const QColor &c);
+    QColor captionScrimColor() const { return m_captionScrimColor; }
+    void setCaptionScrimColor(const QColor &c);
     QFont captionFont() const { return m_captionFont; }
     void setCaptionFont(const QFont &f);
+    QColor currentColor() const { return m_currentColor; }
+    void setCurrentColor(const QColor &c);
+    QString currentLabel() const { return m_currentLabel; }
+    void setCurrentLabel(const QString &s);
     qreal radius() const { return m_radius; }
     void setRadius(qreal r);
     qreal borderWidth() const { return m_borderWidth; }
@@ -298,13 +323,13 @@ public:
     // staged or failed. Order: nearest to the viewport centre first.
     Q_INVOKABLE QVariantList missing(int first, int last, int tier) const;
     Q_INVOKABLE bool hasTier(int index, int tier) const;
-    // captions: `keys[i]` under tile i (mode 1), plus `names[i]` (mode 2)
+    // captions: `keys[i]` on tile i (mode 1), plus `names[i]` (mode 2)
     Q_INVOKABLE void setCaptions(const QStringList &keys, const QStringList &names);
     Q_INVOKABLE QString captionOf(int index) const;
 
     // -- geometry queries (item coordinates) -----------------------------------------
     Q_INVOKABLE QRectF rectOf(int index) const;      // thumb rect on screen; empty if hidden
-    Q_INVOKABLE QRectF cellRectOf(int index) const;  // cell incl. caption; empty if hidden
+    Q_INVOKABLE QRectF cellRectOf(int index) const;  // the tile's cell; empty if hidden
     Q_INVOKABLE int indexAt(qreal x, qreal y) const; // -1 when not over a cell
     Q_INVOKABLE int centerIndex() const;
     Q_INVOKABLE int visibleRows() const;
@@ -333,12 +358,13 @@ public:
         int wantedFirst, wantedLast; // range the feeder keeps resident (eviction avoids it)
         int useTier;                 // tier the view prefers
         int captionMode;
-        int selected, hover;
+        int selected, hover, current;
         bool focused;
         qint64 now;
         uint32_t frameNo;
         QFont captionFont;
-        QColor captionColor;
+        QColor captionColor, captionScrimColor;
+        QString currentLabel;
     };
     Frame frameParams() const;
     const QStringList &captionKeys() const { return m_keys; }
@@ -355,6 +381,7 @@ signals:
     void interactiveChanged();
     void tileDragChanged();
     void selectedIndexChanged();
+    void currentIndexChanged();
     void hoverIndexChanged();
     void wantedChanged();
     void statsChanged();
@@ -426,7 +453,7 @@ private:
     bool m_interactive = true;
     bool m_tileDrag = true;
     bool m_scrolling = false;
-    int m_selected = -1, m_hover = -1;
+    int m_selected = -1, m_hover = -1, m_current = -1;
     QPointF m_hoverPos;
     int m_firstVisible = -1, m_lastVisible = -1;
     int m_firstWanted = -1, m_lastWanted = -1, m_builtFirst = -1, m_builtLast = -1;
@@ -440,7 +467,10 @@ private:
     QColor m_hoverColor{0x2f, 0x6f, 0xab, 0x8c};
     QColor m_placeholderColor{0xec, 0xe6, 0xda};
     QColor m_failedColor{0xf6, 0xde, 0xdd};
-    QColor m_captionColor{0x7a, 0x72, 0x66};
+    QColor m_captionColor{0xff, 0xff, 0xff};
+    QColor m_captionScrimColor{0x1a, 0x17, 0x14, 0xa8};
+    QColor m_currentColor{0xe3, 0xa2, 0x1a};
+    QString m_currentLabel{QStringLiteral("now")};
     QFont m_captionFont;
     qreal m_radius = 8.0, m_borderWidth = 2.0;
 

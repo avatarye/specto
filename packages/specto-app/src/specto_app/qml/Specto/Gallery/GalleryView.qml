@@ -54,13 +54,19 @@ Item {
         hoverColor: Qt.alpha(root.tok("accent"), 0.55)
         placeholderColor: root.tok("bg_tint")
         failedColor: root.tok("removed_soft")
-        captionColor: root.tok("text_muted")
         captionFont.family: root.font("mono")
         captionFont.pixelSize: root.metric("font_px_small", 11)
         radius: root.metric("radius_inner", 8)
         borderWidth: 3
         gap: 8
         margin: 8
+
+        // captions overlay the thumbnail's bottom edge (SPEC-6): light text on a dark
+        // scrim, and the current item's mark; standing alone the item's own defaults
+        // stay (the system palette has no colours for text on an image)
+        Binding on captionColor { when: root.hasTheme; value: root.tok("text_on_image") }
+        Binding on captionScrimColor { when: root.hasTheme; value: root.tok("image_scrim") }
+        Binding on currentColor { when: root.hasTheme; value: root.tok("now") }
 
         onHoverIndexChanged: preview.onHover()
         onDraggingChanged: if (dragging) preview.hide()
