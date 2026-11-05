@@ -212,6 +212,10 @@ _Avoid_: web view, web pane, page (for the view itself)
 The view every canvas starts with, right of the project source: its intaker comes from the project source's all files, and its one output port, selected files, feeds the selection intakers of other views. All files come from the project source, not from the file tree. It lists one folder at a time, on expand, on its own worker (never a scan of the whole project), starts collapsed but for a chain of single-child folders from the root, resolves a folder pick to every file under it when it is picked, and follows the folders it has loaded while its intaker watches (ADR 0022).
 _Avoid_: file browser, explorer, files page
 
+**Search tree**:
+What the file tree shows while its search box has text: the hits (files, and folders that match by themselves) each under the folders above them, those folders open, every other row hidden. A folder there that is only on the way to hits is narrowed: it holds the hits and nothing else, and says how many. Clearing the search brings the file tree back as it was; a pick made meanwhile stays picked.
+_Avoid_: hit list, results list, filtered tree
+
 **Prompt bar**:
 The in-app box where the user asks the project's agent to change the canvas: since #162 the input at the foot of the **agent panel** (multi-line markdown, `/` completes the project's commands).
 _Avoid_: chat, command bar, palette

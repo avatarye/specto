@@ -117,11 +117,13 @@ everything starts closed except a chain of single folders from the top. Picking 
 still picks every file under it. To find a file, type in the box at the top of the tree
 (or just start typing with the tree focused): every word you type must occur somewhere
 in the file's path below the project folder (`notes readme` finds `docs/notes/readme.md`;
-`docs/read` works too), case does not matter, and the hits replace the tree, best first
-(files whose name holds every word before files reached only through their folders),
-with their folder under the name; click one to pick it, double-click to open it (Ctrl for
-the contextual preview), the
-target button at its right to show it in the tree; Escape returns to the tree. On Windows the
+`docs/read` works too), case does not matter, and the tree narrows to the hits: each one
+under the folders above it, those folders open, everything else hidden. A folder whose
+own path matches shows too, closed when nothing under it matched; open it to see inside.
+The hit rows are ordinary rows: click to pick, Ctrl and Shift to pick more,
+double-click to open (Ctrl for the contextual preview), right-click for the menu, drag
+them out; the target button at a row's right shows it in the full tree. Escape (or the
+clear button) brings the tree back as you left it, keeping what you picked. On Windows the
 search uses [Everything](https://www.voidtools.com/) when it is running and the project's
 drive is indexed, which answers in a few milliseconds whatever the project's size; without
 it (and on Linux and macOS) the search walks the project folder, which takes longer on a

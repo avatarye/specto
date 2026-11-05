@@ -25,6 +25,17 @@ the release and move on their own schedule.
   the next ask, and one past 90 s answers an error. The host queues what it sends a frame
   source, camera, time and size updates collapsing to the newest, and the source keeps
   reading while a command runs. **New runtime dependency:** scipy (for Qhull).
+- The file tree's search shows its hits inside the tree instead of a flat list (SPEC-38,
+  ADR 0022 amendment). While the search box has text the tree shows only the hits and the
+  folders above them, those folders open; a folder whose own path matches is a hit too,
+  closed when nothing under it matched, and opening it lists it. Every gesture works on
+  hit rows as on any row (click, Ctrl, Shift, double-click, Ctrl+double-click, the context
+  menu, drag); details mode shows a file's time and size and, for a folder above hits, how
+  many hits are under it. Clearing the search brings the tree back as it was (open
+  folders, scroll), picks kept. The search tree is built from the hits alone, so nothing is
+  listed for it. `FileSearch.search` takes `accept_dir` to return folders as hits
+  (`TreeLister.accepts_dir`); the flow `v2-232-search.txt` covers the new behaviour.
+
 - Opening or expanding a view past a quota makes room instead of failing (SPEC-34, ADR
   0025). A double-click on a second stage while the first stage's usd view is live was
   refused with "canvas document has 1 problem" (one live RTX view per canvas) and opened

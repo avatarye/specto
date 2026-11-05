@@ -232,10 +232,12 @@ loaded while the intaker says `watch`. `LinkRuntime.project_files` lists the who
 only once some other whole-folder intaker off the project source resolved it (None until
 then: the project node shows no count, the prompt bar walks once, cached). The tree's
 type-to-search (#232) is `specto_intake.search.FileSearch`: `search(root, text, limit,
-accept, cancelled) -> SearchResult(hits, more, backend)`, Everything over its SDK DLL on
-Windows when it can answer for the root (`specto_intake.everything`), else a cancellable
-walk; hits pass the tree's lister and a picked hit goes out on `selected_files` like a
-row. Built-in kinds map
+accept, cancelled, accept_dir) -> SearchResult(hits, more, backend)`, Everything over its
+SDK DLL on Windows when it can answer for the root (`specto_intake.everything`), else a
+cancellable walk; hits pass the tree's lister (`accepts`; folders, only when `accept_dir`
+is given, `accepts_dir`), and while there is text the tree shows the search tree, built
+from the hits alone (SPEC-38, ADR 0022 amendment), whose rows take every gesture a row
+does; a picked hit goes out on `selected_files` like a row. Built-in kinds map
 (`BUILTIN_KINDS`): `intaker` files -> collection, `follow` same type both sides,
 `read_contents` files -> content, `time_map` time -> time; `python` declares its output.
 
