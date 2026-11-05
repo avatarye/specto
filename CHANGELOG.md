@@ -38,7 +38,6 @@ the release and move on their own schedule.
   tree is built from the hits alone, so nothing is listed for it. `FileSearch.search`
   takes a `HitFilter` (`TreeLister.hit_filter()`) whose folder predicate returns folders
   as hits; the flow `v2-232-search.txt` covers the new behaviour.
-
 - Opening or expanding a view past a quota makes room instead of failing (SPEC-34, ADR
   0025). A double-click on a second stage while the first stage's usd view is live was
   refused with "canvas document has 1 problem" (one live RTX view per canvas) and opened
