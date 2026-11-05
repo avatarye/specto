@@ -1,62 +1,89 @@
-# v2 #232: type-to-search in the file tree. The tree starts collapsed (#231), so the
-# readmes two and three folders down are not listed; typing in the search box finds them
-# anyway: the hits replace the tree, best first (exact name, then prefix, then the rest;
-# shallower first among equals), the footer counts them. A click picks a hit
-# (selected_files carries it), Ctrl adds another; a word may match the folders above the
-# file, with name matches ranked first (#36); a word nothing matches says which backend
-# looked; Escape returns to the tree with the picks kept; the reveal button on a hit goes
-# back to the tree at that file, its folders listed and opened, the row selected.
-# The session runs with SPECTO_SEARCH_BACKEND=scan, so the flow is the same on a machine
-# with Everything as on one without it. Project: tools/gui_flows/v2-232-seed.py <folder>.
+# v2 #232, SPEC-38: type-to-search in the file tree. The tree starts collapsed (#231), so
+# the readmes two and three folders down are not listed; typing in the search box finds
+# them anyway, and the tree itself narrows to them: each hit inside the folders above it,
+# every one of those open, nothing else shown (best first in the hits: exact name, then
+# prefix, then the rest; shallower first among equals); the footer counts them. A click
+# picks a hit row (selected_files carries it), Ctrl adds another; a word may match the
+# folders above a file, with name matches ranked first (#36), and a folder that matches
+# by itself is a row too, closed when nothing under it is a hit; a word nothing matches
+# says which backend looked; Escape returns to the tree as it was, with the picks kept;
+# the reveal button on a row goes back to the tree at that file, its folders listed and
+# opened, the row selected. The session runs with SPECTO_SEARCH_BACKEND=scan, so the
+# flow is the same on a machine with Everything as on one without it. Project:
+# tools/gui_flows/v2-232-seed.py <folder>.
 resize 1600 900
 wait 1500
 wait_until treeRow:@file_tree:notes 20000
 assert_found treeRow:@file_tree:docs
 assert_missing treeRow:@file_tree:notes/readme.md
 assert_missing treeRow:@file_tree:docs/deep/er/readme-draft.md
+assert_host @file_tree expanded []
 shot v2-232-01-collapsed-tree.png
-# typing finds files the tree has not listed
+# typing finds files the tree has not listed, and shows them inside their folders
 click treeSearch:@file_tree
 type readme
-wait_until searchHit:@file_tree:docs/deep/er/readme-draft.md 10000
+wait_until treeRow:@file_tree:docs/deep/er/readme-draft.md 10000
 assert_host @file_tree search.backend "scan"
 assert_host @file_tree search.hits ["notes/readme.md","docs/readme.txt","docs/deep/er/readme-draft.md"]
 assert_host @file_tree search.more false
-assert_found searchHitFolder:@file_tree:docs/deep/er/readme-draft.md
-assert_text searchHitFolder:@file_tree:docs/deep/er/readme-draft.md docs/deep/er
-assert_missing fileTreeList:@file_tree
+assert_found fileTreeList:@file_tree
+assert_found treeChevron:@file_tree:docs/deep/er
+assert_found treeRow:@file_tree:notes/readme.md
+assert_missing treeRow:@file_tree:notes/plan.md
+assert_missing treeRow:@file_tree:runs
 assert_text fileTreeCaption:@file_tree 3 hits
-shot v2-232-02-hits-replace-the-tree.png
+# the tree's own folders were not listed for it, nor opened
+assert_host @file_tree loaded [""]
+assert_host @file_tree expanded []
+shot v2-232-02-hits-in-their-folders.png
 # a click picks the hit; Ctrl adds one
-click searchHitName:@file_tree:docs/deep/er/readme-draft.md 0.3 0.5
+click treeName:@file_tree:docs/deep/er/readme-draft.md 0.3 0.5
 assert_host @file_tree selected ["docs/deep/er/readme-draft.md"] 5000
-ctrlclick searchHitName:@file_tree:notes/readme.md 0.3 0.5
+ctrlclick treeName:@file_tree:notes/readme.md 0.3 0.5
 assert_host @file_tree selected_rows ["docs/deep/er/readme-draft.md","notes/readme.md"] 5000
 shot v2-232-03-two-hits-picked.png
-# a narrower word: every word must match the name
+# a narrower word: every word must match the path
 click treeSearch:@file_tree
 key ctrl+a
 type readme draft
-wait_until searchHitName:@file_tree:docs/deep/er/readme-draft.md 10000
+wait_until treeName:@file_tree:docs/deep/er/readme-draft.md 10000
 assert_host @file_tree search.hits ["docs/deep/er/readme-draft.md"]
 assert_text fileTreeCaption:@file_tree 1 hit
-# a word matches the folders above a file too (#36): "docs" finds everything under
-# docs/, with the one file named after it first, then shallower paths first
+assert_missing treeRow:@file_tree:notes
+# a word matches the folders above a file too (#36): "docs" finds the docs/ folder
+# itself, the file named after it, and everything under docs/
 key ctrl+a
 type docs
-wait_until searchHit:@file_tree:docs/deep/er/other.md 10000
-assert_host @file_tree search.hits ["notes/docs-list.md","docs/readme.txt","docs/deep/er/other.md","docs/deep/er/readme-draft.md"]
-assert_text fileTreeCaption:@file_tree 4 hits
-assert_text searchHitFolder:@file_tree:docs/readme.txt docs
+wait_until treeRow:@file_tree:docs/deep/er/other.md 10000
+assert_host @file_tree search.hits ["docs","notes/docs-list.md","docs/deep","docs/readme.txt","docs/deep/er","docs/deep/er/other.md","docs/deep/er/readme-draft.md"]
+assert_text fileTreeCaption:@file_tree 7 hits
+assert_found treeRow:@file_tree:notes/docs-list.md
 shot v2-232-07-path-match-names-first.png
+# details (#115) on the same rows: a file's time and size, a folder above hits its own
+# time when the tree's listing saw it and how many hits are under it
+click treeDetailsButton:@file_tree
+wait 300
+assert_text treeDetailSize:@file_tree:docs 5 hits
+assert_text treeDetailSize:@file_tree:docs/deep 3 hits
+assert_found treeStamp:@file_tree:docs/readme.txt
+shot v2-232-09-details-on-hit-rows.png
+click treeDetailsButton:@file_tree
+wait 300
+# a folder that matches by itself, with no hit under it: a closed row
+key ctrl+a
+type drafts
+wait_until treeRow:@file_tree:notes/drafts 10000
+assert_host @file_tree search.hits ["notes/drafts"]
+assert_missing treeRow:@file_tree:docs
+shot v2-232-08-folder-hit-closed.png
 # two words across folder and name; a word with a slash matches across the separator
 key ctrl+a
 type er draft
-wait_until searchHitName:@file_tree:docs/deep/er/readme-draft.md 10000
+wait_until treeName:@file_tree:docs/deep/er/readme-draft.md 10000
 assert_host @file_tree search.hits ["docs/deep/er/readme-draft.md"]
 key ctrl+a
 type deep/er/oth
-wait_until searchHitName:@file_tree:docs/deep/er/other.md 10000
+wait_until treeName:@file_tree:docs/deep/er/other.md 10000
 assert_host @file_tree search.hits ["docs/deep/er/other.md"]
 # a miss says which backend looked
 key ctrl+a
@@ -66,26 +93,28 @@ assert_host @file_tree search.hits []
 assert_text fileTreeSearchEmpty:@file_tree no matches
 assert_text fileTreeSearchEmpty:@file_tree a scan of the folder
 shot v2-232-04-no-matches-names-the-backend.png
-# Escape: back to the tree, the search cleared, the picks kept
+# Escape: back to the tree as it was, the search cleared, the picks kept
 key escape
 wait 500
 assert_host @file_tree search.text ""
-assert_found fileTreeList:@file_tree
-assert_missing fileTreeHits:@file_tree
+assert_found treeRow:@file_tree:runs
+assert_missing treeRow:@file_tree:notes/readme.md
+assert_host @file_tree expanded []
 assert_host @file_tree selected_rows ["docs/deep/er/readme-draft.md","notes/readme.md"]
 shot v2-232-05-escape-back-to-the-tree.png
 # reveal: the tree at the hit, its folders listed and open, the row selected
 click treeSearch:@file_tree
 type draft
-wait_until searchHit:@file_tree:docs/deep/er/readme-draft.md 10000
-hover searchHit:@file_tree:docs/deep/er/readme-draft.md 0.5 0.5
-wait 300
-assert_found searchHitReveal:@file_tree:docs/deep/er/readme-draft.md
-click searchHitReveal:@file_tree:docs/deep/er/readme-draft.md
 wait_until treeRow:@file_tree:docs/deep/er/readme-draft.md 10000
+hover treeRow:@file_tree:docs/deep/er/readme-draft.md 0.5 0.5
+wait 300
+assert_found treeRowReveal:@file_tree:docs/deep/er/readme-draft.md
+click treeRowReveal:@file_tree:docs/deep/er/readme-draft.md
+wait_until treeRow:@file_tree:runs 10000
 assert_host @file_tree search.text ""
 assert_host @file_tree expanded ["docs","docs/deep","docs/deep/er"]
 assert_host @file_tree selected_rows ["docs/deep/er/readme-draft.md"]
 assert_host @file_tree selected ["docs/deep/er/readme-draft.md"]
+assert_found treeRow:@file_tree:docs/deep/er/readme-draft.md
 assert_missing treeRow:@file_tree:notes/readme.md
 shot v2-232-06-revealed-in-the-tree.png

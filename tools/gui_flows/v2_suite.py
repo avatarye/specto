@@ -736,8 +736,9 @@ SUITE: dict[str, dict] = {
         "sessions": [{"flows": ["v2-231-lazy-tree.txt"]}],
     },
     "search": {
-        # #232: type-to-search in the tree: hits replace the tree, a click picks, Escape
-        # returns, reveal opens the way down; the scan backend forced, so the flow is the
+        # #232, SPEC-38: type-to-search in the tree: the tree narrows to the hits inside
+        # their folders, a click picks, Escape brings the tree back as it was, reveal
+        # opens the way down; the scan backend forced, so the flow is the
         # same on a machine without Everything
         "seed": seed("v2-232-seed.py", "{project}"),
         "sessions": [

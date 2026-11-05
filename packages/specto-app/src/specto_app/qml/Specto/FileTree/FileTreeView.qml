@@ -12,10 +12,12 @@
 // modified time coloured by age, and the size; the ages are refreshed once a minute
 // while details show. The details button sits in the tree's own footer (#122, the
 // shared ViewFooter since #126).
-// Type-to-search (#232): the box at the top (typing in the focused tree starts it). While
-// it has text the hits of the latest keystroke (the host's searchModel) replace the tree:
-// flat rows, name and folder, best first; a click picks a hit, a double-click opens it, the
-// reveal button at its right goes back to the tree at the hit; Escape clears the search.
+// Type-to-search (#232, SPEC-38): the box at the top (typing in the focused tree starts
+// it). While it has text the same list shows the search's tree (the host's searchModel):
+// the hits of the latest keystroke inside their folders, every folder above a hit open,
+// rows like the tree's own (every gesture goes to the host by row, and it acts on the tree
+// the list shows); a row's reveal button goes back to the tree at it; Enter opens the best
+// hit; Escape clears the search, and the tree comes back where it was scrolled.
 // Styled from the shell's `theme` context object when present.
 import QtQuick
 import QtQuick.Controls.Basic
@@ -28,13 +30,28 @@ Item {
     property bool empty: false           // scanned and found no files (the host sets it)
     property QtObject bridge: null
     property var treeModel: null
-    // type-to-search (#232): the hits model, the box's text, the query's state ("",
-    // "searching", "done") and the footer's line about the hits (the host sets them)
+    // type-to-search (#232, SPEC-38): the search's tree, the box's text, the query's state
+    // ("", "searching", "done") and the footer's line about the hits (the host sets them)
     property var searchModel: null
     property string searchText: ""
     property string searchState: ""
     property string searchNote: ""
     readonly property bool searching: searchText !== ""
+    // the list shows the search's tree while searching; the tree's own scroll is kept for
+    // when it comes back (a model swap scrolls a ListView to the top)
+    property real treeY: 0
+    onSearchingChanged: {
+        if (searching) {
+            treeY = list.contentY
+            list.model = root.searchModel
+        } else {
+            list.model = root.treeModel
+            list.forceLayout()
+            list.contentY = Math.max(0, Math.min(treeY, list.contentHeight - list.height))
+        }
+    }
+    // the host cleared the search (reveal, new data): the box follows
+    onSearchTextChanged: if (searchText === "" && searchField.text !== "") searchField.text = ""
     // details: the user's view setting (the app's, never the canvas's)
     readonly property bool details: typeof viewSettings !== "undefined" && viewSettings !== null
                                     && viewSettings.treeDetails
@@ -72,7 +89,6 @@ Item {
     // name; 10 px of indent per level
     readonly property int nameH: 20
     readonly property int rowH: details ? 34 : nameH
-    readonly property int hitH: 34
     readonly property int leftMargin: 6
     readonly property int indent: 10
     readonly property int chevronPx: 10
@@ -106,7 +122,19 @@ Item {
     property real hoverY: 0
 
     clip: true
-    // typing in the focused tree starts a search (#232); Escape in the tree clears one
+    // typing in the focused tree starts a search (#232); Escape in the tree clears one,
+    // before the shell's window-wide Escape sees it
+    Keys.onShortcutOverride: function (event) {
+        if (event.key === Qt.Key_Escape && root.searching)
+            event.accepted = true
+    }
+    Keys.onEscapePressed: function (event) {
+        if (!root.searching) {
+            event.accepted = false
+            return
+        }
+        searchField.text = ""
+    }
     Keys.onPressed: function (event) {
         if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
             return
@@ -180,8 +208,9 @@ Item {
                 text = ""
                 root.forceActiveFocus()
             }
-            Keys.onReturnPressed: if (root.bridge && hits.count > 0) root.bridge.openHit(0, Number(event.modifiers))
-            Keys.onDownPressed: if (hits.count > 0) hits.forceActiveFocus()
+            Keys.onReturnPressed: function (event) {
+                if (root.bridge) root.bridge.openFirstHit(Number(event.modifiers))
+            }
         }
         Shell.Icon {
             id: clearButton
@@ -211,8 +240,8 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: footer.top
-        visible: !root.searching
         clip: true
+        // set once here, then swapped by root.onSearchingChanged
         model: root.treeModel
         boundsBehavior: Flickable.StopAtBounds
         delegate: Rectangle {
@@ -301,6 +330,19 @@ Item {
                 onTapped: function (ep) {
                     if (root.bridge) root.bridge.contextMenu(row.index, ep.scenePosition.x, ep.scenePosition.y)
                 }
+            }
+            // while searching, back to the tree at this row: its folders listed, it shown
+            Shell.ChromeButton {
+                id: revealButton
+                objectName: "treeRowReveal:" + root.viewId + ":" + row.path
+                visible: root.searching && root.hasTheme && rowHover.hovered
+                z: 2
+                anchors.right: parent.right
+                anchors.rightMargin: 6
+                anchors.verticalCenter: nameLine.verticalCenter
+                name: "target"
+                tip: "show in the tree"
+                onClicked: if (root.bridge) root.bridge.revealHit(row.index)
             }
             // the name's line: the top of the row (all of it without details)
             Item {
@@ -427,108 +469,6 @@ Item {
         }
     }
 
-    // the hits of the latest search (#232): flat rows, the name over the folder
-    ListView {
-        id: hits
-        objectName: "fileTreeHits:" + root.viewId
-        anchors.fill: list
-        visible: root.searching
-        clip: true
-        model: root.searching ? root.searchModel : null
-        boundsBehavior: Flickable.StopAtBounds
-        keyNavigationEnabled: true
-        Keys.onReturnPressed: if (root.bridge && currentIndex >= 0) root.bridge.openHit(currentIndex, Number(event.modifiers))
-        Keys.onEscapePressed: {
-            searchField.text = ""
-            root.forceActiveFocus()
-        }
-        delegate: Rectangle {
-            id: hit
-            required property int index
-            required property string path
-            required property string name
-            required property string folder
-            required property string icon
-            required property bool selected
-            required property string sizeText
-            objectName: "searchHit:" + root.viewId + ":" + path
-            width: hits.width
-            height: root.hitH
-            color: selected ? root.tok("accent_soft")
-                 : (hitHover.hovered || hits.currentIndex === index ? root.tok("surface_hover") : "transparent")
-            HoverHandler { id: hitHover }
-            TapHandler {
-                id: hitTap
-                acceptedButtons: Qt.LeftButton
-                property int mods: 0  // the latest tap's modifiers (see the rows' tap)
-                onTapped: {
-                    if (!root.bridge) return
-                    hits.currentIndex = hit.index
-                    hitTap.mods = Number(hitTap.point.modifiers)
-                    root.bridge.clickHit(hit.index, hitTap.mods)
-                }
-                onDoubleTapped: if (root.bridge) root.bridge.openHit(hit.index, hitTap.mods)
-            }
-            TapHandler {
-                acceptedButtons: Qt.RightButton
-                onTapped: function (ep) {
-                    if (root.bridge) root.bridge.hitContextMenu(hit.index, ep.scenePosition.x, ep.scenePosition.y)
-                }
-            }
-            Image {
-                id: hitIcon
-                x: root.leftMargin + root.chevronPx + root.gap
-                anchors.verticalCenter: parent.verticalCenter
-                width: root.iconPx
-                height: root.iconPx
-                source: hit.icon ? "icons/" + hit.icon + ".svg" : ""
-                sourceSize.width: root.iconPx
-                sourceSize.height: root.iconPx
-                fillMode: Image.PreserveAspectFit
-                smooth: true
-                cache: true
-            }
-            Column {
-                anchors.left: hitIcon.right
-                anchors.leftMargin: root.gap
-                anchors.right: revealButton.visible ? revealButton.left : parent.right
-                anchors.rightMargin: root.rightMargin
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 0
-                Text {
-                    objectName: "searchHitName:" + root.viewId + ":" + hit.path
-                    width: parent.width
-                    text: hit.name
-                    elide: Text.ElideMiddle
-                    color: hit.selected ? root.tok("accent") : root.tok("text")
-                    font.family: root.font("ui")
-                    font.pixelSize: root.metric("font_px", 13)
-                }
-                Text {
-                    objectName: "searchHitFolder:" + root.viewId + ":" + hit.path
-                    width: parent.width
-                    text: hit.folder || "."
-                    elide: Text.ElideLeft
-                    color: root.tok("text_faint")
-                    font.family: root.font("ui")
-                    font.pixelSize: root.metric("font_px_small", 11)
-                }
-            }
-            // back to the tree at this file: its folders listed, the row shown
-            Shell.ChromeButton {
-                id: revealButton
-                objectName: "searchHitReveal:" + root.viewId + ":" + hit.path
-                visible: root.hasTheme && (hitHover.hovered || hits.currentIndex === hit.index)
-                anchors.right: parent.right
-                anchors.rightMargin: 6
-                anchors.verticalCenter: parent.verticalCenter
-                name: "target"
-                tip: "show in the tree"
-                onClicked: if (root.bridge) root.bridge.revealHit(hit.index)
-            }
-        }
-    }
-
     // the empty state: a scanned folder with nothing in it (the tree keeps watching)
     Column {
         visible: root.empty && !root.searching
@@ -558,7 +498,7 @@ Item {
     // a search with no hits says which backend looked, so a miss can be understood (#232)
     Text {
         objectName: "fileTreeSearchEmpty:" + root.viewId
-        visible: root.searching && root.searchState === "done" && hits.count === 0
+        visible: root.searching && root.searchState === "done" && list.count === 0
         anchors.centerIn: list
         width: Math.max(40, list.width - 32)
         horizontalAlignment: Text.AlignHCenter
@@ -574,7 +514,7 @@ Item {
     // has room to the right (`margins` keeps it inside the window), above every other card
     Popup {
         id: thumbPopup
-        visible: root.hoverThumb !== "" && thumb.status === Image.Ready && !root.searching
+        visible: root.hoverThumb !== "" && thumb.status === Image.Ready
         modal: false
         dim: false
         focus: false

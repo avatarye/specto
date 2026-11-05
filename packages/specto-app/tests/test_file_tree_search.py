@@ -1,9 +1,15 @@
-"""Seam 2 (#232): the file tree's type-to-search. Only the latest keystroke's hits show
-and the query in flight is cancelled; hits pass the tree's screener and the note says
-when there are more; a hit behaves like a row (click picks, double-click opens, reveal
-returns to the tree at it); the scan answers when Everything is unavailable and a miss
-names the backend; in the real shell, typing in the focused tree starts a search and
-Escape returns to the tree. Headless hosts and the offscreen shell over the real engine."""
+"""Seam 2 (#232, SPEC-38): the file tree's type-to-search. Only the latest keystroke's
+hits show and the query in flight is cancelled; hits pass the tree's screener and the
+note says when there are more; while there is text the tree shows the hits inside their
+folders (every folder above a hit open, a folder that matches by itself closed until
+opened, which lists it), built from the hits alone with nothing listed in the tree;
+every gesture works on those rows as on the tree's own (click, Ctrl, Shift, a folder
+pick, double-click, the context menu, drag, the chevron), and reveal returns to the tree
+at a hit; clearing brings the tree back as it was, a pick made meanwhile kept; the scan
+answers when Everything is unavailable and a miss names the backend; in the real shell,
+typing in the focused tree starts a search, the list shows the hits in their folders,
+and Escape returns to the tree. Headless hosts and the offscreen shell over the real
+engine."""
 
 from __future__ import annotations
 
@@ -30,6 +36,7 @@ pytest.importorskip("PySide6.QtQuick")
 from specto_app.app import find_item
 
 CTRL = int(Qt.KeyboardModifier.ControlModifier.value)
+SHIFT = int(Qt.KeyboardModifier.ShiftModifier.value)
 FILES = {
     "a/f1.txt": b"1",
     "a/f2.txt": b"22",
@@ -39,10 +46,14 @@ FILES = {
     "b/z.txt": b"z",
     "top.md": b"#",
 }
+#: an empty folder: a folder hit with nothing under it
+EMPTY = "b/void"
 
 
 class Index:
-    """A stand-in Everything: up or down, answering ``hits`` under any root."""
+    """A stand-in Everything: up or down, answering ``hits`` under any root (a path
+    ending in ``/`` is a folder), with the folders above them unless the query asks for
+    files only."""
 
     def __init__(self, hits: list[str] | None = None, *, up: bool = True, delay: float = 0.0):
         self.up = up
@@ -69,15 +80,23 @@ class Index:
         # indexed at all?) matches every file
         terms = [t.lower() for t in re.findall(r'path:"([^"]*)"', query)]
         regexes = re.findall(r'regex:"([^"]*)"', query)
+        entries: dict[str, Hit] = {}
+        for p in self.hits:
+            if " file:" not in query:
+                parts = p.split("/")
+                for i in range(1, len(parts)):
+                    folder = base + "\\".join(parts[:i])
+                    entries.setdefault(folder, Hit(folder, 0, 1, is_dir=True))
+            full = base + p.rstrip("/").replace("/", "\\")
+            entries[full] = Hit(full, 0, 1, is_dir=True) if p.endswith("/") else Hit(full, 7, 1)
         out = [
-            Hit(full, 7, 1)
-            for p in self.hits
-            for full in [base + p.replace("/", "\\")]
+            h
+            for full, h in sorted(entries.items())
             if all(t in full.lower() for t in terms)
             and all(re.search(r, full, re.IGNORECASE) for r in regexes)
         ]
         page = out[offset : offset + limit]
-        return [h for h in page if keep is None or keep(h.path)], len(out)
+        return [h for h in page if keep is None or keep(h.path, h.is_dir)], len(out)
 
 
 def everything(index: Index) -> fs.EverythingSearch:
@@ -91,6 +110,7 @@ def project(tmp_path: Path) -> Project:
         p = proj.root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(data)
+    (proj.root / EMPTY).mkdir()
     return proj
 
 
@@ -102,7 +122,18 @@ def host_on(engine: Engine) -> tuple[HostContext, FileTreeHost]:
 
 
 def hits_of(host: FileTreeHost) -> list[str]:
-    return [h.path for h in host.search.model.hits]
+    """The latest query's hits, best first (files and folders)."""
+    return host.search.snapshot()["hits"]
+
+
+def shown(host: FileTreeHost) -> list[tuple[str, int, bool]]:
+    """The rows the tree shows: (path, depth, open) for a folder, (path, depth, False)
+    for a file."""
+    return [(r["path"], r["depth"], r["expanded"]) for r in host.rows()]
+
+
+def row(host: FileTreeHost, path: str) -> int:
+    return [r["path"] for r in host.rows()].index(path)
 
 
 def picks(ctx: HostContext) -> FilesValue:
@@ -133,6 +164,7 @@ def test_only_the_latest_keystrokes_hits_show_and_the_query_in_flight_is_cancell
 
     host.search.query("")  # cleared: back to the tree
     assert hits_of(host) == [] and host.search.result is None
+    assert shown(host) == [("a", 0, False), ("b", 0, False), ("top.md", 0, False)]
     host.dispose()
     jobs.shutdown()
 
@@ -149,9 +181,10 @@ def test_hits_pass_the_trees_screener_and_the_note_says_when_there_are_more(proj
 
     host.search.query("f3")
     assert hits_of(host) == ["a/deep/f3.txt"]  # the jpg hit was screened out
-    assert index.queries[-1].endswith(' file: path:"f3"')
-    host.search.query("deep")  # a folder's name finds the files under it (#36)
-    assert hits_of(host) == ["a/deep/f3.txt"]
+    # files and folders alike, word by word, under the root
+    assert index.queries[-1].endswith('\\" path:"f3"') and " file:" not in index.queries[-1]
+    host.search.query("deep")  # the folder named after the word, then the files under it
+    assert hits_of(host) == ["a/deep", "a/deep/f3.txt"]
     host.search.query("sub/x")
     assert hits_of(host) == ["b/sub/x.txt"]
     host.search.query("hit")
@@ -160,10 +193,52 @@ def test_hits_pass_the_trees_screener_and_the_note_says_when_there_are_more(proj
     assert hits_of(host) == [] and host.search.result.backend == "everything"
 
 
-# -- hits as rows -------------------------------------------------------------------------------
-def test_a_hit_click_picks_double_click_opens_and_reveal_returns_to_the_tree_at_it(
-    project: Project,
+# -- the hits in their folders --------------------------------------------------------------
+@pytest.mark.parametrize("backend", ["scan", "everything"])
+def test_the_tree_shows_the_hits_inside_their_folders_built_from_the_hits_alone(
+    project: Project, backend: str
 ):
+    engine = Engine(project=project, jobs=InlineJobManager())
+    _ctx, host = host_on(engine)
+    index = Index([*FILES, EMPTY + "/"], up=backend == "everything")
+    host.search.everything = everything(index)
+
+    host.search.query("f3")
+    assert host.search.result.backend == backend
+    # every folder above a hit open, nothing else: no b/, no top.md, no f1.txt
+    assert shown(host) == [
+        ("a", 0, True),
+        ("a/deep", 1, True),
+        ("a/deep/f3.jpg", 2, False),
+        ("a/deep/f3.txt", 2, False),
+    ]
+    # the tree's own folders were never listed for it, and its rows are as they were
+    assert host.snapshot()["loaded"] == [""]
+    assert [r["path"] for r in host.model.rows()] == ["a", "b", "top.md"]
+
+    # a folder that matches by itself: shown; open when it holds hits
+    host.search.query("sub")
+    assert shown(host) == [("b", 0, True), ("b/sub", 1, True), ("b/sub/x.txt", 2, False)]
+    # an empty one stays closed; its details line has its own time
+    host.search.query("void")
+    assert shown(host) == [("b", 0, True), ("b/void", 1, False)]
+    void = host.rows()[1]
+    assert void["is_dir"] and void["stamp"] and void["size"] == ""
+    # opening it lists it (on demand, as any folder of the tree): found empty
+    assert host.toggle(1)
+    assert shown(host) == [("b", 0, True), ("b/void", 1, True)]
+    assert host.rows()[1]["size"] == "empty"
+    assert host.snapshot()["loaded"] == [""]  # listed for the search's rows, not the tree's
+
+    # the details line: a file's size and time from the search, a folder above the hits
+    # says how many hits are under it (its own count is not known)
+    host.search.query("f3")
+    rows = {r["path"]: r for r in host.rows()}
+    assert rows["a"]["size"] == "2 hits" and rows["a/deep"]["size"] == "2 hits"
+    assert rows["a/deep/f3.txt"]["size"] and rows["a/deep/f3.txt"]["stamp"]
+
+
+def test_every_gesture_works_on_the_hit_rows_as_on_the_trees_own(project: Project):
     from specto_app.views.preview_view import PREVIEW_PLUGIN
 
     engine = Engine(project=project, jobs=InlineJobManager())
@@ -172,41 +247,91 @@ def test_a_hit_click_picks_double_click_opens_and_reveal_returns_to_the_tree_at_
     host.search.everything = everything(Index(up=False))  # the scan answers
 
     host.search.query("f3")
-    assert host.search.result.backend == "scan"
-    assert hits_of(host) == ["a/deep/f3.jpg", "a/deep/f3.txt"]
-    assert host.search.click(1)
+    txt, jpg = row(host, "a/deep/f3.txt"), row(host, "a/deep/f3.jpg")
+    # a click picks the file, with the stat the search saw; params remember it
+    assert host.click(txt)
     assert picks(ctx).paths == ["a/deep/f3.txt"]
     assert picks(ctx).stats == {
         "a/deep/f3.txt": [3, (project.root / "a" / "deep" / "f3.txt").stat().st_mtime_ns]
     }
     assert engine.live.data["views"]["fege"]["params"]["selected"] == ["a/deep/f3.txt"]
-    assert host.search.model.rows()[1]["selected"] is True
-    assert host.search.click(0, CTRL)  # Ctrl toggles another in
+    assert host.rows()[txt]["selected"] is True and host.rows()[jpg]["selected"] is False
+    assert host.click(jpg, CTRL)  # Ctrl toggles another in
     assert picks(ctx).paths == ["a/deep/f3.jpg", "a/deep/f3.txt"]
+    assert host.click(jpg) and host.click(txt, SHIFT)  # Shift picks the range of rows
+    assert host.model.selected == {"a/deep/f3.jpg", "a/deep/f3.txt"}
     assert host.snapshot()["loaded"] == [""]  # nothing listed for the picks
 
-    # a double-click on a hit opens its dedicated view (SPEC-32), Ctrl the contextual preview
-    own = host.search.open(1)
+    # a folder pick stands for every file under it, not just the hits
+    assert host.click(row(host, "a"))
+    assert picks(ctx).paths == ["a/deep/f3.jpg", "a/deep/f3.txt", "a/f1.txt", "a/f2.txt"]
+
+    # the context menu and a drag act on the row, or the picks it is in
+    assert host.click(txt)
+    target = host.context_target({"kind": "items", "row": jpg})
+    assert [it.key for it in target.items] == ["a/deep/f3.jpg"]
+    assert target.data == {"clicked": "a/deep/f3.jpg"}
+    assert host.click(jpg, CTRL)
+    target = host.context_target({"kind": "items", "row": txt})
+    assert [it.key for it in target.items] == ["a/deep/f3.jpg", "a/deep/f3.txt"]
+    assert [it.key for it in host.context_target(None).items] == ["a/deep/f3.jpg", "a/deep/f3.txt"]
+    dragged = host.drag_payload({"kind": "items", "row": row(host, "a")})
+    assert [it.key for it in dragged.items] == ["a"]
+    assert host.context_target({"kind": "items", "row": row(host, "a")}).items[0].is_dir
+
+    # a double-click opens a file's dedicated view (SPEC-32), Ctrl the contextual preview
+    own = host.open_row(txt)
     assert own is not None and (own.action, own.mode) == ("created", "dedicated")
     assert engine.live.data["views"][own.view]["type"] != "preview"
-    opened = host.search.open(1, CTRL)
+    opened = host.open_row(txt, CTRL)
     assert opened is not None and opened.action == "created"
     assert engine.live.data["views"][opened.view]["type"] == "preview"
-    # the gesture picked the file in params; the registry's patch brings it to the host,
-    # which lists the folders above it and selects it there too
+    assert host.open_row(row(host, "a")) is None  # a folder is not opened
+    # the gesture picked the file in params; the registry's patch brings it to the host
     assert engine.live.data["views"]["fege"]["params"]["selected"] == ["a/deep/f3.txt"]
     host.on_patch([{"op": "replace", "path": "/views/fege/params/selected"}], {})
     assert picks(ctx).paths == ["a/deep/f3.txt"] and host.model.selected == {"a/deep/f3.txt"}
+    assert host.rows()[row(host, "a/deep/f3.txt")]["selected"] is True
 
-    # a right-click on a hit: its menu names the picked files, the hit first
-    target = host.context_target({"kind": "hit", "row": 1})
-    assert [it.key for it in target.items] == ["a/deep/f3.txt"]
+    # the chevron closes and opens a folder of the search's tree
+    assert host.toggle(row(host, "a/deep"))
+    assert shown(host) == [("a", 0, True), ("a/deep", 1, False)]
+    assert host.toggle(row(host, "a/deep"))
+    assert len(shown(host)) == 4
 
-    assert host.search.reveal(1)
+    # Enter in the box opens the best hit
+    assert host.search.open_first() is not None
+
+    # reveal: back to the tree at the hit, its folders listed and opened, the row picked
+    assert host.search.reveal(row(host, "a/deep/f3.txt"))
     assert host.search.text == "" and hits_of(host) == []
     assert host.model.selected == {"a/deep/f3.txt"} and {"a", "a/deep"} <= host.model.expanded
     assert host.snapshot()["loaded"] == ["", "a", "a/deep"]
     assert picks(ctx).paths == ["a/deep/f3.txt"]
+    assert "a/deep/f3.txt" in [r["path"] for r in host.rows()]
+
+
+def test_clearing_the_search_brings_the_tree_back_as_it_was(project: Project):
+    engine = Engine(project=project, jobs=InlineJobManager())
+    ctx, host = host_on(engine)
+    host.search.everything = everything(Index(up=False))
+    host.toggle(row(host, "b"))  # the tree: b/ open, top.md picked
+    host.click(row(host, "top.md"))
+    before_rows, before_open = host.rows(), set(host.model.expanded)
+
+    host.search.query("f3")
+    host.toggle(row(host, "a"))  # closing a folder of the search's tree
+    host.search.query("")
+    assert host.rows() == before_rows and host.model.expanded == before_open
+    assert host.model.selected == {"top.md"} and picks(ctx).paths == ["top.md"]
+
+    # a pick made during the search is kept: the latest gesture, already sent on
+    host.search.query("z")
+    host.click(row(host, "b/z.txt"))
+    host.search.clear()
+    assert host.model.selected == {"b/z.txt"} and picks(ctx).paths == ["b/z.txt"]
+    assert host.model.expanded == before_open
+    assert host.rows()[row(host, "b/z.txt")]["selected"] is True  # b/ is open: it shows
 
 
 def test_the_scan_answers_when_everything_is_unavailable_and_a_miss_names_the_backend(
@@ -220,6 +345,9 @@ def test_the_scan_answers_when_everything_is_unavailable_and_a_miss_names_the_ba
         def setProperty(self, name, value):
             if name == "searchNote":
                 notes.append(value)
+
+        def property(self, name):
+            return None
 
     host.item = Item()  # type: ignore[assignment]
     host.search.everything = everything(Index(up=False))
@@ -240,28 +368,31 @@ def test_typing_in_the_focused_tree_searches_and_escape_returns_to_the_tree(
     spin(until=lambda: find_item(root, "treeRow:fege:a") is not None)
     host = app.hosts.hosts["fege"]
     field = find_item(root, "treeSearch:fege")
-    tree_list, hits = find_item(root, "fileTreeList:fege"), find_item(root, "fileTreeHits:fege")
-    assert field is not None and tree_list.isVisible() and not hits.isVisible()
+    tree_list = find_item(root, "fileTreeList:fege")
+    assert field is not None and tree_list.isVisible()
+    assert find_item(root, "treeRow:fege:a/deep/f3.txt") is None  # a/ is closed
 
     # a click focuses the tree; typing then lands in the search box
-    row = find_item(root, "treeRow:fege:top.md")
+    top = find_item(root, "treeRow:fege:top.md")
     QTest.mouseClick(
         app.window,
         Qt.MouseButton.LeftButton,
         Qt.KeyboardModifier.NoModifier,
-        row.mapToScene(row.boundingRect().center()).toPoint(),
+        top.mapToScene(top.boundingRect().center()).toPoint(),
     )
     spin(30)
     for ch in "f3":
         QTest.keyClick(app.window, ch)
-    spin(until=lambda: find_item(root, "searchHit:fege:a/deep/f3.txt") is not None)
+    spin(until=lambda: find_item(root, "treeRow:fege:a/deep/f3.txt") is not None)
     assert field.property("text") == "f3" and host.search.text == "f3"
-    assert hits.isVisible() and not tree_list.isVisible()
+    # the same list, now the hits in their folders: a/ and a/deep/ open, top.md gone
+    assert tree_list.isVisible() and tree_list.property("count") == 4
+    assert find_item(root, "treeRow:fege:top.md") is None
+    assert find_item(root, "treeChevron:fege:a/deep") is not None
     caption = find_item(root, "fileTreeCaption:fege")
     assert caption.property("text") == "2 hits"
-    assert find_item(root, "searchHitFolder:fege:a/deep/f3.txt").property("text") == "a/deep"
 
-    hit = find_item(root, "searchHit:fege:a/deep/f3.txt")
+    hit = find_item(root, "treeRow:fege:a/deep/f3.txt")
     QTest.mouseClick(
         app.window,
         Qt.MouseButton.LeftButton,
@@ -277,7 +408,9 @@ def test_typing_in_the_focused_tree_searches_and_escape_returns_to_the_tree(
 
     QTest.keyClick(app.window, Qt.Key_Escape)
     spin(until=lambda: field.property("text") == "")
-    assert tree_list.isVisible() and not hits.isVisible() and host.search.text == ""
+    spin(until=lambda: find_item(root, "treeRow:fege:top.md") is not None)
+    assert tree_list.isVisible() and host.search.text == ""
+    assert find_item(root, "treeRow:fege:a/deep/f3.txt") is None  # the tree as it was
     assert (
         "fege" in app.live.data["views"]
     )  # the shell's Escape did not clear the canvas selection first
