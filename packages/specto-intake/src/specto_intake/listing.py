@@ -184,6 +184,18 @@ class TreeLister:
         r = self._root_of(path)
         return r is not None and not r.is_file and r.accepts(path, self.screener)
 
+    def accepts_dir(self, path: str) -> bool:
+        """Would a folder at tree path ``path`` be listed: under a source that lists
+        folders that deep, not the project's own ``.specto/`` (what a folder hit must
+        pass, SPEC-38). The screener and a source's pattern are for files: a folder
+        passes them as the listing's folders do."""
+        r = self._root_of(path)
+        if r is None or r.is_file or not path or (r.inside and _hidden(path)):
+            return False
+        if path == r.prefix:
+            return True  # the source's own root folder
+        return r.depth_ok(r.rel(path.rpartition("/")[0]))
+
     # -- one level ---------------------------------------------------------------------------
     def list_dir(self, path: str = "") -> list[Entry]:
         """The entries one level below tree path ``path`` (``""``: the root), folders

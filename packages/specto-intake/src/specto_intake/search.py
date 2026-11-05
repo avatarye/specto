@@ -21,6 +21,13 @@ collection (ADR 0022). An ``accept`` predicate (the tree's lister: its sources, 
 and screener) filters hits the backends know nothing about, so the index is asked for
 more than the limit.
 
+Folders are hits only when the caller asks for them with ``accept_dir`` (SPEC-38: the
+tree shows a folder that itself matches): a folder whose path below the root holds
+every word, ranked as a file is, passing ``accept_dir`` (the lister's
+``accepts_dir``: under a source, not hidden) rather than ``accept``. Everything then runs
+the query without its ``file:`` filter and reads each result's folder flag; the scan
+checks the folders it walks anyway.
+
 Everything matches a ``path:`` term against the absolute path, so a word that occurs in
 the root's own path (``specto`` under ``C:/work/specto``) would match every file under
 it. Such a word goes to the index as a regular expression anchored at the root instead
@@ -60,6 +67,7 @@ class SearchHit:
     name: str
     size: int = 0
     mtime_ns: int = 0
+    is_dir: bool = False  # a folder (only when the search was asked for folders)
 
 
 @dataclass
@@ -92,6 +100,7 @@ class FileSearch(Protocol):
         *,
         accept: Accept | None = None,
         cancelled: Cancelled | None = None,
+        accept_dir: Accept | None = None,
     ) -> SearchResult: ...
 
 
@@ -196,6 +205,7 @@ class EverythingSearch:
         *,
         accept: Accept | None = None,
         cancelled: Cancelled | None = None,
+        accept_dir: Accept | None = None,
     ) -> SearchResult:
         t0 = time.perf_counter()
         ev = self.everything
@@ -205,14 +215,17 @@ class EverythingSearch:
             return finish([], text, limit, result, t0)
         base = os.path.normcase(os.path.abspath(root)).replace("/", "\\").rstrip("\\") + "\\"
         blen = len(base)
-        query = " ".join([under(root), "file:", *index_terms(root, words)])
+        kinds = [] if accept_dir is not None else ["file:"]
+        query = " ".join([under(root), *kinds, *index_terms(root, words)])
 
-        def keep(path: str) -> bool:
+        def keep(path: str, is_dir: bool) -> bool:
             if path[:blen].lower() != base:
                 return False  # a substring match elsewhere: the term is not a prefix filter
             rel = path[blen:].replace("\\", "/")
-            if _hidden(rel) or not matches(rel, words):
+            if not rel or _hidden(rel) or not matches(rel, words):
                 return False
+            if is_dir:
+                return accept_dir is not None and accept_dir(rel)
             return accept is None or accept(rel)
 
         cap = max(limit * OVERASK, MIN_ASK)
@@ -229,7 +242,8 @@ class EverythingSearch:
                 return finish(hits, text, limit, result, t0)
             for h in raw:
                 rel = h.path[blen:].replace("\\", "/")
-                hits.append(SearchHit(rel, rel.rpartition("/")[2], h.size, h.mtime_ns))
+                size = 0 if h.is_dir else h.size
+                hits.append(SearchHit(rel, rel.rpartition("/")[2], size, h.mtime_ns, h.is_dir))
             seen = min(seen + ask, total)
             if seen >= total:
                 done = True  # every candidate was read: the answer is exact
@@ -241,7 +255,9 @@ class EverythingSearch:
         if not done and len(hits) <= limit:
             # the index could not be read through within the bound and the hits do not
             # fill the limit: the exhaustive scan answers rather than an unfinished list
-            return self.fallback.search(root, text, limit, accept=accept, cancelled=cancelled)
+            return self.fallback.search(
+                root, text, limit, accept=accept, cancelled=cancelled, accept_dir=accept_dir
+            )
         result.more = not done
         return finish(hits, text, limit, result, t0)
 
@@ -262,6 +278,7 @@ class ScanSearch:
         *,
         accept: Accept | None = None,
         cancelled: Cancelled | None = None,
+        accept_dir: Accept | None = None,
     ) -> SearchResult:
         t0 = time.perf_counter()
         result = SearchResult(backend=self.name)
@@ -285,8 +302,19 @@ class ScanSearch:
                 child = f"{rel}/{e.name}" if rel else e.name
                 try:
                     if e.is_dir(follow_symlinks=False):
-                        if not _hidden(child):
-                            stack.append((e.path, child))
+                        if _hidden(child):
+                            continue
+                        stack.append((e.path, child))
+                        if accept_dir is None or not matches(child, words):
+                            continue
+                        if not accept_dir(child):
+                            continue
+                        mtime_ns = e.stat(follow_symlinks=False).st_mtime_ns
+                        hits.append(SearchHit(child, e.name, 0, mtime_ns, True))
+                        if len(hits) >= cap:
+                            result.more = True
+                            stack.clear()
+                            break
                         continue
                     if not matches(child, words) or not e.is_file(follow_symlinks=True):
                         continue
@@ -327,16 +355,21 @@ def search(
     accept: Accept | None = None,
     cancelled: Cancelled | None = None,
     everything: EverythingSearch | None = None,
+    accept_dir: Accept | None = None,
 ) -> SearchResult:
     """One query through whichever backend can answer; a failing index (the service
     went away mid-query) falls back to the scan rather than failing the search."""
     backend = backend_for(root, everything=everything)
     try:
-        return backend.search(root, text, limit, accept=accept, cancelled=cancelled)
+        return backend.search(
+            root, text, limit, accept=accept, cancelled=cancelled, accept_dir=accept_dir
+        )
     except OSError:
         if backend is _scan:
             raise
-        return _scan.search(root, text, limit, accept=accept, cancelled=cancelled)
+        return _scan.search(
+            root, text, limit, accept=accept, cancelled=cancelled, accept_dir=accept_dir
+        )
 
 
 __all__ = [

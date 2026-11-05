@@ -58,6 +58,7 @@ class Hit:
     path: str  # absolute native path
     size: int
     mtime_ns: int
+    is_dir: bool = False
 
 
 def dll_candidates() -> list[Path]:
@@ -192,15 +193,15 @@ class Everything:
         offset: int = 0,
         cancelled: Callable[[], bool] | None = None,
         sort: int = SORT_PATH_ASCENDING,
-        keep: Callable[[str], bool] | None = None,
+        keep: Callable[[str, bool], bool] | None = None,
     ) -> tuple[list[Hit], int]:
         """Run ``query`` (Everything's own syntax), files and folders alike, with the
         full path, size and modified time of up to ``limit`` results from ``offset`` on
         (a page of the sorted matches); returns the hits and the total number of
-        matches. ``keep`` is asked about each result's full path first, and a result it
-        refuses is left out without reading its size and time (two more calls into the
-        DLL each, which is most of the cost of a big page). Raises ``OSError`` naming
-        the SDK error when the service is not there."""
+        matches. ``keep`` is asked about each result's full path and whether it is a
+        folder first, and a result it refuses is left out without reading its size and
+        time (two more calls into the DLL each, which is most of the cost of a big
+        page). Raises ``OSError`` naming the SDK error when the service is not there."""
         with self._lock:
             lib = self._lib
             lib.Everything_Reset()
@@ -224,14 +225,15 @@ class Everything:
                 if not got:
                     continue
                 path = self._buf.value
-                if keep is not None and not keep(path):
+                is_dir = bool(lib.Everything_IsFolderResult(i))
+                if keep is not None and not keep(path, is_dir):
                     continue
                 if not lib.Everything_GetResultSize(i, ctypes.byref(size)):
                     size.value = 0
                 mtime_ns = 0
                 if lib.Everything_GetResultDateModified(i, ctypes.byref(ft)) and ft.value:
                     mtime_ns = (ft.value - _FILETIME_EPOCH) * 100
-                out.append(Hit(path, max(0, size.value), max(0, mtime_ns)))
+                out.append(Hit(path, max(0, size.value), max(0, mtime_ns), is_dir))
             return out, total
 
 

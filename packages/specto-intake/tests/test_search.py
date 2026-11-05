@@ -75,15 +75,24 @@ class FakeIndex:
         base = query.split('"')[1]
         terms = [t.lower() for t in re.findall(r'path:"([^"]*)"', query)]
         regexes = re.findall(r'regex:"([^"]*)"', query)
-        out = []
+        # files, and without ``file:`` the folders above them too (as the index holds them)
+        entries: dict[str, Hit] = {}
         for h in self.hits:
+            if " file:" not in query:
+                parts = h.path.split("/")
+                for i in range(1, len(parts)):
+                    folder = base + "\\".join(parts[:i])
+                    entries.setdefault(folder, Hit(folder, 0, 9, is_dir=True))
             full = base + h.path.replace("/", "\\")
-            if all(t in full.lower() for t in terms) and all(
-                re.search(r, full, re.IGNORECASE) for r in regexes
-            ):
-                out.append(Hit(full, h.size, h.mtime_ns))
+            entries[full] = Hit(full, h.size, h.mtime_ns)
+        out = [
+            h
+            for full, h in sorted(entries.items())
+            if all(t in full.lower() for t in terms)
+            and all(re.search(r, full, re.IGNORECASE) for r in regexes)
+        ]
         page = out[offset : offset + limit]
-        return [h for h in page if keep is None or keep(h.path)], len(out)
+        return [h for h in page if keep is None or keep(h.path, h.is_dir)], len(out)
 
 
 def fake_everything(index: FakeIndex) -> fs.EverythingSearch:
@@ -137,6 +146,44 @@ def test_both_backends_match_the_relative_path_and_rank_names_first(
     assert result.backend == name and not result.more and not result.cancelled
     assert paths(result) == expected
     assert all(h.name == h.path.rpartition("/")[2] for h in result.hits)
+
+
+FOLDER_CASES = [
+    # a folder named after the word ranks first; the folders and files below it follow
+    ("deep", ["notes/deep", "notes/deep/er", "notes/deep/er/Readme-draft.md"]),
+    (
+        "cam",
+        [
+            "runs/cam-a",
+            "runs/cam-b",
+            "runs/cam-a/00000.jpg",
+            "runs/cam-a/00001.jpg",
+            "runs/cam-b/00000.jpg",
+            "runs/cam-b/notes.json",
+        ],
+    ),
+    # .specto/ stays hidden, as a folder too
+    ("specto", []),
+]
+
+
+@pytest.mark.parametrize(("name", "backend"), backends(), ids=["scan", "everything"])
+@pytest.mark.parametrize(("text", "expected"), FOLDER_CASES, ids=[c[0] for c in FOLDER_CASES])
+def test_both_backends_find_folders_when_asked_for_them(
+    root: Path, name: str, backend: fs.FileSearch, text: str, expected: list[str]
+):
+    """SPEC-38: with ``accept_dir`` a folder whose path holds every word is a hit too,
+    ranked like a file; it passes ``accept_dir``, never the files' ``accept``."""
+    result = backend.search(str(root), text, 10, accept=lambda p: True, accept_dir=lambda p: True)
+    assert result.backend == name
+    assert paths(result) == expected
+    assert {h.path for h in result.hits if h.is_dir} == {p for p in expected if "." not in p}
+    # the tree's lister: folders under its sources, not hidden
+    lister = TreeLister(root, {"sources": ["runs"]})
+    result = backend.search(
+        str(root), "notes", 10, accept=lister.accepts, accept_dir=lister.accepts_dir
+    )
+    assert paths(result) == ["runs/cam-b/notes.json"]  # not the notes/ folder: outside
 
 
 def test_the_scan_reports_the_files_stat_and_names_itself(root: Path):
@@ -259,7 +306,7 @@ def test_the_index_is_read_in_two_pages_up_to_the_bound_then_the_scan_answers(
     class Fallback:
         name = "scan"
 
-        def search(self, root, text, limit, *, accept=None, cancelled=None):
+        def search(self, root, text, limit, *, accept=None, cancelled=None, accept_dir=None):
             calls.append(text)
             return fs.SearchResult(backend="scan", hits=[fs.SearchHit("b/needle-0.txt", "x")])
 
@@ -346,3 +393,9 @@ def test_everything_and_the_scan_agree_on_the_test_data(text: str):
     assert index.backend == "everything" and not index.more and not scan.more
     assert paths(index) == paths(scan)
     assert bool(scan.hits) == (text not in ("testdata", "runs readme"))
+    # asked for folders too (SPEC-38): the same folders, flagged as folders
+    scan = fs.ScanSearch().search(str(TESTDATA), text, 100, accept_dir=lambda p: True)
+    index = everything.search(str(TESTDATA), text, 100, accept_dir=lambda p: True)
+    assert [(h.path, h.is_dir) for h in index.hits] == [(h.path, h.is_dir) for h in scan.hits]
+    if text == "notes":  # the notes/ folder
+        assert any(h.is_dir for h in index.hits)
