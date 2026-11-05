@@ -13,7 +13,7 @@
 // while details show. The details button sits in the tree's own footer (#122, the
 // shared ViewFooter since #126).
 // Type-to-search (#232, SPEC-38): the box at the top (typing in the focused tree starts
-// it). While it has text the same list shows the search's tree (the host's searchModel):
+// it). While it has text the same list shows the search tree (the host's searchModel):
 // the hits of the latest keystroke inside their folders, every folder above a hit open,
 // rows like the tree's own (every gesture goes to the host by row, and it acts on the tree
 // the list shows); a row's reveal button goes back to the tree at it; Enter opens the best
@@ -30,15 +30,18 @@ Item {
     property bool empty: false           // scanned and found no files (the host sets it)
     property QtObject bridge: null
     property var treeModel: null
-    // type-to-search (#232, SPEC-38): the search's tree, the box's text, the query's state
+    // type-to-search (#232, SPEC-38): the search tree, the box's text, the query's state
     // ("", "searching", "done") and the footer's line about the hits (the host sets them)
     property var searchModel: null
     property string searchText: ""
     property string searchState: ""
     property string searchNote: ""
-    readonly property bool searching: searchText !== ""
-    // the list shows the search's tree while searching; the tree's own scroll is kept for
-    // when it comes back (a model swap scrolls a ListView to the top)
+    // the host's rule too (TreeSearch.active): blank text is no search
+    readonly property bool searching: searchText.trim() !== ""
+    // the list shows the search tree while searching; the tree's own scroll is kept for
+    // when it comes back. The model is assigned here, not bound: a binding would swap it
+    // before this handler could read the tree's contentY (a model swap scrolls a
+    // ListView to the top), and the restore must follow the swap
     property real treeY: 0
     onSearchingChanged: {
         if (searching) {
@@ -211,6 +214,13 @@ Item {
             Keys.onReturnPressed: function (event) {
                 if (root.bridge) root.bridge.openFirstHit(Number(event.modifiers))
             }
+            // Down: into the search tree, at its first hit (Up from the top row comes back)
+            Keys.onDownPressed: {
+                if (!root.searching || list.count === 0) return
+                var first = root.bridge ? root.bridge.firstHitRow() : 0
+                list.currentIndex = first >= 0 ? first : 0
+                list.forceActiveFocus()
+            }
         }
         Shell.Icon {
             id: clearButton
@@ -244,6 +254,26 @@ Item {
         // set once here, then swapped by root.onSearchingChanged
         model: root.treeModel
         boundsBehavior: Flickable.StopAtBounds
+        // the keys, once Down from the search box gave the list the focus: Up and Down
+        // move the current row (Up from the top row goes back to the box), Return opens a
+        // file or toggles a folder, Escape clears the search
+        Keys.onUpPressed: {
+            if (currentIndex <= 0) searchField.forceActiveFocus()
+            else decrementCurrentIndex()
+        }
+        Keys.onReturnPressed: function (event) {
+            if (!root.bridge || currentIndex < 0 || currentItem === null) return
+            if (currentItem.isDir) root.bridge.toggle(currentIndex)
+            else root.bridge.open(currentIndex, Number(event.modifiers))
+        }
+        Keys.onShortcutOverride: function (event) {
+            if (event.key === Qt.Key_Escape && root.searching)
+                event.accepted = true
+        }
+        Keys.onEscapePressed: {
+            searchField.text = ""
+            root.forceActiveFocus()
+        }
         delegate: Rectangle {
             id: row
             required property int index
@@ -261,8 +291,10 @@ Item {
             objectName: "treeRow:" + root.viewId + ":" + path
             width: list.width
             height: root.rowH
+            // the keys' current row reads as hovered while the list has the focus
+            readonly property bool keyed: list.activeFocus && ListView.isCurrentItem
             color: selected ? root.tok("accent_soft")
-                 : (rowHover.hovered ? root.tok("surface_hover") : "transparent")
+                 : (rowHover.hovered || keyed ? root.tok("surface_hover") : "transparent")
             HoverHandler {
                 id: rowHover
                 // leaving one row and entering the next arrive in either order: a leave

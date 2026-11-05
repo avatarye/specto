@@ -334,6 +334,83 @@ def test_clearing_the_search_brings_the_tree_back_as_it_was(project: Project):
     assert host.rows()[row(host, "b/z.txt")]["selected"] is True  # b/ is open: it shows
 
 
+def test_picks_set_from_outside_during_a_search_wait_for_it_to_clear(project: Project):
+    """A received selection or ``params.selected`` written from outside while a query is
+    active: the picks equal it at once (paths neither tree holds included) and the
+    search tree shows them, but the hidden tree is neither listed nor opened until the
+    search clears; then it shows them as it would have."""
+    from specto_core.links import Selection
+
+    engine = Engine(project=project, jobs=InlineJobManager())
+    ctx, host = host_on(engine)
+    host.search.everything = everything(Index(up=False))
+    host.search.query("f3")
+
+    host.receive("selection", Selection(keys=["a/deep/f3.txt"], last="a/deep/f3.txt"))
+    assert host.model.selected == {"a/deep/f3.txt"} and picks(ctx).paths == ["a/deep/f3.txt"]
+    assert host.rows()[row(host, "a/deep/f3.txt")]["selected"] is True
+    assert host.snapshot()["loaded"] == [""] and host.model.expanded == set()
+    host.search.query("")
+    assert host.snapshot()["loaded"] == ["", "a", "a/deep"]
+    assert {"a", "a/deep"} <= host.model.expanded
+    assert host.rows()[row(host, "a/deep/f3.txt")]["selected"] is True
+
+    # params.selected from outside (an agent): a file no tree holds yet is kept
+    host.search.query("z")
+    doc = engine.live.document()
+    doc["views"]["fege"]["params"]["selected"] = ["b/sub/x.txt"]
+    engine.live.submit(doc, origin="agent:s1", label="pick x")
+    host.on_patch([{"op": "replace", "path": "/views/fege/params/selected"}], {})
+    assert host.model.selected == {"b/sub/x.txt"} and picks(ctx).paths == ["b/sub/x.txt"]
+    assert "b/sub" not in host.snapshot()["loaded"]
+    host.search.clear()
+    assert host.rows()[row(host, "b/sub/x.txt")]["selected"] is True
+
+    # the user's own pick during the search drops the waiting one: nothing opens on clear
+    host.search.query("top")
+    host.receive("selection", Selection(keys=["b/z.txt"], last="b/z.txt"))
+    host.click(row(host, "top.md"))
+    opened = set(host.model.expanded)
+    host.search.clear()
+    assert host.model.selected == {"top.md"} and host.model.expanded == opened
+
+
+def test_blank_text_is_no_search_and_ages_follow_the_shown_tree(project: Project):
+    engine = Engine(project=project, jobs=InlineJobManager())
+    _ctx, host = host_on(engine)
+    host.search.everything = everything(Index(up=False))
+    host.search.query("   ")
+    assert not host.search.active and [r["path"] for r in host.rows()] == ["a", "b", "top.md"]
+    host.search.query("f3")
+    host.model.clock = lambda: 4_000_000_000.0
+    host.bridge.refreshAges()
+    assert host.search.model.now == 4_000_000_000.0
+
+
+def test_a_folder_hit_with_hits_under_it_is_listed_in_full(project: Project):
+    """``b`` and ``b/sub`` are folder hits (their names hold the word) with hits under
+    them: each opens as the folder it is, listed on the worker, so ``b/void`` (no hit)
+    shows beside the hits; a folder only on the way to hits stays narrowed."""
+    engine = Engine(project=project, jobs=InlineJobManager())
+    _ctx, host = host_on(engine)
+    host.search.everything = everything(Index(up=False))
+    host.search.query("b")
+    assert hits_of(host) == ["b", "b/sub", "b/z.txt", "b/sub/x.txt"]
+    assert shown(host) == [
+        ("b", 0, True),
+        ("b/sub", 1, True),
+        ("b/sub/x.txt", 2, False),
+        ("b/void", 1, False),
+        ("b/z.txt", 1, False),
+    ]
+    rows = {r["path"]: r for r in host.rows()}
+    assert rows["b"]["size"] == "3 items" and rows["b/sub"]["size"].startswith("1 item")
+    assert host.snapshot()["loaded"] == [""]  # the search tree's listing, not the tree's
+    host.search.query("x.txt")  # b/ and b/sub/ only on the way to the hit: narrowed
+    rows = {r["path"]: r for r in host.rows()}
+    assert rows["b"]["size"] == "1 hit" and "b/void" not in rows
+
+
 def test_the_scan_answers_when_everything_is_unavailable_and_a_miss_names_the_backend(
     project: Project,
 ):
@@ -366,8 +443,7 @@ def test_the_tree_comes_back_where_it_was_scrolled(qapp, spin):
     from PySide6.QtQuick import QQuickItem, QQuickWindow
 
     from specto_app.views import gallery_native
-    from specto_app.views.file_tree import FILE_TREE_QML, FileTreeModel
-    from specto_app.views.tree_search import SearchTreeModel
+    from specto_app.views.file_tree import FILE_TREE_QML, FileTreeModel, SearchTreeModel
 
     engine = QQmlEngine()
     gallery_native.ensure_import_path(engine)
@@ -432,6 +508,29 @@ def test_typing_in_the_focused_tree_searches_and_escape_returns_to_the_tree(
     assert find_item(root, "treeChevron:fege:a/deep") is not None
     caption = find_item(root, "fileTreeCaption:fege")
     assert caption.property("text") == "2 hits"
+
+    # the keys: Down from the box to the first hit row, Up and Down move, Up from the top
+    # row goes back to the box, Return opens the current file
+    assert field.property("activeFocus")
+    QTest.keyClick(app.window, Qt.Key_Down)
+    spin(30)
+    assert tree_list.property("activeFocus") and tree_list.property("currentIndex") == 2
+    for expected in (1, 0):
+        QTest.keyClick(app.window, Qt.Key_Up)
+        spin(20)
+        assert tree_list.property("currentIndex") == expected
+    QTest.keyClick(app.window, Qt.Key_Up)
+    spin(30)
+    assert field.property("activeFocus")
+    QTest.keyClick(app.window, Qt.Key_Down)
+    QTest.keyClick(app.window, Qt.Key_Down)
+    spin(30)
+    assert tree_list.property("currentIndex") == 3  # a/deep/f3.txt
+    views_before = set(app.live.data["views"])
+    QTest.keyClick(app.window, Qt.Key_Return)
+    spin(until=lambda: set(app.live.data["views"]) != views_before)
+    assert len(set(app.live.data["views"]) - views_before) == 1  # its dedicated view
+    assert host.search.text == "f3"  # still searching
 
     hit = find_item(root, "treeRow:fege:a/deep/f3.txt")
     QTest.mouseClick(

@@ -104,6 +104,7 @@ from specto_core.kinds import PluginManifest, ViewManifest
 from specto_core.links import Collection, FilesValue, Selection
 from specto_core.ports import PROJECT_ID, OpenMode
 from specto_intake.listing import Entry, TreeLister
+from specto_intake.search import SearchHit
 
 from . import gallery_native
 from .file_icons import icon_for
@@ -117,6 +118,7 @@ from .file_tree_format import (  # noqa: F401  (re-exported: the tree's formatti
 )
 from .keys import CTRL, SHIFT, open_mode_for
 from .listing_worker import ListingWorker
+from .tree_search import TreeSearch
 
 FILE_TREE_QML = gallery_native.QML_DIR / "Specto" / "FileTree" / "FileTreeView.qml"
 FILE_TREE_PLUGIN = PluginManifest(name="app-file-tree", version="0.1.0", views=[])
@@ -266,6 +268,14 @@ def ancestors(path: str) -> list[str]:
     return [""] + ["/".join(parts[:i]) for i in range(1, len(parts))]
 
 
+class Picks:
+    """The picked rows (tree paths): one set, shared by the tree and its search tree
+    (SPEC-38), so a pick on either is a pick of the view."""
+
+    def __init__(self) -> None:
+        self.paths: set[str] = set()
+
+
 class FileTreeModel(QAbstractListModel):
     """The visible rows of the tree (depth-first, expanded folders only), over nodes
     that are listed one folder at a time (``load``) or all at once (``set_paths``)."""
@@ -297,11 +307,12 @@ class FileTreeModel(QAbstractListModel):
         IconRole: b"icon",
     }
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(self, parent: QObject | None = None, picks: Picks | None = None) -> None:
         super().__init__(parent)
         self.root = Node("", "", True, total=0)
         self.expanded: set[str] = set()
-        self.selected: set[str] = set()
+        #: the picked rows, maybe shared with another model (the search tree's)
+        self.picks = picks if picks is not None else Picks()
         self._rows: list[tuple[Node, int]] = []
         self._nodes: dict[str, Node] = {}
         self._parents: dict[str, Node] = {}
@@ -309,6 +320,14 @@ class FileTreeModel(QAbstractListModel):
         #: on ``refresh_ages``
         self.clock: Callable[[], float] = time.time
         self.now = self.clock()
+
+    @property
+    def selected(self) -> set[str]:
+        return self.picks.paths
+
+    @selected.setter
+    def selected(self, paths: set[str]) -> None:
+        self.picks.paths = paths
 
     # -- data ----------------------------------------------------------------------------
     def set_paths(self, paths: list[str], stats: dict[str, Stat] | None = None) -> None:
@@ -481,7 +500,7 @@ class FileTreeModel(QAbstractListModel):
         ]
 
     def detail_of(self, node: Node) -> str:
-        """The row's details tail (``detail_text``; the search's tree says hits)."""
+        """The row's details tail (``detail_text``; the search tree says hits)."""
         return detail_text(node)
 
     def stamp_of(self, node: Node) -> int:
@@ -657,6 +676,112 @@ class FileTreeModel(QAbstractListModel):
         return None
 
 
+class SearchTreeModel(FileTreeModel):
+    """The search tree (SPEC-38, ADR 0022): the latest query's hits inside the folders
+    above them, those folders open, built from the hits alone. Its picks are the tree's
+    (one :class:`Picks`). A folder that is only on the way to hits is *narrowed*: it holds
+    the hits under it and nothing else, and its details line counts them. A folder hit
+    is a real folder: closed and not listed when nothing under it is a hit, listed in
+    full (``to_list``, by the owner, on the tree's worker) when hits are under it."""
+
+    def __init__(self, tree: FileTreeModel, parent: QObject | None = None) -> None:
+        super().__init__(parent, picks=tree.picks)
+        self.tree = tree
+        self.clock = lambda: tree.clock()
+        self.now = tree.now
+        #: narrowed folder -> how many hits are under it
+        self.narrowed: dict[str, int] = {}
+        #: the hits' paths (files and folders)
+        self.hit_paths: set[str] = set()
+        #: folder hits with hits under them: to be listed in full
+        self.to_list: list[str] = []
+
+    def set_paths(self, paths: list[str], stats: dict[str, Stat] | None = None) -> None:
+        raise TypeError("the search tree is built from hits (set_hits)")
+
+    def reset(self) -> None:
+        raise TypeError("the search tree is built from hits (set_hits)")
+
+    def set_hits(self, hits: list[SearchHit]) -> None:
+        """The hits inside their folders, every folder above a hit open."""
+        root = Node("", "", True)
+        dirs: dict[str, Node] = {"": root}
+        under: dict[str, int] = {}
+        tree = self.tree
+
+        def folder(path: str) -> Node:
+            node = dirs.get(path)
+            if node is None:
+                parent = folder(path.rpartition("/")[0])
+                node = dirs[path] = Node(path, path.rpartition("/")[2], True)
+                seen = tree.node(path)  # what the tree's listing saw of it, if anything
+                if seen is not None and seen.is_dir:
+                    node.own_size, node.own_mtime_ns = seen.own_size, seen.own_mtime_ns
+                    node.archive = seen.archive
+                parent.children.append(node)
+            return node
+
+        folder_hits: list[str] = []
+        for h in hits:
+            for a in ancestors(h.path)[1:]:
+                under[a] = under.get(a, 0) + 1
+            if h.is_dir:
+                node = folder(h.path)
+                node.own_mtime_ns = h.mtime_ns or node.own_mtime_ns
+                folder_hits.append(h.path)
+            else:
+                parent = folder(h.path.rpartition("/")[0])
+                parent.children.append(
+                    Node(h.path, h.name, False, size=h.size, mtime_ns=h.mtime_ns)
+                )
+        for path, node in dirs.items():
+            node.children.sort(key=lambda n: (not n.is_dir, n.name.lower()))
+            if path and path not in under:
+                node.loaded = False  # a folder hit alone: listed when opened
+            node.total = None
+        self.root = root
+        self.narrowed = under
+        self.hit_paths = {h.path for h in hits}
+        self.to_list = [p for p in folder_hits if p in under]
+        self._index()
+        self.expanded = set(under)
+        self.now = self.clock()
+        self._set_rows(self._walk())
+
+    def load(self, path: str, entries: list[Entry]) -> bool:
+        """A folder of the search tree listed: it is a whole folder now, not narrowed;
+        the hits and the narrowed folders under it keep their rows."""
+        self.narrowed.pop(path, None)
+        return super().load(path, entries)
+
+    def first_hit_row(self) -> int:
+        """The first row the list shows that is a hit (-1: none)."""
+        return next((i for i, (n, _) in enumerate(self._rows) if n.path in self.hit_paths), -1)
+
+    def detail_of(self, node: Node) -> str:
+        n = self.narrowed.get(node.path)
+        if n is None:
+            return super().detail_of(node)
+        return f"{n} hit{'s' if n != 1 else ''}"
+
+    def stamp_of(self, node: Node) -> int:
+        if node.path in self.narrowed:
+            return node.own_mtime_ns  # never the newest hit's: the folder holds more
+        return super().stamp_of(node)
+
+    def count_of(self, node: Node) -> int:
+        n = self.narrowed.get(node.path)
+        return n if n is not None else super().count_of(node)
+
+    def _forget(self, node: Node) -> None:
+        """A relisted folder's gone rows leave the search tree; the picks are the
+        tree's and stay."""
+        for p in [node.path, *(c.path for c in self._descendants(node))]:
+            self._nodes.pop(p, None)
+            self._parents.pop(p, None)
+            self.expanded.discard(p)
+
+
 class FileTreeBridge(QObject):
     """Handed to ``FileTreeView.qml`` as ``bridge``: the gestures, by row."""
 
@@ -684,8 +809,9 @@ class FileTreeBridge(QObject):
 
     @Slot()
     def refreshAges(self) -> None:
-        """The details line's timer (once a minute): the ages against the clock now."""
-        self._host.model.refresh_ages()
+        """The details line's timer (once a minute): the ages against the clock now, on
+        the tree the list shows."""
+        self._host.shown.refresh_ages()
 
     @Slot(int, float, float)
     def contextMenu(self, row: int, x: float, y: float) -> None:
@@ -713,9 +839,14 @@ class FileTreeBridge(QObject):
         """Enter in the search box: the best file hit opens (Ctrl: the contextual view)."""
         self._host.search.open_first(int(modifiers))
 
+    @Slot(result=int)
+    def firstHitRow(self) -> int:
+        """Down from the search box: the row the keys go to (-1: none)."""
+        return self._host.search.model.first_hit_row() if self._host.search.active else -1
+
     @Slot(int)
     def revealHit(self, row: int) -> None:
-        """Back to the tree at a row of the search's tree: its folders listed, the row
+        """Back to the tree at a row of the search tree: its folders listed, the row
         shown and selected."""
         self._host.search.reveal(int(row))
 
@@ -758,10 +889,12 @@ class FileTreeHost(QuickViewHost):
         self._anchor = -1
         self._watch = QTimer(self)
         self._watch.timeout.connect(self._relist_loaded)
-        #: type-to-search (#232, SPEC-38): the search's tree and the query in flight
-        from .tree_search import TreeSearch  # it builds on this module's tree model
-
-        self.search = TreeSearch(self)
+        #: picks set from outside during a search (``select_paths``, a received
+        #: selection): shown in the tree, its folders listed, once the search clears;
+        #: dropped by the user's own pick
+        self._deferred: list[str] | None = None
+        #: type-to-search (#232, SPEC-38): the search tree and the query in flight
+        self.search = TreeSearch(self, SearchTreeModel(self.model, self))
         if ctx.qml_engine is not None:
             gallery_native.ensure_import_path(ctx.qml_engine)
             self.item = ctx.create_item(
@@ -777,7 +910,7 @@ class FileTreeHost(QuickViewHost):
 
     @property
     def shown(self) -> FileTreeModel:
-        """The tree the list shows, whose rows the gestures name: the search's while a
+        """The tree the list shows, whose rows the gestures name: the search tree's while a
         query is active (SPEC-38), else the tree's own."""
         return self.search.model if self.search.active else self.model
 
@@ -953,6 +1086,7 @@ class FileTreeHost(QuickViewHost):
             if node is not None and node.loaded:
                 changed = self.model.load(path, entries) or changed
         if changed:
+            self._picks_changed()  # a relisting may have dropped picks that went away
             self._continue_pending()
             self._emit_selected()
             self._caption()
@@ -984,8 +1118,14 @@ class FileTreeHost(QuickViewHost):
 
     def _show(self, paths: list[str]) -> None:
         """Select the rows (the ones the tree holds), open their folders, scroll to the
-        first one, remember and send the picks."""
+        first one, remember and send the picks. During a search the picks change in
+        place and the rest waits for the search to clear (``_defer``)."""
+        if self.search.active:
+            self._defer(paths)
+            self._remember_selected()
+            return
         self.model.reveal(paths)
+        self._picks_changed()
         first = next((k for k in paths if k in self.model._nodes), None)
         if first is not None and self.item is not None:
             QMetaObject.invokeMethod(
@@ -1003,6 +1143,10 @@ class FileTreeHost(QuickViewHost):
         wanted = self._wanted
         if wanted is None or self.collection is None:
             return False
+        if self.search.active:  # the hidden tree is not opened under a search
+            self._wanted = None
+            self._show(wanted)
+            return True
         if self.lister is not None:
             if not self.model.root.loaded:
                 return False
@@ -1042,6 +1186,27 @@ class FileTreeHost(QuickViewHost):
         return out, stats
 
     # -- the picks -----------------------------------------------------------------------------
+    def _picks_changed(self) -> None:
+        """The picks moved: both trees' rows say so (they share them)."""
+        self.model._changed_rows()
+        self.search.model._changed_rows()
+
+    def _defer(self, paths: list[str]) -> None:
+        """Picks set from outside during a search: all of them, held or not (the picks
+        equal ``params.selected``), sent now; shown in the tree when the search clears."""
+        self.model.selected = set(paths)
+        self._deferred = list(paths)
+        self._picks_changed()
+        self._emit_selected()
+        self._caption()
+
+    def search_cleared(self) -> None:
+        """The search ended (``TreeSearch``): picks set from outside meanwhile, if they
+        still stand, are shown in the tree the way they would have been."""
+        deferred, self._deferred = self._deferred, None
+        if deferred is not None and set(deferred) == self.model.selected:
+            self.select_paths(deferred)
+
     def _emit_selected(self, hits: dict[str, Stat] | None = None) -> None:
         """Send the picks' files. Files, and folders the tree has fully listed, go out
         at once with the stat the tree holds (so the intakers off them do not stat the
@@ -1093,10 +1258,12 @@ class FileTreeHost(QuickViewHost):
     def click(self, row: int, modifiers: int = 0) -> bool:
         self._wanted = None  # the user's own pick wins over a received one still waiting
         self._pending = None
+        self._deferred = None
         changed = self.shown.select(row, modifiers, self._anchor)
         if not modifiers & SHIFT:
             self._anchor = row
         if changed:
+            self._picks_changed()
             self._emit_selected()
             self._remember_selected()
             self._caption()
@@ -1171,8 +1338,9 @@ class FileTreeHost(QuickViewHost):
         return opened
 
     def clear_selection(self) -> bool:
+        self._deferred = None
         if self.model.clear_selection():
-            self.search.model._changed_rows()
+            self._picks_changed()
             self._emit_selected()
             self._remember_selected()
             self._caption()
@@ -1182,19 +1350,17 @@ class FileTreeHost(QuickViewHost):
     def select_paths(self, paths: list[str]) -> None:
         """Select by path (tools, tests, ``params.selected`` from outside): the folders
         above are listed first; paths the tree does not hold are ignored. During a
-        search the picks change in place: the tree's folders stay as they are."""
+        search the picks change in place, every path kept, and the tree's folders stay
+        as they are until the search clears (``_defer``)."""
         if self.search.active:
-            self.model.selected = {p for p in paths if self._node(p) is not None}
-            self.search.model._changed_rows()
-            self._emit_selected()
-            self._caption()
+            self._defer(list(paths))
             return
         if self.lister is not None and self.model.unloaded_ancestors(list(paths)):
             self._pending = list(paths)
             self._continue_pending()
             return
         self.model.selected = {p for p in paths if p in self.model._nodes}
-        self.model._changed_rows()
+        self._picks_changed()
         self._emit_selected()
         self._caption()
 
@@ -1223,7 +1389,7 @@ class FileTreeHost(QuickViewHost):
         keyboard's target (``hit`` None) is the selection."""
         clicked: dict[str, Any] = {}  # the row under the cursor, for the open entries (SPEC-32)
         if hit is not None and hit.get("kind") == "items":
-            rows = self.shown._rows  # the search's rows while a query is active (SPEC-38)
+            rows = self.shown._rows  # the search tree's rows while a query is active (SPEC-38)
             row = int(hit.get("row", -1))
             if not 0 <= row < len(rows):
                 return None
@@ -1278,7 +1444,7 @@ class FileTreeHost(QuickViewHost):
             self.select_paths(sorted(wanted))
 
     def rows(self) -> list[dict[str, Any]]:
-        """The rows the list shows (the search's while a query is active)."""
+        """The rows the list shows (the search tree's while a query is active)."""
         return self.shown.rows()
 
     def snapshot(self) -> dict[str, Any]:
@@ -1345,6 +1511,8 @@ __all__ = [
     "FileTreeHost",
     "FileTreeModel",
     "Node",
+    "Picks",
+    "SearchTreeModel",
     "ancestors",
     "build_tree",
     "default_expanded",

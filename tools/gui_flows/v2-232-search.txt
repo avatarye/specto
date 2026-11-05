@@ -4,11 +4,12 @@
 # every one of those open, nothing else shown (best first in the hits: exact name, then
 # prefix, then the rest; shallower first among equals); the footer counts them. A click
 # picks a hit row (selected_files carries it), Ctrl adds another; a word may match the
-# folders above a file, with name matches ranked first (#36), and a folder that matches
-# by itself is a row too, closed when nothing under it is a hit; a word nothing matches
-# says which backend looked; Escape returns to the tree as it was, with the picks kept;
-# the reveal button on a row goes back to the tree at that file, its folders listed and
-# opened, the row selected. The session runs with SPECTO_SEARCH_BACKEND=scan, so the
+# folders above a file, with name matches ranked first (#36); a folder whose own name
+# matches is a row too, listed in full when hits are under it and closed when none are;
+# a word nothing matches says which backend looked; Escape returns to the tree as it
+# was, with the picks kept; the reveal button on a row goes back to the tree at that
+# file, its folders listed and opened, the row selected; a double-click on a hit row
+# opens its dedicated view and Ctrl+double-click the contextual preview, mid-search. The session runs with SPECTO_SEARCH_BACKEND=scan, so the
 # flow is the same on a machine with Everything as on one without it. Project:
 # tools/gui_flows/v2-232-seed.py <folder>.
 resize 1600 900
@@ -51,20 +52,21 @@ assert_host @file_tree search.hits ["docs/deep/er/readme-draft.md"]
 assert_text fileTreeCaption:@file_tree 1 hit
 assert_missing treeRow:@file_tree:notes
 # a word matches the folders above a file too (#36): "docs" finds the docs/ folder
-# itself, the file named after it, and everything under docs/
+# itself (by its name; its subfolders are not hits), the file named after it, and the
+# files under docs/
 key ctrl+a
 type docs
 wait_until treeRow:@file_tree:docs/deep/er/other.md 10000
-assert_host @file_tree search.hits ["docs","notes/docs-list.md","docs/deep","docs/readme.txt","docs/deep/er","docs/deep/er/other.md","docs/deep/er/readme-draft.md"]
-assert_text fileTreeCaption:@file_tree 7 hits
+assert_host @file_tree search.hits ["docs","notes/docs-list.md","docs/readme.txt","docs/deep/er/other.md","docs/deep/er/readme-draft.md"]
+assert_text fileTreeCaption:@file_tree 5 hits
 assert_found treeRow:@file_tree:notes/docs-list.md
 shot v2-232-07-path-match-names-first.png
-# details (#115) on the same rows: a file's time and size, a folder above hits its own
-# time when the tree's listing saw it and how many hits are under it
+# details (#115) on the same rows: a file's time and size; docs/, a folder hit, listed in
+# full (its own items); docs/deep/, only on the way to hits, how many are under it
 click treeDetailsButton:@file_tree
 wait 300
-assert_text treeDetailSize:@file_tree:docs 5 hits
-assert_text treeDetailSize:@file_tree:docs/deep 3 hits
+assert_text treeDetailSize:@file_tree:docs 2 items
+assert_text treeDetailSize:@file_tree:docs/deep 2 hits
 assert_found treeStamp:@file_tree:docs/readme.txt
 shot v2-232-09-details-on-hit-rows.png
 click treeDetailsButton:@file_tree
@@ -118,3 +120,26 @@ assert_host @file_tree selected ["docs/deep/er/readme-draft.md"]
 assert_found treeRow:@file_tree:docs/deep/er/readme-draft.md
 assert_missing treeRow:@file_tree:notes/readme.md
 shot v2-232-06-revealed-in-the-tree.png
+# open a hit mid-search: a double-click opens its dedicated view, Ctrl+double-click the
+# contextual preview, the search stays; Escape then returns to the tree
+click treeSearch:@file_tree
+type readme
+wait_until treeRow:@file_tree:notes/readme.md 10000
+assert_missing slot:@markdown
+dblclick treeRow:@file_tree:notes/readme.md 0.6 0.5
+wait_until slot:@markdown 15000
+wait 1000
+assert_text title:@markdown readme.md · notes
+assert_host @file_tree search.text "readme"
+ctrldblclick treeRow:@file_tree:docs/readme.txt 0.6 0.5
+wait_until slot:@preview 15000
+wait 1000
+assert_found contextual:@preview
+assert_host @file_tree selected ["docs/readme.txt"] 5000
+assert_host @file_tree search.text "readme"
+shot v2-232-10-opened-from-the-search-tree.png
+click treeSearch:@file_tree
+key escape
+wait 500
+assert_host @file_tree search.text ""
+assert_found treeRow:@file_tree:runs
