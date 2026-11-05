@@ -27,14 +27,17 @@ the release and move on their own schedule.
   reading while a command runs. **New runtime dependency:** scipy (for Qhull).
 - The file tree's search shows its hits inside the tree instead of a flat list (SPEC-38,
   ADR 0022 amendment). While the search box has text the tree shows only the hits and the
-  folders above them, those folders open; a folder whose own path matches is a hit too,
-  closed when nothing under it matched, and opening it lists it. Every gesture works on
-  hit rows as on any row (click, Ctrl, Shift, double-click, Ctrl+double-click, the context
-  menu, drag); details mode shows a file's time and size and, for a folder above hits, how
-  many hits are under it. Clearing the search brings the tree back as it was (open
-  folders, scroll), picks kept. The search tree is built from the hits alone, so nothing is
-  listed for it. `FileSearch.search` takes `accept_dir` to return folders as hits
-  (`TreeLister.accepts_dir`); the flow `v2-232-search.txt` covers the new behaviour.
+  folders above them, those folders open; a folder whose own name matches is a hit too,
+  shown in full when hits are under it, closed when none are, and opening it lists it.
+  Every gesture works on hit rows as on any row (click, Ctrl, Shift, double-click,
+  Ctrl+double-click, the context menu, drag), and Down from the search box moves to the
+  first hit; details mode shows a file's time and size and, for a folder only on the way
+  to hits, how many hits are under it. Clearing the search brings the tree back as it was
+  (open folders, scroll), picks kept; picks set from outside meanwhile (the agent, a
+  linked selection) apply at once and show in the tree when the search clears. The search
+  tree is built from the hits alone, so nothing is listed for it. `FileSearch.search`
+  takes a `HitFilter` (`TreeLister.hit_filter()`) whose folder predicate returns folders
+  as hits; the flow `v2-232-search.txt` covers the new behaviour.
 
 - Opening or expanding a view past a quota makes room instead of failing (SPEC-34, ADR
   0025). A double-click on a second stage while the first stage's usd view is live was

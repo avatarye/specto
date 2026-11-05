@@ -119,10 +119,11 @@ still picks every file under it. To find a file, type in the box at the top of t
 in the file's path below the project folder (`notes readme` finds `docs/notes/readme.md`;
 `docs/read` works too), case does not matter, and the tree narrows to the hits: each one
 under the folders above it, those folders open, everything else hidden. A folder whose
-own path matches shows too, closed when nothing under it matched; open it to see inside.
-The hit rows are ordinary rows: click to pick, Ctrl and Shift to pick more,
-double-click to open (Ctrl for the contextual preview), right-click for the menu, drag
-them out; the target button at a row's right shows it in the full tree. Escape (or the
+own name matches shows too, with all it holds when something under it matched, closed
+when nothing did; open it to see inside. The hit rows are ordinary rows: click to pick,
+Ctrl and Shift to pick more, double-click to open (Ctrl for the contextual preview),
+right-click for the menu, drag them out; Down from the box goes to the first hit, Enter
+opens it; the target button at a row's right shows it in the full tree. Escape (or the
 clear button) brings the tree back as you left it, keeping what you picked. On Windows the
 search uses [Everything](https://www.voidtools.com/) when it is running and the project's
 drive is indexed, which answers in a few milliseconds whatever the project's size; without

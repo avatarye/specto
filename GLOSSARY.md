@@ -213,7 +213,7 @@ The view every canvas starts with, right of the project source: its intaker come
 _Avoid_: file browser, explorer, files page
 
 **Search tree**:
-What the file tree shows while its search box has text: the hits (files, and folders that match by themselves) each under the folders above them, those folders open, every other row hidden. A folder there that is only on the way to hits is narrowed: it holds the hits and nothing else, and says how many. Clearing the search brings the file tree back as it was; a pick made meanwhile stays picked.
+What the file tree shows while its search box has text: the hits (files, and folders whose own name matches) each under the folders above them, those folders open, every other row hidden; a folder hit shows all it holds. A folder there that is only on the way to hits is narrowed: it holds the hits and nothing else, and says how many. Clearing the search brings the file tree back as it was; a pick made meanwhile stays picked.
 _Avoid_: hit list, results list, filtered tree
 
 **Prompt bar**:
