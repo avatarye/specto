@@ -17,16 +17,16 @@ the same way: an exact name first, then a name starting with the text, then name
 holding every word, then the hits some word reaches only through the folders; shallower
 paths and shorter names first within a rank. Neither looks inside archives, and the
 index may miss files its settings exclude: search is for finding, never the source of a
-collection (ADR 0022). An ``accept`` predicate (the tree's lister: its sources, pattern
-and screener) filters hits the backends know nothing about, so the index is asked for
-more than the limit.
+collection (ADR 0022). A :class:`HitFilter` (the tree's lister's ``hit_filter()``: its
+sources, pattern and screener) drops hits the backends know nothing about, so the index
+is asked for more than the limit.
 
-Folders are hits only when the caller asks for them with ``accept_dir`` (SPEC-38: the
-tree shows a folder that itself matches): a folder whose path below the root holds
-every word, ranked as a file is, passing ``accept_dir`` (the lister's
-``accepts_dir``: under a source, not hidden) rather than ``accept``. Everything then runs
-the query without its ``file:`` filter and reads each result's folder flag; the scan
-checks the folders it walks anyway.
+Folders are hits only when the filter has a ``folder`` predicate (SPEC-38: the search
+tree shows a folder that itself matches): a folder whose own name holds every word (its
+folders above do not count, so the subfolders of a matching folder are not hits), ranked
+as a file is, passing ``folder`` (the lister's ``accepts_dir``: under a source, not
+hidden). Everything then runs the query without its ``file:`` filter and reads each
+result's folder flag; the scan checks the folders it walks.
 
 Everything matches a ``path:`` term against the absolute path, so a word that occurs in
 the root's own path (``specto`` under ``C:/work/specto``) would match every file under
@@ -89,6 +89,28 @@ Accept = Callable[[str], bool]
 Cancelled = Callable[[], bool]
 
 
+@dataclass(frozen=True)
+class HitFilter:
+    """Which hits a search keeps beyond its words, by tree path: ``file`` for files (None:
+    every file), ``folder`` for folders (None: no folder is a hit). A query's cancellation
+    is not part of it: the filter belongs to a tree, ``cancelled`` to one query."""
+
+    file: Accept | None = None
+    folder: Accept | None = None
+
+    def keeps(self, rel: str, is_dir: bool, words: list[str]) -> bool:
+        """Is this candidate a hit: a file passing ``file``; a folder whose name holds
+        every word, passing ``folder``."""
+        if not is_dir:
+            return self.file is None or self.file(rel)
+        if self.folder is None or not matches(rel.rpartition("/")[2], words):
+            return False
+        return self.folder(rel)
+
+
+NO_FILTER = HitFilter()
+
+
 class FileSearch(Protocol):
     name: str
 
@@ -98,9 +120,8 @@ class FileSearch(Protocol):
         text: str,
         limit: int,
         *,
-        accept: Accept | None = None,
+        hit_filter: HitFilter | None = None,
         cancelled: Cancelled | None = None,
-        accept_dir: Accept | None = None,
     ) -> SearchResult: ...
 
 
@@ -203,11 +224,11 @@ class EverythingSearch:
         text: str,
         limit: int,
         *,
-        accept: Accept | None = None,
+        hit_filter: HitFilter | None = None,
         cancelled: Cancelled | None = None,
-        accept_dir: Accept | None = None,
     ) -> SearchResult:
         t0 = time.perf_counter()
+        keeps = (hit_filter or NO_FILTER).keeps
         ev = self.everything
         result = SearchResult(backend=self.name)
         words = words_of(text)
@@ -215,7 +236,8 @@ class EverythingSearch:
             return finish([], text, limit, result, t0)
         base = os.path.normcase(os.path.abspath(root)).replace("/", "\\").rstrip("\\") + "\\"
         blen = len(base)
-        kinds = [] if accept_dir is not None else ["file:"]
+        folders = hit_filter is not None and hit_filter.folder is not None
+        kinds = [] if folders else ["file:"]
         query = " ".join([under(root), *kinds, *index_terms(root, words)])
 
         def keep(path: str, is_dir: bool) -> bool:
@@ -224,9 +246,7 @@ class EverythingSearch:
             rel = path[blen:].replace("\\", "/")
             if not rel or _hidden(rel) or not matches(rel, words):
                 return False
-            if is_dir:
-                return accept_dir is not None and accept_dir(rel)
-            return accept is None or accept(rel)
+            return keeps(rel, is_dir, words)
 
         cap = max(limit * OVERASK, MIN_ASK)
         hits: list[SearchHit] = []
@@ -256,7 +276,7 @@ class EverythingSearch:
             # the index could not be read through within the bound and the hits do not
             # fill the limit: the exhaustive scan answers rather than an unfinished list
             return self.fallback.search(
-                root, text, limit, accept=accept, cancelled=cancelled, accept_dir=accept_dir
+                root, text, limit, hit_filter=hit_filter, cancelled=cancelled
             )
         result.more = not done
         return finish(hits, text, limit, result, t0)
@@ -276,11 +296,11 @@ class ScanSearch:
         text: str,
         limit: int,
         *,
-        accept: Accept | None = None,
+        hit_filter: HitFilter | None = None,
         cancelled: Cancelled | None = None,
-        accept_dir: Accept | None = None,
     ) -> SearchResult:
         t0 = time.perf_counter()
+        keeps = (hit_filter or NO_FILTER).keeps
         result = SearchResult(backend=self.name)
         words = words_of(text)
         if not words:
@@ -305,9 +325,7 @@ class ScanSearch:
                         if _hidden(child):
                             continue
                         stack.append((e.path, child))
-                        if accept_dir is None or not matches(child, words):
-                            continue
-                        if not accept_dir(child):
+                        if not keeps(child, True, words):
                             continue
                         mtime_ns = e.stat(follow_symlinks=False).st_mtime_ns
                         hits.append(SearchHit(child, e.name, 0, mtime_ns, True))
@@ -318,7 +336,7 @@ class ScanSearch:
                         continue
                     if not matches(child, words) or not e.is_file(follow_symlinks=True):
                         continue
-                    if accept is not None and not accept(child):
+                    if not keeps(child, False, words):
                         continue
                     st = e.stat(follow_symlinks=True)
                 except OSError:
@@ -352,24 +370,19 @@ def search(
     text: str,
     limit: int = 100,
     *,
-    accept: Accept | None = None,
+    hit_filter: HitFilter | None = None,
     cancelled: Cancelled | None = None,
     everything: EverythingSearch | None = None,
-    accept_dir: Accept | None = None,
 ) -> SearchResult:
     """One query through whichever backend can answer; a failing index (the service
     went away mid-query) falls back to the scan rather than failing the search."""
     backend = backend_for(root, everything=everything)
     try:
-        return backend.search(
-            root, text, limit, accept=accept, cancelled=cancelled, accept_dir=accept_dir
-        )
+        return backend.search(root, text, limit, hit_filter=hit_filter, cancelled=cancelled)
     except OSError:
         if backend is _scan:
             raise
-        return _scan.search(
-            root, text, limit, accept=accept, cancelled=cancelled, accept_dir=accept_dir
-        )
+        return _scan.search(root, text, limit, hit_filter=hit_filter, cancelled=cancelled)
 
 
 __all__ = [
@@ -380,6 +393,7 @@ __all__ = [
     "Cancelled",
     "EverythingSearch",
     "FileSearch",
+    "HitFilter",
     "ScanSearch",
     "SearchHit",
     "SearchResult",

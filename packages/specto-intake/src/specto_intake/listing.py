@@ -31,6 +31,7 @@ from typing import Any
 from specto_core.containers import is_container, join_virtual, list_members, split_virtual
 
 from .screener import Screener, glob_to_regex
+from .search import HitFilter
 from .sources import resolve_root
 from .spec import IntakeSpec, SourceSpec
 
@@ -195,6 +196,11 @@ class TreeLister:
         if path == r.prefix:
             return True  # the source's own root folder
         return r.depth_ok(r.rel(path.rpartition("/")[0]))
+
+    def hit_filter(self) -> HitFilter:
+        """What a search hit must pass to be a row of this tree: files ``accepts``,
+        folders ``accepts_dir`` (SPEC-38)."""
+        return HitFilter(file=self.accepts, folder=self.accepts_dir)
 
     # -- one level ---------------------------------------------------------------------------
     def list_dir(self, path: str = "") -> list[Entry]:

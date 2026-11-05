@@ -149,8 +149,10 @@ def test_both_backends_match_the_relative_path_and_rank_names_first(
 
 
 FOLDER_CASES = [
-    # a folder named after the word ranks first; the folders and files below it follow
-    ("deep", ["notes/deep", "notes/deep/er", "notes/deep/er/Readme-draft.md"]),
+    # a folder named after the word ranks first, then the files below it; its subfolders
+    # are not hits (a folder matches by its own name, a file by its path)
+    ("deep", ["notes/deep", "notes/deep/er/Readme-draft.md"]),
+    ("deep er", ["notes/deep/er/Readme-draft.md"]),
     (
         "cam",
         [
@@ -172,17 +174,16 @@ FOLDER_CASES = [
 def test_both_backends_find_folders_when_asked_for_them(
     root: Path, name: str, backend: fs.FileSearch, text: str, expected: list[str]
 ):
-    """SPEC-38: with ``accept_dir`` a folder whose path holds every word is a hit too,
-    ranked like a file; it passes ``accept_dir``, never the files' ``accept``."""
-    result = backend.search(str(root), text, 10, accept=lambda p: True, accept_dir=lambda p: True)
+    """SPEC-38: with a ``folder`` predicate a folder whose name holds every word is a hit
+    too, ranked like a file; it passes ``folder``, never the files' ``file``."""
+    every = fs.HitFilter(file=lambda p: True, folder=lambda p: True)
+    result = backend.search(str(root), text, 10, hit_filter=every)
     assert result.backend == name
     assert paths(result) == expected
     assert {h.path for h in result.hits if h.is_dir} == {p for p in expected if "." not in p}
     # the tree's lister: folders under its sources, not hidden
     lister = TreeLister(root, {"sources": ["runs"]})
-    result = backend.search(
-        str(root), "notes", 10, accept=lister.accepts, accept_dir=lister.accepts_dir
-    )
+    result = backend.search(str(root), "notes", 10, hit_filter=lister.hit_filter())
     assert paths(result) == ["runs/cam-b/notes.json"]  # not the notes/ folder: outside
 
 
@@ -199,7 +200,7 @@ def test_the_scan_reports_the_files_stat_and_names_itself(root: Path):
 
 def test_hits_pass_the_trees_filter_and_the_limit_says_when_there_are_more(root: Path):
     lister = TreeLister(root, {"sources": ["runs"], "screener": ["*.jpg"]})
-    result = fs.ScanSearch().search(str(root), "0000", 10, accept=lister.accepts)
+    result = fs.ScanSearch().search(str(root), "0000", 10, hit_filter=lister.hit_filter())
     assert paths(result) == [  # not notes.json; 00001 holds "0000" too
         "runs/cam-a/00000.jpg",
         "runs/cam-a/00001.jpg",
@@ -258,11 +259,12 @@ def test_everything_hits_are_filtered_like_the_scans(root: Path):
     )
     everything = fake_everything(index)
     lister = TreeLister(root, {"sources": ["."], "screener": ["@text"]}, {"@text": [".txt"]})
-    result = fs.search(str(root), "cam-b", 10, accept=lister.accepts, everything=everything)
+    text = fs.HitFilter(lister.accepts)  # files only
+    result = fs.search(str(root), "cam-b", 10, hit_filter=text, everything=everything)
     assert paths(result) == []  # notes.json is not text, .specto/ is hidden, readme is elsewhere
-    result = fs.search(str(root), "readme", 10, accept=lister.accepts, everything=everything)
+    result = fs.search(str(root), "readme", 10, hit_filter=text, everything=everything)
     assert paths(result) == ["notes/readme.txt"]
-    result = fs.search(str(root), "notes", 10, accept=lister.accepts, everything=everything)
+    result = fs.search(str(root), "notes", 10, hit_filter=text, everything=everything)
     assert paths(result) == ["notes/readme.txt"]  # through its folder; notes.json is not text
 
 
@@ -306,23 +308,23 @@ def test_the_index_is_read_in_two_pages_up_to_the_bound_then_the_scan_answers(
     class Fallback:
         name = "scan"
 
-        def search(self, root, text, limit, *, accept=None, cancelled=None, accept_dir=None):
+        def search(self, root, text, limit, *, hit_filter=None, cancelled=None):
             calls.append(text)
             return fs.SearchResult(backend="scan", hits=[fs.SearchHit("b/needle-0.txt", "x")])
 
     everything = fs.EverythingSearch(index, probe_ttl_s=0, fallback=Fallback())  # type: ignore[arg-type]
-    text_only = lambda rel: "needle" in rel  # noqa: E731  (the tree's screener)
+    text_only = fs.HitFilter(lambda rel: "needle" in rel)  # the tree's screener
 
     # within the bound: two pages, the second fetching every remaining candidate
     monkeypatch.setattr(fs, "INDEX_BOUND", 5000)
-    result = everything.search(str(root), "txt", 10, accept=text_only)
+    result = everything.search(str(root), "txt", 10, hit_filter=text_only)
     assert paths(result) == [f"b/needle-{i}.txt" for i in range(5)]
     assert not result.more and result.total == 2005 and calls == []
     assert index.pages[-2:] == [(0, fs.MIN_ASK), (fs.MIN_ASK, 2005 - fs.MIN_ASK)]
 
     # past the bound with the limit unfilled: the scan answers
     monkeypatch.setattr(fs, "INDEX_BOUND", 1000)
-    result = everything.search(str(root), "txt", 10, accept=text_only)
+    result = everything.search(str(root), "txt", 10, hit_filter=text_only)
     assert result.backend == "scan" and calls == ["txt"] and paths(result) == ["b/needle-0.txt"]
     assert index.pages[-2:] == [(0, fs.MIN_ASK), (fs.MIN_ASK, 1000 - fs.MIN_ASK)]
 
@@ -335,7 +337,7 @@ def test_the_index_is_read_in_two_pages_up_to_the_bound_then_the_scan_answers(
     # a cancellation mid-page stops the read
     calls.clear()
     monkeypatch.setattr(fs, "INDEX_BOUND", 5000)
-    result = everything.search(str(root), "txt", 10, accept=text_only, cancelled=lambda: True)
+    result = everything.search(str(root), "txt", 10, hit_filter=text_only, cancelled=lambda: True)
     assert result.cancelled and calls == []
 
 
@@ -394,8 +396,9 @@ def test_everything_and_the_scan_agree_on_the_test_data(text: str):
     assert paths(index) == paths(scan)
     assert bool(scan.hits) == (text not in ("testdata", "runs readme"))
     # asked for folders too (SPEC-38): the same folders, flagged as folders
-    scan = fs.ScanSearch().search(str(TESTDATA), text, 100, accept_dir=lambda p: True)
-    index = everything.search(str(TESTDATA), text, 100, accept_dir=lambda p: True)
+    folders = fs.HitFilter(folder=lambda p: True)
+    scan = fs.ScanSearch().search(str(TESTDATA), text, 100, hit_filter=folders)
+    index = everything.search(str(TESTDATA), text, 100, hit_filter=folders)
     assert [(h.path, h.is_dir) for h in index.hits] == [(h.path, h.is_dir) for h in scan.hits]
     if text == "notes":  # the notes/ folder
         assert any(h.is_dir for h in index.hits)
