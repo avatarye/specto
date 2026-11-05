@@ -367,8 +367,10 @@ between timelines with an offset. The **global clock** (`engine.links.global_clo
 keeps the root view's latest time (`now`) and a key <-> time `TimeTable` per view,
 built when a collection lands (item stamps from `meta`, the keys regex or a 13-19 digit
 run in the file name; the intaker's `params.timeline` names the clock). A gallery shows
-a received time as its nearest frame (`nearest`, highlight only) and emits the clicked
-frame's time (`time_of`), so a 32 fps video and 16 Hz cameras stay in sync. A time on
+a received time as its nearest frame (`nearest`), its **current item**: marked apart
+from the selection ring and revealed, never selected (SPEC-6; `snap` says `current`),
+and emits the clicked frame's time (`time_of`), which makes that frame its current item
+too, so a 32 fps video and 16 Hz cameras stay in sync. A time on
 no named timeline (`OWN_TIMELINE`, ""; a Python link's bare seconds) is taken on the
 receiver's own: the video's, the usd stage's, the gallery's clock. The video's
 A-B loop, hardware decoding, speed and selected item are agent params (`loop`, `hwdec`,

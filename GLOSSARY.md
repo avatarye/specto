@@ -172,6 +172,10 @@ _Avoid_: sky preset, skydome, HDRI (that is the static image-based light)
 A view role: shows many items of a collection and outputs a selection (the file tree, the gallery, the scratch pad; the map partly). A gallery shows a thumbnail for every kind of item; it browses and never plays.
 _Avoid_: list view, picker, file browser (that is the file tree)
 
+**Tile caption**:
+The short text a gallery draws on each thumbnail: the item's key (`params.captions` 1, the default), or the key and the file name (2), or none (0). It always overlays the thumbnail's bottom edge, light text over a dark scrim so it reads on light and dark images, and takes no row height (SPEC-6); a tile too narrow for it shows none. The current item's caption ends in "· now".
+_Avoid_: label (that is a view's or a link's), title, footer (that is the view's footer)
+
 **Viewer**:
 A view role: shows the one selected item of its input collection in its native form (image, markdown, json, html, pdf, preview), with previous and next controls to step through the collection. A viewer has no gallery mode.
 _Avoid_: view (for the role), inspector, reader (that is the locator and decoder)
@@ -381,6 +385,10 @@ _Avoid_: compile, evaluate, run (for this step)
 **Selection**:
 The output a view gives for what the user picked: the selected items and, among them, the last one selected, as one value.
 _Avoid_: selected item (alone), focus
+
+**Current item**:
+The item at a gallery's time: the frame nearest the time arriving on its `time` port (a time link, the root view's playback), or the frame the user just picked when the gallery has a clock. The gallery marks it apart from the selection ring, a bar along the thumbnail's bottom edge in the `now` colour and "· now" after its caption, and reveals it; it never selects it and is not an output. Following is not selecting: the selection stays the user's own pick (SPEC-6). `snap` reports it as `current`.
+_Avoid_: linked item, highlighted item, playhead (that is the player's), selection (that is the user's pick)
 
 **Selected views**:
 The views the user has marked on the canvas: a click on a header selects one, Shift or Ctrl toggles, a left drag on the empty canvas (the marquee) selects the views it touches, the empty canvas or Esc clears. Navigation state, not an undo step; it travels in the prompt bar's canvas context so "these" in a request names them. Distinct from a view's selection output (above), which is about items inside a view.
