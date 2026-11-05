@@ -15,6 +15,13 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Gallery captions sit on the thumbnails (SPEC-6): each key overlays its tile's bottom
+  edge, light text on a dark scrim that reads on light and dark images, and takes no row
+  height, so more tiles fit. A time-linked gallery marks its current item (the frame at
+  the playback time) with a `now`-coloured bar and "· now" after the caption, apart from
+  the selection ring; following playback no longer moves the selection, and `snap`
+  reports the followed frame as `current`. New theme tokens: `image_scrim`,
+  `text_on_image`, `now`.
 - Switching a usd view's view mode can no longer freeze the app (SPEC-33, ADR 0026). On
   a stage with dense colliders, collision built its convex hulls for minutes on the
   renderer's thread, the source stopped reading, and an orbit's camera moves blocked the
