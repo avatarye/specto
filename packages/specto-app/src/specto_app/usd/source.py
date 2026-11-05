@@ -56,8 +56,12 @@ source's methods (#139), so the usd host drives either one:
   what it shows (``{mode, note}``; collision: the colliders drawn and how), or an error
   with the reason (no prims with CollisionAPI, a renderer without view modes). A mode
   asked while another waits to be switched to takes its place, and both answer with
-  its switch (SPEC-33). Collision first builds the stage's overlay on a thread of its
-  own, once a stage, while frames go on. Every load starts lit. ``view_modes`` answers
+  its switch (SPEC-33); each switch is also said by a ``view_mode {mode, note}`` event.
+  Collision first builds the stage's overlay on a thread of its own, once a stage, while
+  frames go on and health says ``building collision`` (``N colliders``); a build that
+  fails is said once as a ``warning`` and the next ask builds again, and one that takes
+  longer than ``OVERLAY_TIMEOUT_S`` answers an error (the next ask builds again too).
+  Every load starts lit: a mode asked before a ``load`` answers an error. ``view_modes`` answers
   ``{mode, modes: [{mode, available, reason}]}`` for the loaded stage; ``state`` reports
   ``view_mode``. In collision a pick names the collider, not the overlay prim that draws
   it;
@@ -100,6 +104,7 @@ import traceback
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -131,6 +136,18 @@ STAGE_QUERIES = ("query_tree", "reveal", "properties", "bounds", "view_modes")
 VIEW_MODES = ("lit", "unlit", "wireframe", "collision")
 NO_COLLIDERS = "no prims with UsdPhysics CollisionAPI"
 COLD_MESSAGE = "(first run, about 3 min)"
+#: a collision switch waits at most this long for the stage's overlay (SPEC-33), then
+#: answers an error; the host's own wait is longer (``usd_view.MODE_TIMEOUT_S``)
+OVERLAY_TIMEOUT_S = 90.0
+
+
+@dataclass
+class OverlayBuild:
+    """A stage's collision overlay building off the render thread."""
+
+    info: Any  # the stage.StageInfo it reads
+    built: Future  # the CollisionOverlay
+    started: float  # time.monotonic()
 
 
 def shader_cache() -> Path:
@@ -223,8 +240,10 @@ class UsdSource:
         #: the view mode asked last and not yet switched to, with every answer waiting on it
         self._want_mode: str | None = None
         self._mode_answers: list[Future] = []
-        #: the collision overlay building off the render thread, for the stage it reads
-        self._overlay: tuple[Any, Future] | None = None
+        #: the collision overlay built (or building) off the render thread, and whether
+        #: health says so (a collision ask waits on it)
+        self._overlay: OverlayBuild | None = None
+        self._building_shown = False
         self.view_mode = "lit"
         self.environment = "stage"  # the environment asked for (SPEC-31), what shows, and why
         self.environment_shown = "stage"
@@ -337,6 +356,11 @@ class UsdSource:
         if method == "load":
             self._want_load = str(params["path"])
             self._take_choice(params)
+            # a view mode asked before the load was for the stage before: every load
+            # starts lit
+            answers, self._want_mode, self._mode_answers = self._mode_answers, None, []
+            for answer in answers:
+                answer.set_exception(RuntimeError("a new stage is loading"))
             return {}
         if method == "set_camera":
             self._want_camera = _camera_state(params)
@@ -464,16 +488,9 @@ class UsdSource:
                 or self._mode_ready()
                 or self._wants_steps()
             ):
-                self._cond.wait()
+                self._cond.wait(self._overlay_wait())
             if self._stop:
                 return False
-            modes = []
-            if self._mode_ready():
-                if self._want_mode == "collision" and self._start_overlay():
-                    pass  # asked again once the overlay is built; frames go on meanwhile
-                else:
-                    modes.append((self._want_mode, self._mode_answers))
-                    self._want_mode, self._mode_answers = None, []
             load, self._want_load = self._want_load, None
             restart, self._want_restart = self._want_restart, False
             size, self._want_size = self._want_size, None
@@ -484,6 +501,7 @@ class UsdSource:
             calls, self._calls = self._calls, []
             select, self._want_select = self._want_select, None
             color = self.outline_color
+        modes: list[tuple[str, list[Future]]] = []
         try:
             if restart:
                 self._restart()
@@ -492,6 +510,7 @@ class UsdSource:
                     self._close_renderer()  # no second stage in a renderer (#155)
                     self._start_renderer()
                 self._load(load)
+            modes = self._take_mode()  # against the stage loaded now
             if self.renderer is None or self.info is None or self.failed:
                 if timecode is not None:
                     self.timecode = timecode  # a restart's reload goes there
@@ -523,48 +542,123 @@ class UsdSource:
             self._switch(modes)
         return True
 
+    # -- view modes and the collision overlay (SPEC-33) ------------------------------------
+    def _rendering(self) -> bool:
+        return self.renderer is not None and self.info is not None and not self.failed
+
     def _mode_ready(self) -> bool:
-        """A view mode is asked and nothing it needs is still building (under ``_cond``)."""
+        """A view mode is asked and nothing it waits on is still building, or the build
+        is overdue (under ``_cond``)."""
         if self._want_mode is None:
             return False
-        if self._want_mode != "collision" or self._overlay is None:
+        if self._want_mode != "collision":
             return True
-        info, built = self._overlay
-        return info is not self.info or built.done()
+        job = self._overlay
+        if job is None or job.info is not self.info:
+            return True  # to start one, or to answer why not
+        return job.built.done() or self._overdue(job)
 
-    def _start_overlay(self) -> bool:
-        """Start building the loaded stage's collision overlay on a thread of its own
-        (SPEC-33: a stage with many hulls takes a while, and the render loop goes on
-        meanwhile), unless it is built or building; True when it is not built yet. The
-        stage keeps it (:meth:`.stage.StageInfo.collision`)."""
-        info = self.info
-        if info is None or self.renderer is None or self.failed:
-            return False  # nothing to build for: the switch answers why
-        if self._overlay is not None and self._overlay[0] is info:
-            return not self._overlay[1].done()
-        built: Future = Future()
-        self._overlay = (info, built)
-        timecode = self.timecode
+    def _overdue(self, job: OverlayBuild) -> bool:
+        return time.monotonic() - job.started >= OVERLAY_TIMEOUT_S
+
+    def _overlay_wait(self) -> float | None:
+        """How long the loop may sleep (under ``_cond``): until the build a collision ask
+        waits on is due; None, no bound."""
+        job = self._overlay
+        if self._want_mode != "collision" or job is None or job.built.done():
+            return None
+        return max(0.0, job.started + OVERLAY_TIMEOUT_S - time.monotonic())
+
+    def _take_mode(self) -> list[tuple[str, list[Future]]]:
+        """The view mode asked, with every answer waiting on it, when it can be switched
+        to now. Collision waits for the stage's overlay, built off this thread (started
+        here when there is none) and said as the ``building collision`` phase meanwhile;
+        an overdue build is taken too, and the switch answers why."""
+        with self._cond:
+            mode = self._want_mode
+            if mode is None:
+                return []
+            waiting = False
+            if mode == "collision" and self._rendering():
+                job = self._overlay
+                if job is None or job.info is not self.info:
+                    job = self._start_overlay()
+                waiting = not job.built.done() and not self._overdue(job)
+            if not waiting:
+                answers = self._mode_answers
+                self._want_mode, self._mode_answers = None, []
+        self._show_building(waiting)  # off the lock: it counts colliders and writes
+        return [] if waiting else [(mode, answers)]
+
+    def _start_overlay(self) -> OverlayBuild:
+        """Build the loaded stage's collision overlay on a thread of its own (SPEC-33: a
+        stage with many hulls takes a while, and the render loop goes on meanwhile). The
+        stage keeps what it ends with (:meth:`.stage.StageInfo.collision`)."""
+        info, timecode = self.info, self.timecode
+        job = OverlayBuild(info, Future(), time.monotonic())
+        self._overlay = job
 
         def build() -> None:
             try:
-                built.set_result(info.collision(timecode))
+                job.built.set_result(info.collision(timecode))
             except Exception as e:
-                built.set_exception(e)
+                job.built.set_exception(e)
             with self._cond:
                 self._cond.notify()  # the switch waiting on it goes ahead
 
         threading.Thread(target=build, name="usd-collision", daemon=True).start()
-        return True
+        return job
+
+    def _show_building(self, on: bool) -> None:
+        """The ``building collision`` phase while a collision ask waits on its overlay;
+        ``ok`` once it does not (after the stage's first frame: before, that ``ok`` says
+        it, and the phase follows it)."""
+        if on == self._building_shown:
+            return
+        self._building_shown = on
+        if on:
+            n = self.info.collider_count()
+            self.health("building collision", f"{n} collider{'s' if n != 1 else ''}")
+        elif self.info is not None and not self._first_frame:
+            self.health("ok", self.info.name)
+
+    def _built_overlay(self) -> Any:
+        """The loaded stage's collision overlay when it is built, else None."""
+        job = self._overlay
+        if job is None or job.info is not self.info or not job.built.done():
+            return None
+        return job.built.result() if job.built.exception() is None else None
+
+    def _collision_overlay(self) -> Any:
+        """The overlay a collision switch draws: built off this thread, never here. A
+        build that failed or is overdue is dropped (a later ask builds again) and the
+        switch answers why; a failure is said once as a ``warning`` too."""
+        job = self._overlay
+        if job is None or job.info is not self.info:
+            raise RuntimeError("the collision overlay is not built")
+        if not job.built.done():
+            self._overlay = None
+            raise TimeoutError(f"the collision overlay took longer than {OVERLAY_TIMEOUT_S:g} s")
+        error = job.built.exception()
+        if error is not None:
+            self._overlay = None
+            message = f"the collision overlay failed: {error}"
+            print(f"[WARN] {message}", file=sys.stderr, flush=True)
+            self.control.emit("warning", message=message)
+            raise error
+        return job.built.result()
 
     def _switch(self, modes: list[tuple[str, list[Future]]]) -> None:
-        """Switch to the view mode taken this turn; every answer waiting on it gets it."""
+        """Switch to the view mode taken this turn; every answer waiting on it gets it,
+        and the ``view_mode`` event says the mode the picture shows."""
         while modes:
             mode, answers = modes.pop(0)
             try:
                 result, error = self._set_view_mode(mode), None
             except Exception as e:
                 result, error = None, e
+            if result is not None:
+                self.control.emit("view_mode", **result)
             for answer in answers:
                 if error is not None:
                     answer.set_exception(error)
@@ -589,11 +683,7 @@ class UsdSource:
             raise ValueError(f"the {self.renderer_name} renderer has no view modes")
         overlay = None
         if mode == "collision":
-            built = self._overlay
-            if built is not None and built[0] is self.info:
-                overlay = built[1].result()  # done: the switch waited for it
-            else:
-                overlay = self.info.collision(self.timecode)
+            overlay = self._collision_overlay()
             if not overlay.colliders:
                 raise ValueError(NO_COLLIDERS)
             if not overlay.sources:
@@ -714,8 +804,9 @@ class UsdSource:
                     raise ValueError(f"the {self.renderer_name} renderer cannot pick")
                 hit = self.renderer.pick(x, y)
                 self._warn()
-                if hit and self.view_mode == "collision":
-                    collider = self.info.collision().source_of(hit["path"])
+                overlay = self._built_overlay()
+                if hit and self.view_mode == "collision" and overlay is not None:
+                    collider = overlay.source_of(hit["path"])
                     hit = {**hit, "path": collider or hit["path"]}
                 answer.set_result({"hit": True, **hit} if hit else {"hit": False})
             except Exception as e:
@@ -750,6 +841,7 @@ class UsdSource:
         from .stage import open_stage
 
         self.health("composing", os.path.basename(path))
+        self._building_shown = False  # the load's own phases say what goes on now
         self._drain()
         try:
             info = open_stage(path)
@@ -845,6 +937,9 @@ class UsdSource:
             self._compiling_sky = False
             name = self.info.name if self.info is not None else ""
             self.health("ok", name, seq=self.frames.ring.seq + IN_FLIGHT)
+            if self._building_shown:  # a collision ask still waits on its overlay
+                self._building_shown = False
+                self._show_building(True)
         elif self._compiling_sky:
             self._compiling_sky = False  # the step that compiled the sky is out
             self.health("ok", self.info.name if self.info is not None else "")

@@ -13,6 +13,7 @@ import pytest
 from test_usd_host import health, stages, submit_usd
 
 from specto_app.hosts import HostContext
+from specto_app.views import usd_view
 from specto_app.views.usd_view import USD_MANIFEST, UsdHost
 from specto_core import Engine
 from specto_core.jobs import InlineJobManager
@@ -95,3 +96,45 @@ def test_a_mode_the_stage_does_not_offer_leaves_it_lit(host: UsdHost, tmp_path, 
     assert source_mode(host) == "lit" and host.bridge.viewMode == "lit"
     assert [r["mode"] for r in host.bridge.viewModes] == ["lit"]  # collision is off the menu
     assert host.snapshot()["view_modes"] == ["lit"]
+
+
+@pytest.fixture
+def slow_host(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, qapp):
+    """A host whose stub source takes 1.5 s to build its collision overlay (SPEC-33)."""
+    monkeypatch.setenv("SPECTO_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("SPECTO_USD_STUB_COLLISION_S", "1.5")
+    engine = Engine(project=None, jobs=InlineJobManager())
+    submit_usd(engine)
+    h = UsdHost(HostContext(engine, None), "kobi", USD_MANIFEST, headless=True)
+    yield h
+    h.dispose()
+
+
+def test_a_collision_overlay_building_is_said_on_the_chip_and_in_health(
+    slow_host: UsdHost, tmp_path, spin
+):
+    host = slow_host
+    loaded(host, tmp_path, spin)
+    host.set_view_mode("collision")
+    # the chip names the mode on its way, not the one it leaves
+    assert host.bridge.viewModeLabel == "Collision…"
+    spin(until=lambda: health(host)["message"] == "building the collision overlay 3 colliders")
+    assert health(host)["status"] == "loading" and host.bridge.viewMode == "lit"
+    spin(until=lambda: host.bridge.viewMode == "collision")
+    assert host.bridge.viewModeLabel == "Collision"
+    spin(until=lambda: health(host)["status"] == "ok")
+
+
+def test_the_chip_follows_the_source_after_the_host_stops_waiting(
+    slow_host: UsdHost, tmp_path, spin, monkeypatch
+):
+    host = slow_host
+    monkeypatch.setattr(usd_view, "MODE_TIMEOUT_S", 0.3)
+    loaded(host, tmp_path, spin)
+    host.set_view_mode("collision")
+    spin(ms=600)  # the host's wait is over; the source still builds
+    spin(until=lambda: source_mode(host) == "collision")
+    # the chip and snap say what the picture shows
+    spin(until=lambda: host.bridge.viewMode == "collision")
+    assert host.bridge.viewModeLabel == "Collision"
+    assert host.snapshot()["view_mode"] == "collision"

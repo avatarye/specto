@@ -38,8 +38,10 @@ Methods on top of the lifecycle set (:mod:`.control`):
 - view modes (#153), as ``specto-usd-source`` answers them: ``set_view_mode {mode}``
   (``lit``, ``unlit``, ``wireframe``, ``collision``) ``{mode, note}``, an unknown mode an
   error; ``view_modes`` ``{mode, modes: [{mode, available, reason}]}``, all four
-  available (the fake bases are colliders); every load starts lit. Only recorded: the
-  picture stays the test pattern;
+  available (the fake bases are colliders); every load starts lit; each switch is said
+  by a ``view_mode {mode, note}`` event. With ``SPECTO_USD_STUB_COLLISION_S`` set,
+  collision answers that many seconds later, after the ``building collision`` phase
+  (SPEC-33). Only recorded: the picture stays the test pattern;
 - the environment light (SPEC-31), as ``specto-usd-source`` answers it: ``load`` takes
   ``environment``, ``sky``, ``hdri``, ``sky_controls`` and ``ground``; ``loaded`` carries
   ``environment``, ``environment_note`` and ``sky_controls``; ``set_environment``
@@ -77,6 +79,7 @@ import signal
 import sys
 import threading
 import time
+from concurrent.futures import Future
 
 from ..usd.environment import (
     AUTHORED,
@@ -230,6 +233,9 @@ class StubUsdSource(StubSource):
         self.sky_controls = SkyControls()
         self.ground = False
         self.renders_mdl = not os.environ.get("SPECTO_USD_STUB_NO_MDL")
+        #: seconds its collision overlay takes to build (SPEC-33), 0: none
+        self.collision_s = float(os.environ.get("SPECTO_USD_STUB_COLLISION_S") or 0)
+        self._mode_asks = 0  # view modes asked: a build answers with the last one's
         self.start_phase = START_PHASE.get(args.renderer)
         self.crash_after_s = max(0.0, args.crash_after_ms / 1000.0)
         self.crash_marker = args.crash_marker
@@ -237,12 +243,36 @@ class StubUsdSource(StubSource):
         self._left = self.settle_frames  # frames still to draw before it idles
         self._ok_due = False  # the stage loaded: ``ok`` follows its first frame
 
+    def _switch(self, mode: str) -> dict:
+        """The picture shows ``mode`` (only recorded), said by the ``view_mode`` event."""
+        self.view_mode = mode
+        answer = {"mode": mode, "note": "3 colliders" if mode == "collision" else ""}
+        self.control.emit("view_mode", **answer)
+        return answer
+
+    def _build_collision(self, ask: int) -> Future:
+        """Collision after its overlay builds (``collision_s``), as ``specto-usd-source``
+        does it: the ``building collision`` phase meanwhile, then ``ok``; a mode asked in
+        between takes its place, and this ask answers with the mode in effect."""
+        answer: Future = Future()
+        self.control.emit("health", state="building collision", message="3 colliders")
+
+        def built() -> None:
+            if ask == self._mode_asks:
+                answer.set_result(self._switch("collision"))
+            else:
+                answer.set_result({"mode": self.view_mode, "note": ""})
+            self.control.emit("health", state="ok", message="")
+
+        threading.Timer(self.collision_s, built).start()
+        return answer
+
     def run(self) -> int:
         if self.start_phase:
             self.control.emit("health", state=self.start_phase, message="")
         return super().run()
 
-    def handle(self, method: str, params: dict) -> dict:
+    def handle(self, method: str, params: dict) -> dict | Future:
         if method == "load":
             self._want = str(params["path"])
             self._take_choice(params)
@@ -293,8 +323,10 @@ class StubUsdSource(StubSource):
             mode = str(params.get("mode") or "")
             if mode not in VIEW_MODES:
                 raise ValueError(f"unknown view mode {mode!r} (have: {', '.join(VIEW_MODES)})")
-            self.view_mode = mode
-            return {"mode": mode, "note": "3 colliders" if mode == "collision" else ""}
+            self._mode_asks += 1
+            if mode == "collision" and self.collision_s > 0:
+                return self._build_collision(self._mode_asks)
+            return self._switch(mode)
         if method == "view_modes":
             modes = [{"mode": m, "available": True, "reason": ""} for m in VIEW_MODES]
             return {"mode": self.view_mode, "modes": modes}

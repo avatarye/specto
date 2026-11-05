@@ -56,7 +56,10 @@ The host:
   or the agent's param) goes to the source as ``set_view_mode`` once a stage is loaded
   (each load starts lit), when the source's ``view_modes`` offers it (collision only
   with prims with CollisionAPI): else the view stays lit. The pill's menu lists the
-  modes on offer; the mode is kept across stages; what shows is the source's answer.
+  modes on offer; the mode is kept across stages; what shows is the source's answer or
+  its ``view_mode`` event, so the pill follows the picture even after the host stopped
+  waiting (SPEC-33). While the source switches, the pill names the mode on its way
+  (``Collision…``) and health says ``building the collision overlay`` while it builds.
   ``snap`` reports ``view_mode`` (shown), ``view_modes`` (on offer) and
   ``view_mode_note``, the names the 3d view uses;
 - lights the stage with an **environment light** (SPEC-31, ``usd.environment``):
@@ -151,6 +154,8 @@ PHASES = {
     "compiling shaders": "compiling RTX shaders",  # the source adds "(first run ...)" when cold
     "first frame": "first frame",
     "compiling sky": "compiling the sky's material",  # SPEC-31: the picture is black meanwhile
+    # SPEC-33: a collision switch waits on the stage's overlay; the picture goes on as it was
+    "building collision": "building the collision overlay",
 }
 #: the loading label's phase by the source's health state (#156)
 COVER_PHASES = {
@@ -158,6 +163,7 @@ COVER_PHASES = {
     "compiling shaders": "compiling shaders",
     "composing": "opening stage",
     "first frame": "rendering the first frame",
+    "building collision": "building collision overlay",
 }
 #: the label's last phase: the first frame is out, those in flight behind it still come
 STREAMING = "streaming textures"
@@ -176,7 +182,9 @@ def cover_words(state: str, message: str) -> str:
 RENDERER_LABELS = {"rtx": "RTX", "storm": "Storm", "stub": "Stub"}
 #: the view modes (#153), as the source and the 3d view name them, with the chip's words
 VIEW_MODES = {"lit": "Lit", "unlit": "Unlit", "wireframe": "Wireframe", "collision": "Collision"}
-MODE_TIMEOUT_S = 130.0  # a first collision view builds the overlay; a sky compiles its MDL
+#: a first collision view builds the overlay (the source answers within its 90 s bound),
+#: a sky compiles its MDL
+MODE_TIMEOUT_S = 130.0
 #: Windows exit codes (NTSTATUS) of a process that crashed, in words
 CRASH_CODES = {
     0xC0000005: "access violation",
@@ -635,7 +643,13 @@ class UsdBridge(QObject):
 
     @Property(str, notify=viewModeChanged)
     def viewModeLabel(self) -> str:
-        return VIEW_MODES.get(self._host.view_mode_shown, self._host.view_mode_shown)
+        """The mode shown, or the one asked with an ellipsis while the source switches
+        (SPEC-33: collision builds its overlay first)."""
+        host = self._host
+        pending = host.view_mode_pending
+        if pending is not None and pending != host.view_mode_shown:
+            return VIEW_MODES.get(pending, pending) + "…"
+        return VIEW_MODES.get(host.view_mode_shown, host.view_mode_shown)
 
     @Property(str, notify=viewModeChanged)
     def viewModeNote(self) -> str:
@@ -930,6 +944,8 @@ class UsdHost(Stepping, QuickViewHost):
         self.view_mode_note = ""
         self.view_modes: list[dict[str, Any]] = []  # the source's view_modes for the stage
         self._mode_asked = "lit"  # the last set_view_mode sent for this stage
+        #: the mode on its way while the source switches (the chip says it), else None
+        self.view_mode_pending: str | None = None
         self.environment = "stage"  # params.environment: the choice asked (SPEC-31)
         self.environment_shown = "stage"  # the source's answer: what lights the picture
         self.environment_note = ""  # why it differs from the choice (the source's words)
@@ -1197,6 +1213,8 @@ class UsdHost(Stepping, QuickViewHost):
             )
         elif name == "warning":
             self._on_warning(str(params.get("message", "")))
+        elif name == "view_mode":
+            self._mode_shown(str(params.get("mode") or "lit"), str(params.get("note") or ""))
         elif name == "loaded":
             if params.get("path") != self.path:
                 return  # a stage the user has stepped past
@@ -1248,6 +1266,7 @@ class UsdHost(Stepping, QuickViewHost):
         self.view_mode_shown, self.view_mode_note = "lit", ""
         self.view_modes = []
         self._mode_asked = "lit"
+        self.view_mode_pending = None
         self.bridge.viewModeChanged.emit()
         path = self.path
 
@@ -1268,20 +1287,32 @@ class UsdHost(Stepping, QuickViewHost):
         if want == self._mode_asked:
             return
         self._mode_asked = want
+        self.view_mode_pending = want
+        self.bridge.viewModeChanged.emit()  # the chip says the mode on its way
         path = self.path
 
         def take(result: dict[str, Any]) -> None:
-            if path != self.path:
-                return
-            self.view_mode_shown = str(result.get("mode") or want)
-            self.view_mode_note = str(result.get("note") or "")
-            self.bridge.viewModeChanged.emit()
-
-        def failed() -> None:  # the picture stays in the mode it shows
             if path == self.path:
+                self._mode_shown(str(result.get("mode") or want), str(result.get("note") or ""))
+
+        def failed() -> None:
+            # the picture stays in the mode it shows; should the source still switch
+            # (it bounds the overlay's build below this wait), its ``view_mode`` event
+            # brings the chip along (SPEC-33)
+            if path == self.path and self._mode_asked == want:
                 self._mode_asked = self.view_mode_shown
+                self.view_mode_pending = None
+                self.bridge.viewModeChanged.emit()
 
         self._request("set_view_mode", take, failed, mode=want, timeout=MODE_TIMEOUT_S)
+
+    def _mode_shown(self, mode: str, note: str) -> None:
+        """The source shows ``mode`` (an answer or its ``view_mode`` event): the chip, the
+        note and snap follow the picture."""
+        self.view_mode_shown, self.view_mode_note = mode, note
+        if self.view_mode_pending == mode:
+            self.view_mode_pending = None
+        self.bridge.viewModeChanged.emit()
 
     # -- the environment light (SPEC-31) -----------------------------------------------------
     def set_environment(self, environment: str) -> None:
