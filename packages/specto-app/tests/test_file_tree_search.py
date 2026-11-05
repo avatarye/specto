@@ -359,6 +359,47 @@ def test_the_scan_answers_when_everything_is_unavailable_and_a_miss_names_the_ba
     host.item = None
 
 
+def test_the_tree_comes_back_where_it_was_scrolled(qapp, spin):
+    """The list swaps to the search tree and back: the tree's scroll is kept."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+    from PySide6.QtQuick import QQuickItem, QQuickWindow
+
+    from specto_app.views import gallery_native
+    from specto_app.views.file_tree import FILE_TREE_QML, FileTreeModel
+    from specto_app.views.tree_search import SearchTreeModel
+
+    engine = QQmlEngine()
+    gallery_native.ensure_import_path(engine)
+    tree = FileTreeModel()
+    tree.set_paths([f"f{i:03d}.txt" for i in range(300)])
+    found = SearchTreeModel(tree)
+    found.set_hits([fs.SearchHit("f001.txt", "f001.txt")])
+    comp = QQmlComponent(engine, QUrl.fromLocalFile(str(FILE_TREE_QML)))
+    item = comp.createWithInitialProperties(
+        {"viewId": "v", "treeModel": tree, "searchModel": found}
+    )
+    assert item is not None, comp.errors()
+    win = QQuickWindow()
+    win.resize(300, 500)
+    item.setParentItem(win.contentItem())
+    item.setWidth(300)
+    item.setHeight(500)
+    win.show()
+    spin(30)
+    lst = item.findChild(QQuickItem, "fileTreeList:v")
+    lst.setProperty("contentY", 1200.0)
+    spin(30)
+    item.setProperty("searchText", "f001")
+    spin(30)
+    assert lst.property("count") == 1
+    item.setProperty("searchText", "")
+    spin(30)
+    assert lst.property("count") == 300 and lst.property("contentY") == 1200.0
+    win.close()
+    item.deleteLater()
+
+
 # -- the real shell -------------------------------------------------------------------------
 def test_typing_in_the_focused_tree_searches_and_escape_returns_to_the_tree(
     app, spin, monkeypatch: pytest.MonkeyPatch
