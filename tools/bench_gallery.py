@@ -4,7 +4,7 @@ decoding in workers.
     uv run python tools/bench_gallery.py [--min-items 10000] [--seconds 30] [--warmup 3]
         [--workers N] [--screen I] [--tile-px 96] [--rows-per-second 8]
         [--cam-a DIR] [--cam-b DIR] [--out out/verify/m1_5/bench_gallery.json]
-        [--mixed DIR]
+        [--mixed DIR] [--behind] [--follow]
 
 One native gallery over >= 10,000 items (two image folders, by default the test data's
 ``runs/run-001/cam-a`` and ``cam-b``, read-only, repeated as extra intake sources until
@@ -15,6 +15,8 @@ thumbnails are requested continuously while the worker pool decodes them. Measur
 
 - window frame rate: QQuickWindow.frameSwapped (queued to the GUI thread), count / s
 - item frame times: GalleryItem.frames and syncMs (render-thread sync cost per frame)
+- render-thread headroom: wall time from beforeSynchronizing to afterRendering per frame
+  (percentiles), which the vsync-capped frame rate hides
 - GUI-thread idle: 100 - time.thread_time() / wall; plus 4 ms timer scheduling latency
 - decode throughput: thumbnails pushed into the item per second, pool size, respawns
 
@@ -23,6 +25,9 @@ cache dir (SPECTO_CACHE_DIR); nothing is written into the image folders.
 
 ``--mixed DIR`` measures a folder of every kind instead (tools/make_mixed_gallery.py
 writes one: images, videos, pdfs, markdown, json, html, 3D), every file one item.
+``--behind`` opens the window without the focus, below the user's windows (for
+tools/gpu_guard.py). ``--follow`` moves the current item (a followed time) to another
+visible tile every frame, so its mark and caption rebuild each frame.
 """
 
 from __future__ import annotations
@@ -98,6 +103,12 @@ def main() -> int:
         action="store_true",
         help="open the window without the focus, lowered behind the user's work (gpu_guard runs)",
     )
+    ap.add_argument(
+        "--follow",
+        action="store_true",
+        help="move the current item (a followed time) to another visible tile every frame; "
+        "an item without currentIndex moves its selection instead",
+    )
     args = ap.parse_args()
 
     ga.require_plugin()
@@ -132,11 +143,11 @@ def main() -> int:
         title="Specto gallery bench",
         screen=screen,
         size=(1600, 900),
+        behind=args.behind,
     )
-    if args.behind:
-        # under tools/gpu_guard.py: never take the focus, and sit below the user's windows
-        # (WindowDoesNotAcceptFocus alone opens on top of the z order); it keeps rendering
-        win.window.setFlag(Qt.WindowType.WindowDoesNotAcceptFocus, True)
+    # behind (under tools/gpu_guard.py): created hidden with WindowDoesNotAcceptFocus, then
+    # lowered below the user's windows as it shows (the flag alone opens on top of the z
+    # order); it keeps rendering
     win.window.show()
     if args.behind:
         win.window.lower()
@@ -162,6 +173,22 @@ def main() -> int:
         swaps["n"] += 1
 
     win.window.frameSwapped.connect(on_swapped, Qt.ConnectionType.QueuedConnection)
+
+    # frame-time headroom under the vsync cap: the render thread's wall time from the start
+    # of a frame's sync to the end of its render (direct connections, on that thread)
+    rt = {"t0": 0.0}
+    render_ms: list[float] = []
+
+    def on_before_sync() -> None:
+        rt["t0"] = time.perf_counter()
+
+    def on_after_render() -> None:
+        if rt["t0"]:
+            render_ms.append((time.perf_counter() - rt["t0"]) * 1000.0)
+            rt["t0"] = 0.0
+
+    win.window.beforeSynchronizing.connect(on_before_sync, Qt.ConnectionType.DirectConnection)
+    win.window.afterRendering.connect(on_after_render, Qt.ConnectionType.DirectConnection)
 
     latency: list[float] = []
     lat = {"last": 0.0}
@@ -205,7 +232,15 @@ def main() -> int:
             pan["bounces"] += 1
         pan["cy"] = cy
         item.setProperty("scrollRows", cy)
+        if args.follow:
+            # a new tile every frame, inside the view: the mark and its caption move
+            first, last = int(item.property("firstVisible")), int(item.property("lastVisible"))
+            if first >= 0 and last >= first:
+                pan["tick"] = pan.get("tick", 0) + 7
+                item.setProperty(follow_prop, first + pan["tick"] % (last - first + 1))
 
+    # the current item's property; an item from before it existed follows with the selection
+    follow_prop = "currentIndex" if item.property("currentIndex") is not None else "selectedIndex"
     pan_timer = QTimer()
     pan_timer.setTimerType(Qt.TimerType.PreciseTimer)
     pan_timer.setInterval(16)
@@ -259,6 +294,7 @@ def main() -> int:
         swaps["n"] = 0
         swap_gaps.clear()
         latency.clear()
+        render_ms.clear()
         samples.clear()
         base.update(
             swaps=0,
@@ -336,6 +372,16 @@ def main() -> int:
                         "p99": round(percentile(swap_gaps, 0.99), 2),
                         "max": round(max(swap_gaps) if swap_gaps else 0.0, 2),
                     },
+                    # sync + render on the render thread: the headroom under the vsync cap
+                    "render_thread_ms": {
+                        "frames": len(render_ms),
+                        "p50": round(percentile(render_ms, 0.5), 3),
+                        "p95": round(percentile(render_ms, 0.95), 3),
+                        "p99": round(percentile(render_ms, 0.99), 3),
+                        "max": round(max(render_ms) if render_ms else 0.0, 3),
+                        "mean": round(statistics.fmean(render_ms), 3) if render_ms else 0.0,
+                    },
+                    "follow": follow_prop if args.follow else None,
                 },
                 "item": {
                     "frames": frames,
@@ -413,6 +459,8 @@ def summary_md(r: dict) -> str:
     m = r["machine"]
     sg, tl = w["swap_gap_ms"], g["timer_latency_ms"]
     swap_q = f"{sg['p50']} / {sg['p95']} / {sg['p99']} / {sg['max']} ms"
+    rq = w["render_thread_ms"]
+    render_q = f"{rq['p50']} / {rq['p95']} / {rq['p99']} / {rq['max']} ms"
     lat_q = f"{tl['p50']} / {tl['p95']} / {tl['p99']} / {tl['max']} ms"
     decode_s = (
         f"{d['per_second']} thumbnails/s ({d['thumbnails']} in the window, "
@@ -439,6 +487,7 @@ def summary_md(r: dict) -> str:
 | Window frame rate (frameSwapped) | {w["swapped_fps"]} fps ({w["swapped_frames"]} frames) |
 | Swap interval p50 / p95 / p99 / max | {swap_q} |
 | Item frames (render-thread sync) | {it["fps"]} fps, sync {it["sync_ms_mean"]} ms mean |
+| Render thread sync + render p50 / p95 / p99 / max | {render_q} |
 | Uploads / evictions during the run | {it["uploads"]} / {it["evictions"]} |
 | Resident tiles at the end (full / mini / large) | {resident} |
 | Captions drawn in the last frame | {it["captions_last"]} |

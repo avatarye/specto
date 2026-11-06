@@ -46,7 +46,9 @@ Window {
     id: win
     width: 1600
     height: 900
-    visible: true
+    // behind (bench runs under tools/gpu_guard.py): the caller shows it without the focus
+    visible: !behind
+    flags: behind ? (Qt.Window | Qt.WindowDoesNotAcceptFocus) : Qt.Window
     color: theme.colors.bg
     title: windowTitle
     Row {
@@ -229,6 +231,7 @@ class GalleryWindow(QObject):
         title: str = "Specto gallery",
         screen=None,
         size: tuple[int, int] = (1600, 900),
+        behind: bool = False,
     ) -> None:
         super().__init__()
         self.app = app
@@ -242,6 +245,8 @@ class GalleryWindow(QObject):
         ctx_root.setContextProperty("theme", self.theme)
         ctx_root.setContextProperty("slots", self._slots())
         ctx_root.setContextProperty("windowTitle", title)
+        # created hidden and focus-less when behind; the caller shows and lowers it
+        ctx_root.setContextProperty("behind", behind)
         self.component = QQmlComponent(self.qml)
         self.component.setData(WINDOW_QML, QUrl())
         if self.component.isError():
