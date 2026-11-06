@@ -66,7 +66,7 @@ Item {
         // stay (the system palette has no colours for text on an image)
         Binding on captionColor { when: root.hasTheme; value: root.tok("text_on_image") }
         Binding on captionScrimColor { when: root.hasTheme; value: root.tok("image_scrim") }
-        Binding on currentColor { when: root.hasTheme; value: root.tok("now") }
+        Binding on currentColor { when: root.hasTheme; value: root.tok("current_mark") }
 
         onHoverIndexChanged: preview.onHover()
         onDraggingChanged: if (dragging) preview.hide()

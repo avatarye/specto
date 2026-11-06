@@ -30,11 +30,21 @@ struct TileUniforms {
     QColor scrim;           // under the overlay captions
     float scrimPx = 0.0f;   // device px: the caption band on the thumb's bottom edge; 0 = none
     float barPx = 3.0f;     // device px: the current item's bar
+    float scrimShare = 0.4f; // band plus fade stay within this share of the thumb's height
 };
 
-// A vertex's `state` adds this when the tile is the current item (the shader takes it
-// off before reading the kind and the ring).
-constexpr float kCurrentState = 16.0f;
+// A tile's flags, carried in TileVertex::bits as an integer (exact in a float) and read
+// by tile.frag, whose #defines mirror these values (test_gallery_native checks the two
+// agree).
+namespace TileBits {
+constexpr int Placeholder = 1;   // no thumb yet: the placeholder colour
+constexpr int Failed = 2;        // the thumb failed: the failed colour
+constexpr int KindMask = 3;      // 0 = the atlas texture
+constexpr int Selected = 4;      // the selection ring
+constexpr int Hover = 8;         // the hover ring
+constexpr int Current = 16;      // the current item's bar
+constexpr int Caption = 32;      // a caption is drawn on it: the scrim under it
+} // namespace TileBits
 
 class TileMaterial : public QSGMaterial
 {
@@ -62,7 +72,7 @@ struct TileVertex {
     float x, y;       // content px
     float u, v;       // atlas
     float lx, ly;     // 0..1 inside the thumb quad
-    float state;      // 0 normal, 1 selected, 2 hover, 3 placeholder, 4 failed; +16 current
+    float bits;       // TileBits, an integer
     float alpha;      // fade-in
     float w, h;       // thumb size in px
 };
@@ -88,8 +98,13 @@ private:
         int textW = -1;                      // layout width the text was built for
         int mode = -1;
         QString key, name;                   // the text it was built for (a re-sort changes it)
-        QRgb color = 0;
+        bool current = false;                // built with the current item's suffix
+        QRgb color = 0, scrim = 0;           // text colour; the scrim (the shadow derives from it)
         uint32_t lastUse = 0;
+    };
+    struct Thumb {
+        QRectF rect;           // content px
+        bool caption = false;  // a caption fits on it (and the scrim is drawn under it)
     };
 
     void ensureMiniPage0(QOpenGLExtraFunctions *f);
@@ -103,7 +118,8 @@ private:
     void buildCaptions(const GalleryItem::Frame &fp, int &captions);
     Batch &batchFor(int key, QSGTexture *tex);
     void appendQuad(Batch &b, float x, float y, float w, float h, float u0, float v0, float u1,
-                    float v1, float state, float alpha);
+                    float v1, int bits, float alpha);
+    void dropCaption(int index, Caption &cap);
     int batchKey(int tier, int page) const;
 
     GalleryItem *m_item;
@@ -113,9 +129,9 @@ private:
     TileUniforms m_uniforms;
     QSGNode *m_captionRoot = nullptr;
     std::unordered_map<int, Caption> m_captions;
-    // the thumb rect (content px) of every built tile this frame, from builtFirst on:
-    // buildGeometry fills it, buildCaptions places the overlay captions on it
-    std::vector<QRectF> m_thumbRects;
+    // every built tile's thumb this frame, from builtFirst on: buildGeometry decides
+    // where a caption fits (the scrim's flag), buildCaptions places the captions there
+    std::vector<Thumb> m_thumbs;
     int m_thumbFirst = 0;
     bool m_glChecked = false, m_glOk = false;
 };

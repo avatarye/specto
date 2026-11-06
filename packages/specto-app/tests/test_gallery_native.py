@@ -66,6 +66,21 @@ def gui_test(fn=None, *, own_process: bool = False):
     return wrapper
 
 
+def test_the_tile_shader_reads_the_tile_flags_the_node_writes():
+    """A tile's flags are defined in gallerynode.h (TileBits) and mirrored by tile.frag's
+    #defines: the two must name the same flags with the same values."""
+    native = Path(__file__).resolve().parents[1] / "native"
+    header = (native / "gallerynode.h").read_text(encoding="utf-8")
+    block = header.split("namespace TileBits {", 1)[1].split("}", 1)[0]
+    cpp = {
+        re.sub(r"(?<!^)(?=[A-Z])", "_", name).upper(): int(value)
+        for name, value in re.findall(r"constexpr int (\w+) = (\d+);", block)
+    }
+    shader = (native / "shaders" / "tile.frag").read_text(encoding="utf-8")
+    glsl = {name: int(v) for name, v in re.findall(r"#define TILE_(\w+) (\d+)", shader)}
+    assert cpp and cpp == glsl
+
+
 def test_qmldir_and_qmltypes_describe_the_item():
     text = (MODULE / "qmldir").read_text()
     assert re.search(r"^module Specto\.Native$", text, re.M)
@@ -94,7 +109,8 @@ def test_qmldir_and_qmltypes_describe_the_item():
         "setCaptions",
         "currentIndex",
         "currentColor",
-        "currentLabel",
+        "currentSuffix",
+        "drawnCaption",
         "captionScrimColor",
     ):
         assert f'name: "{name}"' in types, name
@@ -363,10 +379,10 @@ def test_the_current_item_is_marked_apart_from_the_selection(app):
     # item's defaults (what a gallery standing alone draws) are the theme's tokens
     from specto_app.theme import COLORS
 
-    assert g.property("currentColor") == QColor(COLORS["now"])
+    assert g.property("currentColor") == QColor(COLORS["current_mark"])
     assert g.property("captionScrimColor") == QColor(COLORS["image_scrim"])
     assert g.property("captionColor") == QColor(COLORS["text_on_image"])
-    assert g.property("currentLabel") == "now"
+    assert g.property("currentSuffix") == " · now"
     g.setProperty("currentColor", QColor("#123456"))
     assert g.property("currentColor") == QColor("#123456")
     del g, comp, engine

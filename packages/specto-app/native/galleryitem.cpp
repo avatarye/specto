@@ -338,7 +338,7 @@ SPECTO_STYLE_SETTER(setFailedColor, m_failedColor, QColor)
 SPECTO_STYLE_SETTER(setCaptionColor, m_captionColor, QColor)
 SPECTO_STYLE_SETTER(setCaptionScrimColor, m_captionScrimColor, QColor)
 SPECTO_STYLE_SETTER(setCurrentColor, m_currentColor, QColor)
-SPECTO_STYLE_SETTER(setCurrentLabel, m_currentLabel, QString)
+SPECTO_STYLE_SETTER(setCurrentSuffix, m_currentSuffix, QString)
 #undef SPECTO_STYLE_SETTER
 
 void GalleryItem::setCaptionFont(const QFont &f)
@@ -1344,7 +1344,7 @@ GalleryItem::Frame GalleryItem::frameParams() const
     f.captionFont = m_captionFont;
     f.captionColor = m_captionColor;
     f.captionScrimColor = m_captionScrimColor;
-    f.currentLabel = m_currentLabel;
+    f.currentSuffix = m_currentSuffix;
     return f;
 }
 

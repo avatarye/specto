@@ -611,6 +611,7 @@ step, nothing journaled). */
     "color-changed-soft": string;
     "color-checker-dark": string;
     "color-checker-light": string;
+    "color-current-mark": string;
     "color-disconnected": string;
     "color-drop-zone": string;
     "color-error": string;
@@ -620,7 +621,6 @@ step, nothing journaled). */
     "color-loading": string;
     "color-lock": string;
     "color-mono-bg": string;
-    "color-now": string;
     "color-ok": string;
     "color-paused": string;
     "color-removed": string;

@@ -108,6 +108,7 @@ bool TileShader::updateUniformData(RenderState &state, QSGMaterial *newMaterial,
     putColor(buf, 160, u->scrim);
     std::memcpy(buf->data() + 176, &u->scrimPx, 4);
     std::memcpy(buf->data() + 180, &u->barPx, 4);
+    std::memcpy(buf->data() + 184, &u->scrimShare, 4);
     return true;
 }
 
@@ -172,8 +173,9 @@ GalleryNode::Batch &GalleryNode::batchFor(int key, QSGTexture *tex)
 }
 
 void GalleryNode::appendQuad(Batch &b, float x, float y, float w, float h, float u0, float v0,
-                             float u1, float v1, float state, float alpha)
+                             float u1, float v1, int bits, float alpha)
 {
+    const float state = float(bits);   // an integer: exact in a float
     const quint32 base = quint32(b.verts.size());
     b.verts.push_back({x, y, u0, v0, 0.f, 0.f, state, alpha, w, h});
     b.verts.push_back({x + w, y, u1, v0, 1.f, 0.f, state, alpha, w, h});
@@ -358,18 +360,20 @@ void GalleryNode::buildGeometry(const GalleryItem::Frame &fp, int &drawCalls, in
     const float fadeMs = 180.0f;
     const int first = std::max(0, fp.builtFirst), last = std::min(fp.count - 1, fp.builtLast);
     const float cellW = float(fp.cellW), cellH = float(fp.cellH);
+    const bool captionsOn = fp.captionH > 0 && fp.captionMode > 0;
     m_thumbFirst = first;
-    m_thumbRects.clear();
+    m_thumbs.clear();
     for (int i = first; i <= last; ++i) {
         TileRec &t = tiles[size_t(i)];
         t.lastUse = fp.frameNo;
         const int c = i % cols, r = i / cols;
-        float state = 0.f;
+        int bits = 0;
         if (i == fp.selected)
-            state = 1.f;
+            bits |= TileBits::Selected;
         else if (i == fp.hover)
-            state = 2.f;
-        const float cur = i == fp.current ? kCurrentState : 0.f;
+            bits |= TileBits::Hover;
+        if (i == fp.current)
+            bits |= TileBits::Current;
         // which tier: the wanted one, else the best resident below it, else any above
         int tier = -1;
         for (int k = fp.useTier; k >= TierMini && tier < 0; --k)
@@ -392,7 +396,10 @@ void GalleryNode::buildGeometry(const GalleryItem::Frame &fp, int &drawCalls, in
         }
         const float x = float(fp.margin) + c * (cellW + float(fp.gap)) + (cellW - w) * 0.5f;
         const float y = float(fp.margin) + r * float(fp.rowPitch) + (cellH - h) * 0.5f;
-        m_thumbRects.emplace_back(x, y, w, h);
+        const bool caption = captionsOn && GalleryItem::captionFits(fp.captionH, w, h);
+        if (caption)
+            bits |= TileBits::Caption;
+        m_thumbs.push_back({QRectF(x, y, w, h), caption});
         if (page) {
             float u0, v0, u1, v1;
             page->texRect(cell, tw, th, u0, v0, u1, v1);
@@ -402,13 +409,10 @@ void GalleryNode::buildGeometry(const GalleryItem::Frame &fp, int &drawCalls, in
                 alpha = dt >= fadeMs ? 1.f : std::max(0.f, dt / fadeMs);
             }
             appendQuad(batchFor(batchKey(tier, t.page[tier]), page->sgTexture()), x, y, w, h, u0,
-                       v0, u1, v1, state + cur, alpha);
+                       v0, u1, v1, bits, alpha);
         } else {
-            const float st = t.failed ? 4.f : 3.f;
-            // placeholders keep the selection/hover ring too: encode ring state in the
-            // fractional part (shader reads floor for the kind, frac for the ring)
-            const float enc = st + (state > 0.f ? state * 0.25f : 0.f) + cur;
-            appendQuad(batchFor(0, fallbackTex), x, y, w, h, 0.f, 0.f, 0.f, 0.f, enc, 1.f);
+            bits |= t.failed ? TileBits::Failed : TileBits::Placeholder;
+            appendQuad(batchFor(0, fallbackTex), x, y, w, h, 0.f, 0.f, 0.f, 0.f, bits, 1.f);
         }
     }
     drawCalls = 0;
@@ -433,22 +437,32 @@ void GalleryNode::buildGeometry(const GalleryItem::Frame &fp, int &drawCalls, in
     }
 }
 
+void GalleryNode::dropCaption(int index, Caption &cap)
+{
+    if (cap.xform) {
+        m_captionRoot->removeChildNode(cap.xform);
+        delete cap.xform;
+        cap.xform = nullptr;
+    }
+    m_item->setDrawnCaption(index, QString());
+}
+
 void GalleryNode::buildCaptions(const GalleryItem::Frame &fp, int &captions)
 {
-    // One QSGTextNode per built tile, cached by index and rebuilt only when the text
-    // width, the caption mode, the colour or the text at that index changes (a re-sort
-    // moves keys between indices; the current item gains its label); per frame only its
+    // One QSGTextNode per captioned tile, cached by index and rebuilt only when the text
+    // width, the caption mode, the colours or the text at that index changes (a re-sort
+    // moves keys between indices; the current item gains its suffix); per frame only its
     // transform moves. Layouts run here in the sync phase (GUI thread blocked), where
     // font access is safe. Each caption sits on its thumb's bottom edge, centred in the
-    // band the shader's scrim darkens, inset from the thumb's left edge.
+    // band the shader's scrim darkens, inset from the thumb's left edge; a thumb it does
+    // not fit on (buildGeometry's call, which also left the scrim off) has none.
     captions = 0;
     const bool on = fp.captionH > 0 && fp.captionMode > 0 && fp.count > 0;
     const int first = std::max(0, fp.builtFirst), last = std::min(fp.count - 1, fp.builtLast);
     for (auto it = m_captions.begin(); it != m_captions.end();) {
         const bool keep = on && it->first >= first && it->first <= last;
         if (!keep) {
-            m_captionRoot->removeChildNode(it->second.xform);
-            delete it->second.xform;
+            dropCaption(it->first, it->second);
             it = m_captions.erase(it);
         } else {
             ++it;
@@ -462,65 +476,55 @@ void GalleryNode::buildCaptions(const GalleryItem::Frame &fp, int &captions)
     const qreal lineH = std::ceil(fm.height());
     const int lines = fp.captionMode >= 2 ? 2 : 1;
     const qreal inset = GalleryItem::kCaptionInset;
-    const QRgb color = fp.captionColor.rgba();
+    const QRgb color = fp.captionColor.rgba(), scrim = fp.captionScrimColor.rgba();
     // the shadow under the glyphs: the scrim's colour, opaque enough to edge them
     QColor shadow = fp.captionScrimColor;
     shadow.setAlphaF(std::min(1.0, shadow.alphaF() * 1.4));
-    const QString suffix = fp.currentLabel.isEmpty() ? QString()
-                                                     : QStringLiteral(" · ") + fp.currentLabel;
-    auto drop = [this](Caption &cap) {
-        if (cap.xform) {
-            m_captionRoot->removeChildNode(cap.xform);
-            delete cap.xform;
-            cap.xform = nullptr;
-        }
+    const QString &suffix = fp.currentSuffix;
+    const qreal suffixW = suffix.isEmpty() ? 0.0 : fm.horizontalAdvance(suffix);
+    auto layoutLine = [&](QSGTextNode *tn, const QString &text, qreal y, qreal width) {
+        QTextLayout layout(text, fp.captionFont);
+        layout.setCacheEnabled(true);
+        layout.beginLayout();
+        QTextLine line = layout.createLine();
+        line.setLineWidth(width);
+        line.setPosition(QPointF(0, 0));
+        layout.endLayout();
+        tn->addTextLayout(QPointF(0, y), &layout);
     };
     for (int i = first; i <= last; ++i) {
         Caption &cap = m_captions[i];
         const size_t k = size_t(i - m_thumbFirst);
-        const QRectF thumb = k < m_thumbRects.size() ? m_thumbRects[k] : QRectF();
-        const qreal textW = thumb.width() - 2 * inset;
-        if (thumb.height() < fp.captionH + 2 || textW < 8) {
-            drop(cap);   // a sliver of a thumb (a panorama in a tall cell): no room for it
+        if (k >= m_thumbs.size() || !m_thumbs[k].caption) {
+            dropCaption(i, cap);
             continue;
         }
-        QString key = i < keys.size() ? keys.at(i) : QString::number(i);
-        if (i == fp.current)
-            key += suffix;
-        const QString name = (fp.captionMode >= 2 && i < names.size()) ? names.at(i) : QString();
+        const QRectF thumb = m_thumbs[k].rect;
+        const qreal textW = thumb.width() - 2 * inset;
         const int textWi = int(textW);
+        const QString key = i < keys.size() ? keys.at(i) : QString::number(i);
+        const bool current = i == fp.current && !suffix.isEmpty();
+        const QString name = (fp.captionMode >= 2 && i < names.size()) ? names.at(i) : QString();
         if (!cap.xform || cap.textW != textWi || cap.mode != fp.captionMode || cap.key != key
-            || cap.name != name || cap.color != color) {
-            drop(cap);
+            || cap.current != current || cap.name != name || cap.color != color
+            || cap.scrim != scrim) {
+            dropCaption(i, cap);
             QSGTextNode *tn = m_window->createTextNode();
             tn->setColor(fp.captionColor);
             tn->setTextStyle(QSGTextNode::Raised);
             tn->setStyleColor(shadow);
             tn->setRenderType(QSGTextNode::NativeRendering);
-            // the current item keeps its label: the key elides, never " · now"
-            const QString shownKey =
-                i == fp.current && !suffix.isEmpty() && fm.horizontalAdvance(key) > textWi
-                    ? fm.elidedText(key.left(key.size() - suffix.size()), Qt::ElideMiddle,
-                                    std::max<qreal>(0.0, textWi - fm.horizontalAdvance(suffix)))
-                          + suffix
-                    : fm.elidedText(key, Qt::ElideMiddle, textWi);
-            QTextLayout layout(shownKey, fp.captionFont);
-            layout.setCacheEnabled(true);
-            layout.beginLayout();
-            QTextLine line = layout.createLine();
-            line.setLineWidth(textW);
-            line.setPosition(QPointF(0, 0));
-            layout.endLayout();
-            tn->addTextLayout(QPointF(0, 0), &layout);
+            // the current item keeps its whole suffix: only the key elides, into the room
+            // the suffix leaves
+            const QString shown =
+                current ? fm.elidedText(key, Qt::ElideMiddle, std::max<qreal>(0.0, textW - suffixW))
+                              + suffix
+                        : fm.elidedText(key, Qt::ElideMiddle, textW);
+            layoutLine(tn, shown, 0, textW);
+            QString shownName;
             if (!name.isEmpty()) {
-                QTextLayout l2(fm.elidedText(name, Qt::ElideMiddle, textWi), fp.captionFont);
-                l2.setCacheEnabled(true);
-                l2.beginLayout();
-                QTextLine ln = l2.createLine();
-                ln.setLineWidth(textW);
-                ln.setPosition(QPointF(0, 0));
-                l2.endLayout();
-                tn->addTextLayout(QPointF(0, lineH), &l2);
+                shownName = fm.elidedText(name, Qt::ElideMiddle, textW);
+                layoutLine(tn, shownName, lineH, textW);
             }
             auto *xf = new QSGTransformNode;
             xf->appendChildNode(tn);
@@ -529,8 +533,12 @@ void GalleryNode::buildCaptions(const GalleryItem::Frame &fp, int &captions)
             cap.textW = textWi;
             cap.mode = fp.captionMode;
             cap.key = key;
+            cap.current = current;
             cap.name = name;
             cap.color = color;
+            cap.scrim = scrim;
+            m_item->setDrawnCaption(i, shownName.isEmpty() ? shown
+                                                           : shown + QLatin1Char('\n') + shownName);
         }
         // centred in the band at the thumb's bottom edge
         const qreal top = thumb.bottom() - fp.captionH + (fp.captionH - lines * lineH) * 0.5;
@@ -590,6 +598,7 @@ void GalleryNode::sync()
     m_uniforms.scrim = fp.captionScrimColor;
     m_uniforms.scrimPx = float(fp.captionH * fp.dpr);
     m_uniforms.barPx = float(GalleryItem::kCurrentBar * fp.dpr);
+    m_uniforms.scrimShare = float(GalleryItem::kCaptionShare);
     for (Batch &b : m_batches)
         if (b.node)
             b.node->markDirty(QSGNode::DirtyMaterial);

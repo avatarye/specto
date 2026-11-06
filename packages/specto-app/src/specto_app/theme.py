@@ -72,7 +72,7 @@ COLORS: dict[str, str] = {
     # at a time link's now), apart from the selection's accent
     "image_scrim": "#a81a1714",
     "text_on_image": "#ffffff",
-    "now": "#e3a21a",
+    "current_mark": "#e3a21a",
     # transparency behind an image (#171): neutral greys, so they tint no colour
     "checker_light": "#f2f2f2",
     "checker_dark": "#c4c4c4",

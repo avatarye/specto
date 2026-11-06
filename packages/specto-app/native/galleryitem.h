@@ -20,7 +20,7 @@
 // the tile shader blends into the thumb's bottom band, so they read on light and dark
 // images alike. They take no row height: the row pitch is the cell plus the gap. The
 // current item (`currentIndex`, the frame a time link points at) is marked apart from the
-// selection ring: a bar along its bottom edge in `currentColor` and `currentLabel`
+// selection ring: a bar along its bottom edge in `currentColor` and `currentSuffix`
 // ("now") after its caption. Nothing per-frame in QML.
 //
 // Data path: a worker decodes a thumbnail (uint8 RGBA, HWC) into shared memory; the
@@ -41,6 +41,7 @@
 
 #include <QtCore/QByteArray>
 #include <QtCore/QElapsedTimer>
+#include <QtCore/QHash>
 #include <QtCore/QMutex>
 #include <QtCore/QPointF>
 #include <QtCore/QRectF>
@@ -169,7 +170,8 @@ class GalleryItem : public QQuickItem
     Q_PROPERTY(QColor captionScrimColor READ captionScrimColor WRITE setCaptionScrimColor NOTIFY styleChanged)
     Q_PROPERTY(QFont captionFont READ captionFont WRITE setCaptionFont NOTIFY styleChanged)
     Q_PROPERTY(QColor currentColor READ currentColor WRITE setCurrentColor NOTIFY styleChanged)
-    Q_PROPERTY(QString currentLabel READ currentLabel WRITE setCurrentLabel NOTIFY styleChanged)
+    // appended to the current item's caption (" · now"); the key elides, never this
+    Q_PROPERTY(QString currentSuffix READ currentSuffix WRITE setCurrentSuffix NOTIFY styleChanged)
     Q_PROPERTY(qreal radius READ radius WRITE setRadius NOTIFY styleChanged)
     Q_PROPERTY(qreal borderWidth READ borderWidth WRITE setBorderWidth NOTIFY styleChanged)
 
@@ -186,6 +188,14 @@ public:
     // overlay captions (px): padding around the lines inside the band, the inset of the
     // text from the thumb's left edge, and the current item's bar along the bottom edge
     static constexpr qreal kCaptionPad = 4.0, kCaptionInset = 7.0, kCurrentBar = 3.0;
+    // the band and its fade stay within this share of a thumb's height (the fade shrinks
+    // to fit); a thumb whose band alone exceeds it, or too narrow for the text, gets no
+    // caption and no scrim rather than a covered image
+    static constexpr qreal kCaptionShare = 0.4;
+    static bool captionFits(qreal band, qreal thumbW, qreal thumbH)
+    {
+        return band > 0 && band <= kCaptionShare * thumbH && thumbW - 2 * kCaptionInset >= 8;
+    }
     static int tierCell(int tier)
     {
         return tier == TierMini ? kMiniCell : tier == TierFull ? kFullCell : kLargeCell;
@@ -303,8 +313,8 @@ public:
     void setCaptionFont(const QFont &f);
     QColor currentColor() const { return m_currentColor; }
     void setCurrentColor(const QColor &c);
-    QString currentLabel() const { return m_currentLabel; }
-    void setCurrentLabel(const QString &s);
+    QString currentSuffix() const { return m_currentSuffix; }
+    void setCurrentSuffix(const QString &s);
     qreal radius() const { return m_radius; }
     void setRadius(qreal r);
     qreal borderWidth() const { return m_borderWidth; }
@@ -326,6 +336,9 @@ public:
     // captions: `keys[i]` on tile i (mode 1), plus `names[i]` (mode 2)
     Q_INVOKABLE void setCaptions(const QStringList &keys, const QStringList &names);
     Q_INVOKABLE QString captionOf(int index) const;
+    // the caption text drawn on tile i in the last frame, as laid out (elided; the name on
+    // a second line); "" when none is drawn there (no room, captions off, not built)
+    Q_INVOKABLE QString drawnCaption(int index) const { return m_drawn.value(index); }
 
     // -- geometry queries (item coordinates) -----------------------------------------
     Q_INVOKABLE QRectF rectOf(int index) const;      // thumb rect on screen; empty if hidden
@@ -364,11 +377,18 @@ public:
         uint32_t frameNo;
         QFont captionFont;
         QColor captionColor, captionScrimColor;
-        QString currentLabel;
+        QString currentSuffix;
     };
     Frame frameParams() const;
     const QStringList &captionKeys() const { return m_keys; }
     const QStringList &captionNames() const { return m_names; }
+    void setDrawnCaption(int index, const QString &text)   // render thread, GUI blocked
+    {
+        if (text.isEmpty())
+            m_drawn.remove(index);
+        else
+            m_drawn.insert(index, text);
+    }
     void reportStats(const int resident[TierCount], int uploads, int evictions, int drawCalls,
                      int quads, int captions, qint64 syncNs);
 
@@ -462,6 +482,7 @@ private:
     uint32_t m_frameNo = 0;
     bool m_focused = false;
     QStringList m_keys, m_names;
+    QHash<int, QString> m_drawn;   // drawnCaption(); written by the node during sync
 
     QColor m_selectionColor{0x2f, 0x6f, 0xab};
     QColor m_hoverColor{0x2f, 0x6f, 0xab, 0x8c};
@@ -470,7 +491,7 @@ private:
     QColor m_captionColor{0xff, 0xff, 0xff};
     QColor m_captionScrimColor{0x1a, 0x17, 0x14, 0xa8};
     QColor m_currentColor{0xe3, 0xa2, 0x1a};
-    QString m_currentLabel{QStringLiteral("now")};
+    QString m_currentSuffix{QStringLiteral(" · now")};
     QFont m_captionFont;
     qreal m_radius = 8.0, m_borderWidth = 2.0;
 
