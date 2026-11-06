@@ -20,8 +20,11 @@ the release and move on their own schedule.
   height, so more tiles fit. A time-linked gallery marks its current item (the frame at
   the playback time) with a `now`-coloured bar and "· now" after the caption, apart from
   the selection ring; following playback no longer moves the selection, and `snap`
-  reports the followed frame as `current`. New theme tokens: `image_scrim`,
-  `text_on_image`, `now`.
+  reports the followed frame as `current`. The arrow keys, Enter, Space and the keyboard
+  context menu act from the user's pick, not from the followed frame. A thumbnail too
+  small or too short for its caption (a panorama) shows none and no scrim. The ring and
+  the scrim now composite over the image, so they also show on transparent parts of a
+  thumbnail. New theme tokens: `image_scrim`, `text_on_image`, `current_mark`.
 - Switching a usd view's view mode can no longer freeze the app (SPEC-33, ADR 0026). On
   a stage with dense colliders, collision built its convex hulls for minutes on the
   renderer's thread, the source stopped reading, and an orbit's camera moves blocked the
