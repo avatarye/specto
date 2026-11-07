@@ -384,7 +384,7 @@ def test_reserved_names_with_trailing_spaces_dots_or_superscripts_are_refused(tm
     for name in ("AUX .x", "lpt1  .xacro", "CON .txt", "COM¹", "lpt³.xacro", "nul."):
         root = _write(tmp_path / "dev.xacro", _robot(f'<xacro:include filename="{name}"/>'))
         # a device name, or a device path where Windows' own normalising got there first
-        with pytest.raises(XacroError, match="is a device (name|path)"):
+        with pytest.raises(XacroError, match=r"is a device (name|path)"):
             expand_xacro(
                 root,
                 find_package=_no_packages,
@@ -585,3 +585,74 @@ def test_expansion_runs_in_its_own_process_never_in_a_pool_worker(tmp_path: Path
         job = submit_xacro(pool, bad, find, store.approved)
         assert pool.wait([job], 60.0)
         assert job.state == "failed" and "nope" in (job.error or "")
+
+
+def _under_the_patch():
+    from specto_readers import xacro_expand
+
+    return xacro_expand._patched_xacro(
+        open_=open, glob_=lambda p: [], extension=lambda t: t, find=lambda n: "x"
+    )
+
+
+def test_dirname_and_type_inside_eval_are_refused():
+    """xacro 2.1.1's lexer ends a $(...) at its first ')', so no call can be written inside
+    $(eval ...) today; the refusals hold for the eval itself all the same."""
+    from xacro import substitution_args as sa
+
+    ctx = {"arg": {}, "filename": "x.xacro"}
+    with _under_the_patch():
+        with pytest.raises(XacroError, match=r"\$\(dirname\) is off"):
+            sa._eval("dirname()", ctx)
+        assert sa._eval("max(1, round(2.6)) + len('ab') + abs(-1) + min(5, 9)", ctx) == "11"
+        assert sa._eval("bool(1)", ctx) == "True"
+        for name in ("type", "vars", "open"):
+            with pytest.raises(NameError):
+                sa._eval(f"{name}(1)", ctx)
+
+
+def test_a_failure_partway_through_patching_leaves_nothing_patched(monkeypatch):
+    import xacro
+    from xacro import substitution_args as sa
+
+    from specto_readers import xacro_expand
+
+    before = (xacro.eval_extension, vars(xacro).get("open"), sa._dirname, dict(sa._eval_dict))
+
+    def boom(*_):
+        raise RuntimeError("partway")
+
+    monkeypatch.setattr(xacro_expand, "_eval_builtins", boom)  # fails after the first puts
+    with pytest.raises(RuntimeError, match="partway"), _under_the_patch():
+        pass
+    assert (
+        xacro.eval_extension,
+        vars(xacro).get("open"),
+        sa._dirname,
+        dict(sa._eval_dict),
+    ) == before
+
+
+def test_xacro_task_runs_the_child_in_the_fixed_folder_with_a_minimal_environment(
+    tmp_path: Path, monkeypatch
+):
+    from specto_core.children import ChildRun, minimal_env
+    from specto_readers import xacro_expand
+
+    seen: dict = {}
+
+    def fake_run_child(cmd, request, **kw):
+        seen.update(kw)
+        return ChildRun(
+            b'{"urdf": "<robot/>", "files": {}, "accepted": {}, "warnings": []}\n', b"", 0
+        )
+
+    monkeypatch.setenv("SPECTO_TEST_SECRET", "x")
+    monkeypatch.setattr(xacro_expand, "run_child", fake_run_child)
+    out = xacro_expand.xacro_task(
+        str(tmp_path / "a.xacro"), _no_packages, Approvals(), {}, None, [], lambda f, m: None
+    )
+    assert out["urdf"] == "<robot/>"
+    folder = Path(seen["cwd"])
+    assert folder == Path(xacro_expand.tempfile.gettempdir()) / "specto-xacro" and folder.is_dir()
+    assert seen["env"] == minimal_env() and "SPECTO_TEST_SECRET" not in seen["env"]

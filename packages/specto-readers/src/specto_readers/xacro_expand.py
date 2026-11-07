@@ -23,7 +23,8 @@ what the user saw: nothing they did not approve can reach the eval text.
 - **No environment, working folder or file location.** ``$(env)``, ``$(optenv)``,
   ``$(cwd)`` and ``$(dirname)`` (and ``env()``, ``optenv()``, ``dirname()`` in
   ``$(eval ...)``) are refused with a fix (pass the value as an arg); ``$(eval ...)``
-  sees only xacro's own short list of builtins.
+  sees only a short list of plain builtins (``EVAL_BUILTINS`` plus xacro's own; never
+  ``type`` or ``vars``).
 - **Every file xacro reads** (the root, each ``xacro:include`` and each file
   ``xacro.load_yaml`` reads, whose unit tags such as ``!degrees`` run the eval too) goes
   through one gated ``open`` (and an include pattern with ``*``, ``?`` or ``[`` through
@@ -54,6 +55,7 @@ what the user saw: nothing they did not approve can reach the eval text.
 from __future__ import annotations
 
 import contextlib
+import glob
 import hashlib
 import io
 import json
@@ -64,7 +66,7 @@ import sys
 import tempfile
 import threading
 import types
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -318,17 +320,91 @@ def _refuse_dirname(*_: Any, **__: Any) -> str:
     )
 
 
+#: the builtins ``$(eval ...)`` sees besides xacro's own (list dict map str float int):
+#: the plain ones xacro's ``${}`` also allows; never ``type`` or ``vars``
+EVAL_BUILTINS = ("round", "len", "abs", "min", "max", "bool")
+
+
 def _eval_builtins(substitution_args: Any) -> Callable[..., Any]:
-    """``eval`` for ``$(eval ...)`` with only xacro's own short list of builtins (its
+    """``eval`` for ``$(eval ...)`` with a short list of plain builtins (xacro's
     ``_eval`` passes empty globals, which Python fills with all of them)."""
     import builtins
 
     allowed = dict(substitution_args._eval_dict.get("__builtins__") or {})
+    allowed.update({name: getattr(builtins, name) for name in EVAL_BUILTINS})
 
     def restricted(expr: Any, globals_: Any = None, locals_: Any = None) -> Any:
         return builtins.eval(expr, {"__builtins__": allowed}, locals_)
 
     return restricted
+
+
+_MISSING = object()
+
+
+@contextlib.contextmanager
+def _patched_xacro(
+    *,
+    open_: Callable[..., Any],
+    glob_: Callable[..., Any],
+    extension: Callable[[str], Any],
+    find: Callable[[str], str],
+) -> Iterator[None]:
+    """xacro's globals as one expansion needs them (module docstring), each restore
+    registered before its change, so a failure partway leaves nothing patched."""
+    import xacro
+    import yaml
+    from xacro import substitution_args
+
+    with contextlib.ExitStack() as stack:
+
+        def put(target: Any, name: str, value: Any) -> None:
+            """Set ``target[name]`` (a dict) or ``target.name`` (a module or class), its
+            restore registered first: the old value back, or the name gone again."""
+            if isinstance(target, dict):
+                old = target.get(name, _MISSING)
+
+                def restore() -> None:
+                    if old is _MISSING:
+                        target.pop(name, None)
+                    else:
+                        target[name] = old
+
+                stack.callback(restore)
+                target[name] = value
+                return
+            old = vars(target).get(name, _MISSING)  # its own, not one it inherits
+
+            def restore_attr() -> None:
+                if old is _MISSING:
+                    if name in vars(target):
+                        delattr(target, name)
+                else:
+                    setattr(target, name, old)
+
+            stack.callback(restore_attr)
+            setattr(target, name, value)
+
+        stack.callback(xacro.substitution_args_context.clear)
+        stack.callback(xacro.all_includes.clear)
+        put(yaml.SafeLoader, "yaml_constructors", dict(yaml.SafeLoader.yaml_constructors))
+        put(xacro, "open", open_)  # shadows the builtin for xacro's parse and load_yaml
+        put(xacro, "glob", types.SimpleNamespace(glob=glob_))
+        put(xacro, "eval_extension", extension)  # $(cwd) is answered there, before the args
+        for name, fn in {
+            "_eval_find": find,
+            "_env": _refuse_env,
+            "_optenv": _refuse_env,
+            "_eval_env": _refuse_env,
+            "_eval_optenv": _refuse_env,
+            "_dirname": _refuse_dirname,
+            "_eval_dirname": _refuse_dirname,
+            "eval": _eval_builtins(substitution_args),  # shadows the builtin for $(eval)
+        }.items():
+            put(substitution_args, name, fn)
+        for key, fn in (("find", find), ("env", _refuse_env), ("optenv", _refuse_env)):
+            put(substitution_args._eval_dict, key, fn)
+        yield
 
 
 def expand_xacro(
@@ -366,8 +442,6 @@ def expand_xacro(
         progress(0.0, "expanding xacro")
 
     import xacro
-    import yaml
-    from xacro import substitution_args
 
     files: dict[str, str] = {str(root): _sha256(data)}
     accepted: dict[str, str] = {str(root): approval} if accept else {}
@@ -390,7 +464,7 @@ def expand_xacro(
     def gated_glob(pattern: str, *a: Any, **kw: Any) -> list[str]:
         # an include filename with * ? [ is globbed: listing is checked like opening
         _check_text(Path(pattern), allowed)
-        return real_glob.glob(pattern, *a, **kw)
+        return glob.glob(pattern, *a, **kw)
 
     def find(pkg: str) -> str:
         hit = find_package(pkg)
@@ -420,28 +494,11 @@ def expand_xacro(
         return real_extension(text)
 
     stderr = io.StringIO()
-    patched = {
-        "_eval_find": find,
-        "_env": _refuse_env,
-        "_optenv": _refuse_env,
-        "_eval_env": _refuse_env,
-        "_eval_optenv": _refuse_env,
-        "_dirname": _refuse_dirname,
-        "_eval_dirname": _refuse_dirname,
-        "eval": _eval_builtins(substitution_args),
-    }
-    with _LOCK:
-        saved = {name: vars(substitution_args).get(name) for name in patched}
-        saved_dict = {k: substitution_args._eval_dict[k] for k in ("find", "env", "optenv")}
-        saved_yaml = dict(yaml.SafeLoader.yaml_constructors)
-        xacro.open = gated_open  # shadows the builtin for xacro's parse and load_yaml
-        real_glob = xacro.glob
-        xacro.glob = types.SimpleNamespace(glob=gated_glob)
-        real_extension = xacro.eval_extension
-        xacro.eval_extension = gated_extension  # $(cwd) is answered here, before the args
-        for name, fn in patched.items():
-            setattr(substitution_args, name, fn)
-        substitution_args._eval_dict.update(find=find, env=_refuse_env, optenv=_refuse_env)
+    real_extension = xacro.eval_extension
+    with (
+        _LOCK,
+        _patched_xacro(open_=gated_open, glob_=gated_glob, extension=gated_extension, find=find),
+    ):
         try:
             with contextlib.redirect_stderr(stderr):
                 doc = xacro.process_file(str(root), mappings=mappings)
@@ -451,19 +508,6 @@ def expand_xacro(
             if isinstance(inner, XacroError):
                 raise inner from None
             raise XacroError(f"{root.name}: {str(e) or type(e).__name__}") from e
-        finally:
-            del xacro.open
-            xacro.glob = real_glob
-            xacro.eval_extension = real_extension
-            for name, fn in saved.items():
-                if fn is None:  # ``eval`` is the builtin: the module never had its own
-                    delattr(substitution_args, name)
-                else:
-                    setattr(substitution_args, name, fn)
-            substitution_args._eval_dict.update(saved_dict)
-            yaml.SafeLoader.yaml_constructors = saved_yaml
-            xacro.all_includes.clear()
-            xacro.substitution_args_context.clear()
     if progress:
         progress(1.0, "xacro expanded")
     warnings = [ln.strip() for ln in stderr.getvalue().splitlines() if ln.strip()]

@@ -519,7 +519,8 @@ the transport-agnostic handler; `specto_app.endpoint.LocalEndpoint` serves it;
       "needs Approve" with the package's name and folder, so the user sees each one; a
       folder whose path holds a quote, `$`, a backtick or a brace is refused;
     - `$(env)`, `$(optenv)`, `$(cwd)` and `$(dirname)` are refused with a fix (pass the
-      value as an arg), and `$(eval ...)` gets only xacro's short builtin list;
+      value as an arg), and `$(eval ...)` sees only a short list of plain builtins
+      (`list dict map str float int round len abs min max bool`; never `type` or `vars`);
     - every file xacro reads (includes and `load_yaml` files) and every include glob:
       the path text is checked first (device paths and reserved names, network paths and
       anything outside the root's folder, the project and the approved packages are
