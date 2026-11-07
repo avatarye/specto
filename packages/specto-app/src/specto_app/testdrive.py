@@ -223,7 +223,7 @@ def _fake_launchers() -> None:
     flows' fake program that records its argv). Each call is logged."""
     from .launchers import run
 
-    real_spawn = run.spawn_detached
+    real_spawn = run.spawn_program
     me = os.path.normcase(os.path.abspath(sys.executable))
 
     def log(kind: str, **what: Any) -> None:
@@ -243,7 +243,7 @@ def _fake_launchers() -> None:
         log("spawn", argv=argv, cwd=cwd)
         return real_spawn(argv, cwd, env)
 
-    run.spawn_detached = spawn  # type: ignore[assignment]
+    run.spawn_program = spawn  # type: ignore[assignment]
     run.start_file = lambda path: log("start_file", path=str(path))  # type: ignore[assignment]
     run.reveal = lambda paths: log("reveal", paths=[str(p) for p in paths])  # type: ignore[assignment]
     run.edit_file = lambda path: log("edit_file", path=str(path))  # type: ignore[assignment]

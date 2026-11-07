@@ -21,7 +21,7 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 
 from specto_core import Project
-from specto_core.detached import spawn_detached
+from specto_core.detached import console_python, spawn_detached
 from specto_core.errors import SpectoError
 
 from . import recents
@@ -204,7 +204,10 @@ def run_welcome(opts: dict[str, Any], *, argv: list[str] | None = None) -> int:
 
 # -- relaunch (switch project) ------------------------------------------------------------
 def relaunch_argv(root: Path | str, flags: list[str] | None = None) -> list[str]:
-    return [sys.executable, "-m", "specto_app", "--project", str(root), *(flags or [])]
+    """``python -m specto_app --project root [flags]`` with this app's interpreter, the
+    console one under ``pythonw.exe`` (``console_python``, SPEC-28)."""
+    python = console_python(sys.executable)
+    return [python, "-m", "specto_app", "--project", str(root), *(flags or [])]
 
 
 def relaunch(root: Path | str, flags: list[str] | None = None) -> int:

@@ -48,7 +48,7 @@ def _no_real_programs(monkeypatch):
     fake launcher that records its argv)."""
     from specto_app.launchers import run
 
-    real_spawn = run.spawn_detached
+    real_spawn = run.spawn_program
     me = os.path.normcase(os.path.abspath(sys.executable))
 
     def spawn(argv, cwd="", env=None):
@@ -56,7 +56,7 @@ def _no_real_programs(monkeypatch):
             raise OSError(f"a test may launch only {sys.executable}, not {argv[0]}")
         return real_spawn(argv, cwd, env)
 
-    monkeypatch.setattr(run, "spawn_detached", spawn)
+    monkeypatch.setattr(run, "spawn_program", spawn)
     monkeypatch.setattr(run, "start_file", lambda path: None)
     monkeypatch.setattr(run, "reveal", lambda paths: None)
     monkeypatch.setattr(run, "edit_file", lambda path: None)

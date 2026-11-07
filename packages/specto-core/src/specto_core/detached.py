@@ -27,6 +27,19 @@ CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 DETACHED_PROCESS = 0x00000008
 
 
+def console_python(executable: str | Path) -> str:
+    """The console interpreter for a detached app: ``python.exe`` beside a
+    ``pythonw.exe``. ``pythonw`` is a GUI-subsystem program, so ``CREATE_NO_WINDOW``
+    gives it no hidden console and its console children would each open a visible one.
+    Anything else, or a ``pythonw.exe`` with no ``python.exe`` beside it, is kept."""
+    exe = Path(executable)
+    if exe.name.lower() == "pythonw.exe":
+        console = exe.with_name("python.exe")
+        if console.is_file():
+            return str(console)
+    return str(exe)
+
+
 def spawn_detached(
     argv: Sequence[str],
     *,
@@ -84,6 +97,7 @@ __all__ = [
     "CREATE_NEW_PROCESS_GROUP",
     "CREATE_NO_WINDOW",
     "DETACHED_PROCESS",
+    "console_python",
     "let_go",
     "spawn_detached",
 ]

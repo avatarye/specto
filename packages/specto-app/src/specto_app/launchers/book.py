@@ -92,7 +92,7 @@ class LauncherBook:
         self.root = Path(root) if root else None
         self.machine_path = Path(machine_path or user_data_dir() / MACHINE_FILE)
         self.project_path = self.root / PROJECT_FILE if self.root is not None else None
-        self.spawn = spawn or (lambda argv, cwd="", env=None: run.spawn_detached(argv, cwd, env))
+        self.spawn = spawn or (lambda argv, cwd="", env=None: run.spawn_program(argv, cwd, env))
         self.start = start or (lambda path: run.start_file(path))
         self.reveal_fn = reveal or (lambda paths: run.reveal(paths))
         self.edit_fn = edit or (lambda path: run.edit_file(path))

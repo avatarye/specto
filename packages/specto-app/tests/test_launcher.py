@@ -79,6 +79,23 @@ def test_open_project_and_relaunch_argv(tmp_path):
     assert resolve_folder("") is None and resolve_folder('"C:/x"') == Path("C:/x")
 
 
+def test_relaunch_from_pythonw_runs_the_console_interpreter(tmp_path, monkeypatch):
+    """SPEC-28: an app running under ``pythonw.exe`` (a GUI-subsystem interpreter, which
+    ``CREATE_NO_WINDOW`` cannot give a hidden console) relaunches with the
+    ``python.exe`` beside it; without one it keeps what it has."""
+    scripts = tmp_path / "Scripts"
+    scripts.mkdir()
+    (scripts / "pythonw.exe").write_bytes(b"")
+    monkeypatch.setattr(sys, "executable", str(scripts / "pythonw.exe"))
+    assert relaunch_argv(tmp_path)[0] == str(scripts / "pythonw.exe")  # no python.exe
+    (scripts / "python.exe").write_bytes(b"")
+    assert relaunch_argv(tmp_path)[0] == str(scripts / "python.exe")
+    monkeypatch.setattr(sys, "executable", str(scripts / "PythonW.EXE"))
+    assert relaunch_argv(tmp_path)[0] == str(scripts / "python.exe")
+    monkeypatch.setattr(sys, "executable", str(scripts / "python.exe"))
+    assert relaunch_argv(tmp_path)[0] == str(scripts / "python.exe")
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows process creation flags")
 def test_relaunch_starts_the_app_with_a_hidden_console(tmp_path, monkeypatch):
     """SPEC-28: a relaunched app gets a hidden console (``CREATE_NO_WINDOW``), never

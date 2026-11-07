@@ -469,7 +469,8 @@ the transport-agnostic handler; `specto_app.endpoint.LocalEndpoint` serves it;
   [--reply-to]` (replaces the generated `message`; `from` defaults to `NIMITZ_ID`),
   `open [PATH] [--new] [--welcome] [--list] [--log FILE] [--wait S] [app args]`
   (#215: starts `specto-app` on the project PATH is in, detached and without a
-  console, from the app home's venv, and prints the instance name once it registers; a
+  console window (`specto_core.detached`, which the app's project switch and the
+  launchers use too, SPEC-28), from the app home's venv, and prints the instance name once it registers; a
   folder in no project becomes one first, named after the folder, #217;
   a project that is open already gets `window.raise` instead; `--list` prints the
   recents, `<user dir>/recents.json`, `specto_core.recents`) and `setup-cli [CHECKOUT]

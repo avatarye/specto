@@ -13,11 +13,13 @@ from collections.abc import Sequence
 from specto_core import detached
 
 
-def spawn_detached(argv: Sequence[str], cwd: str = "", env: dict[str, str] | None = None) -> int:
-    """Start ``argv`` (a list: no shell reads it) on its own: no console window, no
-    pipes, its own process group, out of Specto's job when the job allows, and no handle
-    kept, so closing Specto leaves it running (``specto_core.detached``). ``env`` adds to
-    ours. Returns its pid; ``OSError`` when it cannot start."""
+def spawn_program(argv: Sequence[str], cwd: str = "", env: dict[str, str] | None = None) -> int:
+    """Start the program ``argv`` names (a list: no shell reads it) on its own, through
+    ``specto_core.detached.spawn_detached``: no console window, no pipes, its own process
+    group, out of Specto's job when the job allows, and no handle kept, so closing Specto
+    leaves it running. Unlike ``spawn_detached``, ``env`` adds to ours rather than
+    replacing it (a launcher's ``env`` table). Returns its pid; ``OSError`` when it
+    cannot start."""
     full_env = None
     if env:
         full_env = dict(os.environ)
@@ -31,9 +33,9 @@ def start_file(path: str) -> None:
     if sys.platform == "win32":
         os.startfile(path)  # type: ignore[attr-defined]
     elif sys.platform == "darwin":
-        spawn_detached(["open", path])
+        spawn_program(["open", path])
     else:
-        spawn_detached(["xdg-open", path])
+        spawn_program(["xdg-open", path])
 
 
 def reveal(paths: Sequence[str]) -> None:
@@ -57,9 +59,9 @@ def reveal(paths: Sequence[str]) -> None:
         detached.let_go(proc)
         return
     if sys.platform == "darwin":
-        spawn_detached(["open", "-R", path])
+        spawn_program(["open", "-R", path])
     else:
-        spawn_detached(["xdg-open", os.path.dirname(path)])
+        spawn_program(["xdg-open", os.path.dirname(path)])
 
 
 def edit_file(path: str) -> None:
@@ -70,7 +72,7 @@ def edit_file(path: str) -> None:
     except OSError:
         if sys.platform != "win32":
             raise
-        spawn_detached(["notepad.exe", path])
+        spawn_program(["notepad.exe", path])
 
 
-__all__ = ["edit_file", "reveal", "spawn_detached", "start_file"]
+__all__ = ["edit_file", "reveal", "spawn_program", "start_file"]
