@@ -187,10 +187,12 @@ void GalleryNode::appendQuad(Batch &b, float x, float y, float w, float h, float
 
 void GalleryNode::ensureMiniPage0(QOpenGLExtraFunctions *f)
 {
-    if (m_pages[TierMini].empty())
+    if (m_pages[TierMini].empty()) {
         m_pages[TierMini].push_back(std::make_unique<AtlasPage>(
             f, m_window, GalleryItem::kPageSize, GalleryItem::tierCell(TierMini),
             GalleryItem::tierGutter(TierMini), GalleryItem::tierLevels(TierMini)));
+        m_item->notePageCreated();
+    }
 }
 
 bool GalleryNode::hasFree(int tier) const
@@ -226,6 +228,7 @@ CellRef GalleryNode::alloc(int tier, QOpenGLExtraFunctions *f, const GalleryItem
                                                     GalleryItem::tierCell(tier),
                                                     GalleryItem::tierGutter(tier),
                                                     GalleryItem::tierLevels(tier)));
+        m_item->notePageCreated();
         return {int16_t(pages.size() - 1), int16_t(pages.back()->allocate())};
     }
     if (tier == TierMini)
@@ -271,69 +274,48 @@ void GalleryNode::resetAll()
 bool GalleryNode::drainUploads(QOpenGLExtraFunctions *f, const GalleryItem::Frame &fp, int &uploads,
                                int &evictions)
 {
+    // Prepared cells only (SPEC-1): the downsampling and mip chains were built on the
+    // item's prepare thread, so this is cell allocation and glTexSubImage2D, within a
+    // tile count and a time budget per frame; what is left waits for the next frame.
     auto &tiles = m_item->tiles();
     auto &queue = m_item->stagedQueue();
-    std::vector<uint8_t> scratch;
+    QElapsedTimer budget;
+    budget.start();
     int n = 0;
-    while (n < GalleryItem::kMaxUploadsPerFrame) {
-        StagedThumb st;
+    while (n < GalleryItem::kMaxUploadsPerFrame
+           && (n == 0 || budget.nsecsElapsed() < GalleryItem::kUploadBudgetNs)) {
+        PreparedThumb pt;
         {
             QMutexLocker lock(&m_item->stagedMutex());
             if (queue.empty())
                 break;
-            st = std::move(queue.front());
+            pt = std::move(queue.front());
             queue.pop_front();
         }
-        if (st.index < 0 || st.index >= int(tiles.size()))
+        if (pt.index < 0 || pt.index >= int(tiles.size()))
             continue;
-        TileRec &t = tiles[size_t(st.index)];
+        TileRec &t = tiles[size_t(pt.index)];
         t.staged = false;
         t.failed = false;
-        if (st.w <= 0 || st.h <= 0) {
+        if (pt.failed) {
             t.failed = true;
             continue;
         }
-        // The decoded size picks the top tier it fills: > thumbPx is a large decode.
-        const int largeMax = GalleryItem::tierPx(TierLarge), fullMax = GalleryItem::tierPx(TierFull);
-        int topTier = std::max(st.w, st.h) > fullMax ? TierLarge : TierFull;
-        if (std::max(st.w, st.h) > largeMax) {
-            // oversized: shrink to the large tier rather than refuse
-            const double s = double(largeMax) / std::max(st.w, st.h);
-            const int nw = std::max(1, int(st.w * s)), nh = std::max(1, int(st.h * s));
-            std::vector<uint8_t> small(size_t(nw) * nh * 4);
-            boxDownsample(st.rgba.data(), st.w, st.h, small.data(), nw, nh);
-            st.rgba.swap(small);
-            st.w = nw;
-            st.h = nh;
-        }
-        // Walk the tiers top-down, downsampling as we go: the top tier is kept when the
-        // view wants it (or its atlas has room), full likewise, mini always.
-        const uint8_t *src = st.rgba.data();
-        int sw = st.w, sh = st.h;
-        std::vector<uint8_t> cur;
-        for (int tier = topTier; tier >= TierMini; --tier) {
-            const int maxPx = GalleryItem::tierPx(tier);
-            if (std::max(sw, sh) > maxPx) {
-                const double s = double(maxPx) / std::max(sw, sh);
-                const int nw = std::max(1, int(sw * s + 0.5)), nh = std::max(1, int(sh * s + 0.5));
-                scratch.resize(size_t(nw) * nh * 4);
-                boxDownsample(src, sw, sh, scratch.data(), nw, nh);
-                cur.swap(scratch);
-                src = cur.data();
-                sw = nw;
-                sh = nh;
-            }
+        // Walk the tiers top-down: the top tier is kept when the view wants it (or its
+        // atlas has room), full likewise, mini always.
+        for (int tier = pt.topTier; tier >= TierMini; --tier) {
+            const specto::PreparedTier &cell = pt.tier[tier];
             const bool keep = tier == TierMini || fp.useTier >= tier || hasFree(tier);
-            if (keep) {
+            if (keep && cell.w > 0) {
                 if (t.page[tier] < 0) {
-                    const CellRef r = alloc(tier, f, fp, st.index, evictions);
+                    const CellRef r = alloc(tier, f, fp, pt.index, evictions);
                     t.page[tier] = r.page;
                     t.cell[tier] = r.cell;
                 }
                 if (t.page[tier] >= 0) {
-                    m_pages[tier][size_t(t.page[tier])]->upload(f, t.cell[tier], src, sw, sh);
-                    t.w[tier] = uint16_t(sw);
-                    t.h[tier] = uint16_t(sh);
+                    m_pages[tier][size_t(t.page[tier])]->upload(f, t.cell[tier], cell);
+                    t.w[tier] = uint16_t(cell.w);
+                    t.h[tier] = uint16_t(cell.h);
                 }
             } else {
                 releaseTier(t, tier);

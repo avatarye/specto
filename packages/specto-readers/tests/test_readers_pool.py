@@ -10,6 +10,7 @@ import pytest
 from readers_helpers import (
     CAM_A,
     add_one,
+    below_normal,
     crash,
     empty_array,
     first_jpg,
@@ -156,6 +157,14 @@ def test_a_cancelled_running_job_hears_it_through_progress(pool: PoolJobManager,
         pool.poll(0.05)
     assert marker.read_text(encoding="utf-8") == "cancelled"
     assert j.state == "cancelled"
+
+
+def test_workers_run_below_normal_priority(pool: PoolJobManager):
+    """SPEC-1: a pool decoding on every core must not take the CPU from the GUI and
+    render threads, or scrolling stalls while thumbnails decode."""
+    j = pool.submit("t", below_normal)
+    assert pool.wait([j], WAIT)
+    assert j.result is True
 
 
 def test_events_and_default_size():
