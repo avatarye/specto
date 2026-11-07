@@ -1,0 +1,114 @@
+# SPEC-43.2 the urdf view's page. robots/arm.urdf is a small arm whose meshes are
+# package:// paths into its own package (tools/gui_flows/v2-43-urdf-seed.py); the
+# gripper's mesh is missing. Picking it in the file tree shows the robot in Babylon: the
+# ground grid on, the gripper's stand-in a magenta wire box over its collision box, the
+# forearm an orange STL standing up. The ROBOT panel's tree selects both ways; a typed
+# value and a slider click pose a joint (one undo step each, kept in params.joints); the
+# footer's pill switches to collision (per-link tints) and visual + collision (shells);
+# the VIEW panel's overlays, up axis, camera mode and Reset pose act and are kept; the
+# agent's params.joints poses the robot. Check the shots: 01 the arm upright with the
+# grid; 02 upper_arm tinted and its tree row selected; 03 the elbow bent 45 degrees; 05
+# each link in its own flat tint, 06 lit visuals in translucent shells; 07 RGB frames,
+# joint arrows and yellow centre-of-mass dots; 08 the arm lying along the view's up Y.
+resize 1600 900
+wait 1200
+assert_found slot:fege
+submit tools/gui_flows/v2-43-urdf-canvas.json A file tree and the urdf view
+wait 2500
+assert_found slot:robo
+wait_until treeRow:fege:robots 20000
+expand fege:robots
+click treeRow:fege:robots/arm.urdf
+assert_web robo robot.links 8 30000
+assert_web robo meshes.loading 0 20000
+assert_host robo links 8
+assert_host robo pose_source "zero"
+assert_web robo grid true
+assert_web robo meshes.placeholders 1
+hover slot:fege 0.5 0.5
+wait 600
+shot 43-01-arm-at-rest.png
+print snap {"target": "robo"}
+# the tree selects: the link is outlined, the host keys it, the properties show
+hover slot:robo 0.5 0.5
+webclick robo tree.link:upper_arm
+assert_web robo selected_links ["upper_arm"]
+assert_host robo selected.links ["upper_arm"]
+wait 500
+shot 43-02-upper-arm-selected.png
+# a typed value poses the elbow: one user submit to params.joints
+webclick robo joints.elbow.value_rect
+wait 300
+assert_web robo joints.elbow.typing true
+selectall
+type 45
+key enter
+assert_web robo joints.elbow.text "45.0°"
+assert_host robo pose_source "params" 10000
+wait 600
+shot 43-03-elbow-45.png
+# a click on the shoulder's slider moves it and keeps it
+webclick robo joints.shoulder.slider 0.75 0.5
+wait 800
+assert_host robo pose_source "params"
+shot 43-04-shoulder-slider.png
+print snap {"target": "robo"}
+# the view modes from the footer's pill
+webclick robo buttons.viewMode
+wait 400
+webclick robo modes.collision
+assert_web robo view_mode "collision"
+assert_meta robo params.view_mode "collision"
+assert_web robo meshes.collisions_built true
+assert_web robo meshes.loading 0 15000
+wait 800
+shot 43-05-collision.png
+webclick robo buttons.viewMode
+wait 400
+webclick robo modes.visual_collision
+assert_web robo view_mode "visual_collision"
+wait 800
+shot 43-06-visual-collision.png
+webclick robo buttons.viewMode
+wait 400
+webclick robo modes.lit
+assert_meta robo params.view_mode "lit"
+# overlays, kept in params
+webclick robo buttons.frames
+webclick robo buttons.axes
+webclick robo buttons.com
+assert_meta robo params.show_frames true
+assert_meta robo params.show_joint_axes true
+assert_meta robo params.show_com true
+assert_web robo overlays.frames 8
+assert_web robo overlays.com 4
+wait 600
+shot 43-07-overlays.png
+# the up axis: Y lays the Z-up arm along the view
+webclick robo buttons.upY
+assert_meta robo params.up "y"
+assert_web robo up "y"
+wait 800
+shot 43-08-up-y.png
+webclick robo buttons.upZ
+assert_meta robo params.up "z"
+# orbit camera, kept
+webclick robo buttons.cameraOrbit
+assert_meta robo params.camera_mode "orbit"
+assert_web robo nav.camera_mode "orbit"
+# Reset pose: every joint back to 0 in one submit
+webclick robo buttons.reset
+assert_web robo joints.elbow.text "0.0°"
+assert_web robo joints.shoulder.text "0.0°"
+# the agent poses it through params.joints
+params robo {"joints": {"elbow": 1.0, "gripper_joint": 0.02}}
+assert_web robo joints.elbow.text "57.3°" 10000
+assert_web robo joints.finger_mimic.value 0.02
+assert_host robo pose_source "params"
+# an HDRI from the VIEW panel lights the robot (the lights off)
+webclick robo buttons.envHdri
+assert_web robo environment.ready true 15000
+assert_web robo environment.lights false
+wait 800
+shot 43-09-hdri.png
+print snap {"target": "robo"}

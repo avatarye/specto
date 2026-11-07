@@ -416,6 +416,13 @@ SUITE: dict[str, dict] = {
         "seed": seed("v2-153-3d-seed.py", "{project}"),
         "sessions": [{"flows": ["v2-153-3d-modes.txt"]}],
     },
+    "urdf-page": {
+        # SPEC-43.2: the urdf view's page: the robot from a package:// URDF, the tree's
+        # selection both ways, typed and slider joints, the view modes, overlays, up axis,
+        # orbit, Reset pose, the agent's params.joints and an HDRI
+        "seed": seed("v2-43-urdf-seed.py", "{project}"),
+        "sessions": [{"flows": ["v2-43-urdf-page.txt"]}],
+    },
     "3d-hdri": {
         # #175: HDRI environments from the footer's pill (None + five bundled Poly Haven
         # HDRIs), the VIEW panel's intensity / rotation / background, wireframe without the
@@ -845,6 +852,7 @@ TIERS: dict[str, tuple[str, str]] = {
     "v2-152-3d-nav.txt": (GPU, _WEBGL),
     "v2-153-3d-modes.txt": (GPU, _WEBGL),
     "v2-175-3d-hdri.txt": (GPU, _WEBGL),
+    "v2-43-urdf-page.txt": (GPU, _WEBGL + "; the urdf page is Babylon too"),
     "v2-66-spz-v4.txt": (GPU, _WEBGL + "; the user's own splat capture, run by hand"),
     "v2-85-splat-first-paint.txt": (GPU, _WEBGL + "; the user's own splat, run by hand"),
     "v2-49-views-map.txt": (GPU, _WEBGL + "; the point pick is on the map's body"),
