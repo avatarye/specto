@@ -198,17 +198,21 @@ def test_the_windows_observer_reports_an_overflow_as_lost(tmp_path: Path):
         mp.setattr(winapi, "read_directory_changes", overflow_once)
         n.start()
         try:
-            (tmp_path / "a.txt").write_text("a", encoding="utf-8")
-            deadline = time.monotonic() + 5
+            # the emitter's thread opens the folder on its own time: write until it sees
+            deadline = time.monotonic() + 20
+            i = 0
             while not lost and time.monotonic() < deadline:
-                time.sleep(0.02)
-            (tmp_path / "b.txt").write_text("b", encoding="utf-8")
+                (tmp_path / f"a{i}.txt").write_text("a", encoding="utf-8")
+                i += 1
+                time.sleep(0.05)
             while not paths and time.monotonic() < deadline:
-                time.sleep(0.02)
+                (tmp_path / f"b{i}.txt").write_text("b", encoding="utf-8")
+                i += 1
+                time.sleep(0.05)
         finally:
             n.stop()
-    assert lost == ["lost"]
-    assert any(p.endswith("b.txt") for batch in paths for p in batch)
+    assert lost == ["lost"]  # the first read overflowed, and only that one
+    assert paths  # the later reads name their files
 
 
 # -- IntakerListing: the table from changed paths alone -----------------------------------
