@@ -1,4 +1,4 @@
-"""The urdf view's vocabulary in core (SPEC-43.1, ADR 0028): the ``urdf`` data kind and
+"""The urdf view's vocabulary in core (SPEC-43.1, ADR 0029): the ``urdf`` data kind and
 its ``@urdf`` screener alias, the view type (role viewer, never the root view), its ports,
 and the dedicated view a double-click on a .urdf opens (ADR 0023). Its manifest is the
 app's, as the 3d view's is."""
