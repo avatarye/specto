@@ -158,3 +158,30 @@ test("fromTo turns one direction onto another, opposite ones included", () => {
     near(K.rotate(K.fromTo([0, 1, 0], b), [0, 1, 0]), b.map((x) => x / l));
   }
 });
+
+test("the inertia box: a solid box with the link's mass and principal moments, on its principal axes", () => {
+  // a 3 kg box 0.2 x 0.4 x 0.6 m, its tensor turned 30 degrees about Z and 20 about X
+  const m = 3, dims = [0.2, 0.4, 0.6];
+  const d = [m / 12 * (dims[1] ** 2 + dims[2] ** 2), m / 12 * (dims[0] ** 2 + dims[2] ** 2), m / 12 * (dims[0] ** 2 + dims[1] ** 2)];
+  const q = K.qmul(K.axisAngle([0, 0, 1], Math.PI / 6), K.axisAngle([1, 0, 0], Math.PI / 9));
+  const cols = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((e) => K.rotate(q, e));
+  const I = (r, c) => cols.reduce((s, v, k) => s + v[r] * d[k] * v[c], 0);
+  const inertial = {
+    origin: { xyz: [0.1, 0, 0.2], rpy: [0, 0, 0] }, mass: m,
+    inertia: { ixx: I(0, 0), ixy: I(0, 1), ixz: I(0, 2), iyy: I(1, 1), iyz: I(1, 2), izz: I(2, 2) },
+  };
+  const box = K.inertiaBox(inertial);
+  near(box.p, [0.1, 0, 0.2]);
+  near(box.size.slice().sort((a, b) => a - b), dims, 1e-6);
+  // each box axis lies along the input's axis of the same length
+  for (let k = 0; k < 3; k++) {
+    const axis = K.rotate(box.q, [[1, 0, 0], [0, 1, 0], [0, 0, 1]][k]);
+    const j = dims.findIndex((x) => Math.abs(x - box.size[k]) < 1e-6);
+    const dot = Math.abs(axis[0] * cols[j][0] + axis[1] * cols[j][1] + axis[2] * cols[j][2]);
+    assert.ok(Math.abs(dot - 1) < 1e-6, `axis ${k} along ${j}: ${dot}`);
+  }
+  // a tensor that is no rigid body (a moment above the other two's sum) still draws
+  const odd = K.inertiaBox({ origin: null, mass: 1, inertia: { ixx: 1, iyy: 0.1, izz: 0.1, ixy: 0, ixz: 0, iyz: 0 } });
+  assert.ok(odd.size.every((x) => x > 0 && isFinite(x)));
+  assert.equal(K.inertiaBox({ mass: 0, inertia: {} }), null);
+});

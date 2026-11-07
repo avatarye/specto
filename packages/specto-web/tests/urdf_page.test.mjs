@@ -463,7 +463,7 @@ test("overlays: link frames, joint axes on the moving joints, a centre of mass p
   const tip = page.one("axis-tip:shoulder");
   assert.ok(near(q4(tip), [0, 0, 0, 1]));
   page.notify("params", { show_frames: false, show_joint_axes: false, show_com: false });
-  assert.deepEqual(plain(page.last().overlays), { frames: 0, axes: [], com: 0 });
+  assert.deepEqual(plain(page.last().overlays), { frames: 0, axes: [], com: 0, inertia: 0 });
   assert.equal(page.named("frame:upper_arm").length, 0);
 });
 
@@ -520,4 +520,26 @@ test("a new robot takes the place of the old: its nodes gone, unused mesh templa
   assert.equal(template.disposed, true);
   assert.deepEqual(plain(page.last().robot), { name: "bot", root: "a", links: 1, joints: 0 });
   assert.deepEqual(page.last().tree_order, ["link:a"]);
+});
+
+test("inertia boxes: a translucent box of equivalent inertia per link with a mass, toggled in the VIEW panel", async () => {
+  const page = await armPage();
+  assert.equal(page.last().overlays.inertia, 0, "off by default");
+  const box = page.document.getElementById("showInertia");
+  box.checked = true;
+  box.dispatchEvent({ type: "change" });
+  assert.deepEqual(page.params.at(-1), { show_inertia: true });
+  assert.equal(page.last().overlays.inertia, 4);
+  const b = page.one("inertia:upper_arm");
+  assert.equal(b.parent, page.one("link:upper_arm"));
+  assert.deepEqual(b.position.asArray(), [0, 0, 0.21]);
+  // 3.42 kg, ixx = iyy = 0.05, izz = 0.006: the long side along the link's Z
+  const sides = [b.builder.width, b.builder.height, b.builder.depth];
+  const want = [Math.sqrt(6 / 3.42 * 0.006), Math.sqrt(6 / 3.42 * 0.006), Math.sqrt(6 / 3.42 * (0.1 - 0.006))];
+  assert.ok(sides.slice().sort().every((x, i) => Math.abs(x - want.slice().sort()[i]) < 1e-6), String(sides));
+  assert.ok(b.material.alpha < 0.5, "translucent");
+  assert.equal(b.isPickable, false);
+  page.notify("params", { show_inertia: false });
+  assert.equal(page.last().overlays.inertia, 0);
+  assert.equal(page.named("inertia:upper_arm").length, 0);
 });

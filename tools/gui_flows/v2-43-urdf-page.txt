@@ -9,7 +9,7 @@
 # agent's params.joints poses the robot. Check the shots: 01 the arm upright with the
 # grid; 02 upper_arm tinted and its tree row selected; 03 the elbow bent 45 degrees; 05
 # each link in its own flat tint, 06 lit visuals in translucent shells; 07 RGB frames,
-# joint arrows and yellow centre-of-mass dots; 08 the arm lying along the view's up Y.
+# joint arrows, yellow centre-of-mass dots and violet inertia boxes; 08 the arm lying along the view's up Y.
 resize 1600 900
 wait 1200
 assert_found slot:fege
@@ -83,6 +83,8 @@ assert_meta robo params.show_joint_axes true
 assert_meta robo params.show_com true
 assert_web robo overlays.frames 8
 assert_web robo overlays.com 4
+webclick robo buttons.inertia
+assert_web robo overlays.inertia 4
 wait 600
 shot 43-07-overlays.png
 # the up axis: Y lays the Z-up arm along the view

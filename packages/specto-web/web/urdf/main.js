@@ -20,8 +20,9 @@
  * shape") and visual_collision (visuals lit, colliders as 35 % translucent shells with
  * wire edges). Environment: the two lights, or a bundled HDRI with intensity, rotation
  * and background (the 3d view's params); a ground grid (`show_grid`, on by default).
- * Overlays: link frames, joint axes and centre of mass (`show_frames`,
- * `show_joint_axes`, `show_com`). `up` (x, y, z, each negatable; default z, REP 103) turns
+ * Overlays: link frames, joint axes, centre of mass and inertia boxes (`show_frames`,
+ * `show_joint_axes`, `show_com`, `show_inertia`: the solid box with the link's mass and
+ * principal moments, on the principal axes). `up` (x, y, z, each negatable; default z, REP 103) turns
  * the robot's up onto Babylon's +Y at the root; navigation is viewnav.js's, free or orbit
  * (`camera_mode`).
  *
@@ -58,7 +59,7 @@
   const DEFAULTS = {
     view_mode: "lit", up: "z", camera_speed: 1, camera_mode: "free",
     environment: ENV_NONE, environment_intensity: 1, environment_background: false, environment_rotation: 0,
-    show_grid: true, show_frames: false, show_joint_axes: false, show_com: false, selected_links: [],
+    show_grid: true, show_frames: false, show_joint_axes: false, show_com: false, show_inertia: false, selected_links: [],
   };
 
   let engine = null, scene = null, camera = null, world = null, lights = [];
@@ -82,7 +83,7 @@
   const templates = {};                // mesh url -> {promise, holder, error}
   const materials = {};                // colour key -> material, shared by every visual using it
   let tintFlat = [], tintShell = [];
-  let placeholderMat = null, gridLines = [], overlays = { frames: [], axes: {}, com: [] };
+  let placeholderMat = null, gridLines = [], overlays = { frames: [], axes: {}, com: [], inertia: [] };
 
   /* selection: [{kind: "link" | "joint", name}] */
   let selection = [];
@@ -190,7 +191,7 @@
     robot = null;
     Object.keys(links).forEach(function (k) { delete links[k]; });
     Object.keys(joints).forEach(function (k) { delete joints[k]; });
-    overlays = { frames: [], axes: {}, com: [] };
+    overlays = { frames: [], axes: {}, com: [], inertia: [] };
     collisionsBuilt = false;
     failures.length = 0;
   }
@@ -710,9 +711,37 @@
         overlays.com.push(m);
       });
     }
+    // inertia boxes: the solid box of equivalent inertia per link with a mass
+    if (!params.show_inertia) {
+      overlays.inertia.forEach(function (m) { m.dispose(); });
+      overlays.inertia = [];
+    } else if (!overlays.inertia.length) {
+      Object.keys(links).forEach(function (name) {
+        const b = K.inertiaBox(links[name].link.inertial);
+        if (!b) return;
+        const m = BABYLON.MeshBuilder.CreateBox("inertia:" + name, { width: b.size[0], height: b.size[1], depth: b.size[2] }, scene);
+        m.material = inertiaMaterial();
+        m.position = v3(b.p);
+        m.rotationQuaternion = quat(b.q);
+        m.parent = links[name].node;
+        m.isPickable = false;
+        m.metadata = { overlay: true, inertia: name };
+        overlays.inertia.push(m);
+      });
+    }
     requestRender();
   }
-  let comMat = null, axisMat = null;
+  let comMat = null, axisMat = null, inertiaMat = null;
+  function inertiaMaterial() {
+    if (!inertiaMat) {
+      inertiaMat = new BABYLON.StandardMaterial("inertia", scene);
+      inertiaMat.disableLighting = true;
+      inertiaMat.emissiveColor = new BABYLON.Color3(0.62, 0.36, 0.95);
+      inertiaMat.alpha = 0.3;
+      inertiaMat.backFaceCulling = false;
+    }
+    return inertiaMat;
+  }
   function comMaterial() {
     if (!comMat) {
       comMat = new BABYLON.StandardMaterial("com", scene);
@@ -1060,7 +1089,7 @@
   let speedInput = null, speedValue = null, originButton = null, frameButton = null;
   let camButtons = {}, envButtons = {}, envSelect = null, envIntensityInput = null, envIntensityValue = null;
   let envRotationInput = null, envRotationValue = null, envBackgroundBox = null, gridBox = null;
-  let framesBox = null, axesBox = null, comBox = null, upButtons = {}, upNegate = null, resetButton = null;
+  let framesBox = null, axesBox = null, comBox = null, inertiaBox = null, upButtons = {}, upNegate = null, resetButton = null;
   let searchInput = null, treeEl = null, jointsEl = null, propsEl = null, followingEl = null, jointsReset = null, propsTitle = null;
   let query = "";
   const open = {};                     // tree key -> expanded (default open)
@@ -1190,6 +1219,8 @@
     axesBox = c[1]; ov.appendChild(c[0]);
     c = checkRow("Centre of mass", "a marker at each link's centre of mass, sized by its mass", "showCom", function (on) { setViewParams({ show_com: on }, true); });
     comBox = c[1]; ov.appendChild(c[0]);
+    c = checkRow("Inertia boxes", "a box of equivalent inertia per link: its mass and principal moments, on the principal axes", "showInertia", function (on) { setViewParams({ show_inertia: on }, true); });
+    inertiaBox = c[1]; ov.appendChild(c[0]);
     const upSeg = seg([["x", "X"], ["y", "Y"], ["z", "Z"]], function (a) {
       setViewParams({ up: (upAxis().charAt(0) === "-" ? "-" : "") + a }, true);
       fitAll();
@@ -1251,6 +1282,7 @@
     framesBox.checked = !!params.show_frames;
     axesBox.checked = !!params.show_joint_axes;
     comBox.checked = !!params.show_com;
+    inertiaBox.checked = !!params.show_inertia;
     const u = upAxis();
     Object.keys(upButtons).forEach(function (k) { upButtons[k].classList.toggle("on", u.replace("-", "") === k); });
     upNegate.classList.toggle("on", u.charAt(0) === "-");
@@ -1664,7 +1696,7 @@
       environment: envReport(),
       environments: environments.map(function (e) { return e.name; }),
       grid: gridLines.length > 0,
-      overlays: { frames: overlays.frames.length, axes: Object.keys(overlays.axes), com: overlays.com.length },
+      overlays: { frames: overlays.frames.length, axes: Object.keys(overlays.axes), com: overlays.com.length, inertia: overlays.inertia.length },
       meshes: { loaded: meshCount(), visible: visible, placeholders: placeholders, collision_parts: collisions, collisions_built: collisionsBuilt, loading: loading, failed: failures.slice() },
       hover: hoverText,
       search: query,
@@ -1685,7 +1717,7 @@
         cameraFree: r(camButtons.free), cameraOrbit: r(camButtons.orbit),
         envDefault: r(envButtons.default), envHdri: r(envButtons.hdri), environment: r(envSelect),
         envIntensity: r(envIntensityInput), envRotation: r(envRotationInput), envBackground: r(envBackgroundBox),
-        grid: r(gridBox), frames: r(framesBox), axes: r(axesBox), com: r(comBox),
+        grid: r(gridBox), frames: r(framesBox), axes: r(axesBox), com: r(comBox), inertia: r(inertiaBox),
         upX: r(upButtons.x), upY: r(upButtons.y), upZ: r(upButtons.z), upNegate: r(upNegate),
       },
       modes: modeMenu && !modeMenu.classList.contains("hidden")

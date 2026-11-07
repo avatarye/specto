@@ -26,7 +26,8 @@ the release and move on their own schedule.
   flat in the usd view's tints, hover names "link · shape") and visual + collision (35 %
   shells with wire edges). The VIEW panel: camera speed, World origin, Frame selected,
   Free / Orbit, Default lights or a bundled HDRI with intensity, rotation and background,
-  the ground grid (on by default), link frames, joint axes, centre of mass, the up axis
+  the ground grid (on by default), link frames, joint axes, centre of mass, inertia boxes
+  (the box of equivalent inertia per link), the up axis
   (X, Y or Z, negatable, default Z) and Reset pose. The ROBOT panel: a search that keeps
   each match's ancestors, the tree of links under their joints with R/P/C/F markers,
   joint sliders in degrees or mm (URDF limits, continuous joints wrap at 180, a click on

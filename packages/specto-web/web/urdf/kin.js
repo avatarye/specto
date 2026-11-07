@@ -189,6 +189,80 @@
     return r ? r.name : (model.links && model.links[0] ? model.links[0].name : "");
   }
 
+  /* ---- inertia ---------------------------------------------------------------------------- */
+  /** Eigenvalues and unit eigenvectors (columns) of a symmetric 3x3 matrix, by cyclic
+   * Jacobi rotations. */
+  function eigenSym(a) {
+    const A = a.map(function (r) { return r.slice(); });
+    const V = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    for (let sweep = 0; sweep < 50; sweep++) {
+      const off = Math.abs(A[0][1]) + Math.abs(A[0][2]) + Math.abs(A[1][2]);
+      if (off < 1e-15) break;
+      [[0, 1], [0, 2], [1, 2]].forEach(function (pq) {
+        const p = pq[0], q = pq[1];
+        if (Math.abs(A[p][q]) < 1e-18) return;
+        const theta = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+        const t = (theta >= 0 ? 1 : -1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+        const c = 1 / Math.sqrt(t * t + 1), s = t * c;
+        for (let k = 0; k < 3; k++) {
+          const akp = A[k][p], akq = A[k][q];
+          A[k][p] = c * akp - s * akq; A[k][q] = s * akp + c * akq;
+        }
+        for (let k = 0; k < 3; k++) {
+          const apk = A[p][k], aqk = A[q][k];
+          A[p][k] = c * apk - s * aqk; A[q][k] = s * apk + c * aqk;
+        }
+        for (let k = 0; k < 3; k++) {
+          const vkp = V[k][p], vkq = V[k][q];
+          V[k][p] = c * vkp - s * vkq; V[k][q] = s * vkp + c * vkq;
+        }
+      });
+    }
+    return { values: [A[0][0], A[1][1], A[2][2]], vectors: V };
+  }
+  /** A rotation matrix (its columns the turned axes) as a quaternion. */
+  function fromMatrix(m) {
+    const tr = m[0][0] + m[1][1] + m[2][2];
+    let x, y, z, w;
+    if (tr > 0) {
+      const s = Math.sqrt(tr + 1) * 2;
+      w = s / 4; x = (m[2][1] - m[1][2]) / s; y = (m[0][2] - m[2][0]) / s; z = (m[1][0] - m[0][1]) / s;
+    } else if (m[0][0] > m[1][1] && m[0][0] > m[2][2]) {
+      const s = Math.sqrt(1 + m[0][0] - m[1][1] - m[2][2]) * 2;
+      w = (m[2][1] - m[1][2]) / s; x = s / 4; y = (m[0][1] + m[1][0]) / s; z = (m[0][2] + m[2][0]) / s;
+    } else if (m[1][1] > m[2][2]) {
+      const s = Math.sqrt(1 + m[1][1] - m[0][0] - m[2][2]) * 2;
+      w = (m[0][2] - m[2][0]) / s; x = (m[0][1] + m[1][0]) / s; y = s / 4; z = (m[1][2] + m[2][1]) / s;
+    } else {
+      const s = Math.sqrt(1 + m[2][2] - m[0][0] - m[1][1]) * 2;
+      w = (m[1][0] - m[0][1]) / s; x = (m[0][2] + m[2][0]) / s; y = (m[1][2] + m[2][1]) / s; z = s / 4;
+    }
+    const l = Math.hypot(x, y, z, w) || 1;
+    return [x / l, y / l, z / l, w / l];
+  }
+  /** The box of equivalent inertia, in the link's frame: the solid box with the link's
+   * mass and the tensor's principal moments, at the inertial origin, its edges along the
+   * principal axes. A side whose moments break the triangle inequality (no rigid body
+   * has them) gets a sliver instead of a negative square. Null without a mass. */
+  function inertiaBox(inertial) {
+    if (!inertial || !(inertial.mass > 0)) return null;
+    const I = inertial.inertia || {};
+    const g = function (k) { const v = Number(I[k]); return isFinite(v) ? v : 0; };
+    const tensor = [[g("ixx"), g("ixy"), g("ixz")], [g("ixy"), g("iyy"), g("iyz")], [g("ixz"), g("iyz"), g("izz")]];
+    const e = eigenSym(tensor);
+    const m = inertial.mass, l = e.values;
+    const side = function (a, b, c) { return Math.sqrt(Math.max(0, 6 / m * (b + c - a))); };
+    const raw = [side(l[0], l[1], l[2]), side(l[1], l[0], l[2]), side(l[2], l[0], l[1])];
+    const floor = Math.max(1e-4, Math.max.apply(null, raw) * 0.02);
+    const V = e.vectors;
+    // right-handed axes: flip the third when the eigenvectors came out mirrored
+    const det = V[0][0] * (V[1][1] * V[2][2] - V[1][2] * V[2][1]) - V[0][1] * (V[1][0] * V[2][2] - V[1][2] * V[2][0])
+      + V[0][2] * (V[1][0] * V[2][1] - V[1][1] * V[2][0]);
+    if (det < 0) for (let k = 0; k < 3; k++) V[k][2] = -V[k][2];
+    const o = originOf(inertial.origin);
+    return { size: raw.map(function (x) { return Math.max(floor, x); }), p: o.p, q: qmul(o.q, fromMatrix(V)) };
+  }
+
   /* ---- UI units ------------------------------------------------------------------------- */
   /** The slider's units and range for a joint: degrees or millimetres. */
   function sliderSpec(j) {
@@ -258,6 +332,7 @@
   const api = {
     qmul: qmul, axisAngle: axisAngle, fromRpy: fromRpy, fromTo: fromTo, rotate: rotate, compose: compose, originOf: originOf,
     upRotation: upRotation, upOf: upOf, UPS: UPS,
+    inertiaBox: inertiaBox, eigenSym: eigenSym,
     moving: moving, actuated: actuated, limits: limits, clampJoint: clampJoint, wrapAngle: wrapAngle,
     zeroPose: zeroPose, resolve: resolve, motion: motion, forward: forward, rootOf: rootOf,
     sliderSpec: sliderSpec, toDisplay: toDisplay, fromDisplay: fromDisplay, displayText: displayText,
