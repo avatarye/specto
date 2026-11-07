@@ -98,6 +98,29 @@ def find_item(root: QQuickItem | None, object_name: str) -> QQuickItem | None:
     return None
 
 
+def settle(root: QQuickItem | None) -> None:
+    """Apply every pending polish under ``root`` (``QQuickItem.ensurePolished``), top
+    down, so the item tree is the one the next frame draws: a ListView applies its
+    model's row changes at its polish, and until then a removed row's delegate is still
+    there, visible (SPEC-41). Web views' own children are skipped, as in
+    :func:`find_item`."""
+    if root is None:
+        return
+    stack = [root]
+    while stack:
+        item = stack.pop()
+        item.ensurePolished()  # may add or remove its children: read them after
+        if not item.metaObject().className().startswith("QQuickWebEngine"):
+            stack.extend(item.childItems())
+
+
+def find_settled(win: QQuickWindow, object_name: str) -> QQuickItem | None:
+    """:func:`find_item` in ``win`` once its pending polishes are applied (:func:`settle`):
+    what ``shell.locate`` and the test driver answer, as the next frame shows it."""
+    settle(win.contentItem())
+    return find_item(win.contentItem(), object_name)
+
+
 class ShellSnapProvider:
     """What ``snap`` and ``shell.locate`` ask the shell for (``specto_app.snap``)."""
 
@@ -107,7 +130,7 @@ class ShellSnapProvider:
     def _find(self, name: str) -> QQuickItem | None:
         # Loader/Repeater-made items have no QObject parent chain: walk the item tree
         win = self.app.window
-        return find_item(win.contentItem(), name) if win is not None else None
+        return find_settled(win, name) if win is not None else None
 
     def _item(self, oid: str) -> QQuickItem | None:
         if self.app.window is None:
