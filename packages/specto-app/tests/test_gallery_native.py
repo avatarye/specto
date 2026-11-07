@@ -115,6 +115,7 @@ def test_qmldir_and_qmltypes_describe_the_item():
         "frameTimes",
         "syncMaxMs",
         "pagesCreated",
+        "queueSizes",
     ):
         assert f'name: "{name}"' in types, name
 
@@ -229,6 +230,34 @@ def test_thumbs_are_prepared_off_the_render_thread_and_dropped_with_the_item(app
     del g, comp, engine  # the destructor stops and joins the prepare thread
     app.processEvents()
     assert time.perf_counter() - t0 < 10.0
+
+
+@gui_test
+def test_a_clear_never_lets_an_old_collections_thumb_through(app):
+    """SPEC-1 review: a thumb pushed before clearThumbs is dropped however the prepare
+    thread's work interleaves with the clear (the generation is stamped at the push and
+    bumped under the raw queue's lock); only the thumbs pushed after it are prepared."""
+    import time
+
+    from PySide6.QtCore import QByteArray
+
+    engine, comp, g = _item(app, GRID % (400, 1000, 600, 4))
+    small = QByteArray(bytes([64]) * (32 * 24 * 4))
+    for round_ in range(30):
+        for i in range(60):
+            g.pushThumb(i, small, 32, 24)
+        g.clearThumbs()
+        for i in range(3):
+            g.pushThumb(100 + i, small, 32, 24)
+        deadline = time.perf_counter() + 5
+        while g.queueSizes()["raw"] and time.perf_counter() < deadline:
+            time.sleep(0.001)
+        time.sleep(0.01)  # the last one may be mid-prepare
+        sizes = g.queueSizes()
+        assert sizes == {"raw": 0, "prepared": 3}, (round_, sizes)
+        g.clearThumbs()
+    del g, comp, engine
+    app.processEvents()
 
 
 @gui_test

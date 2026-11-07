@@ -19,7 +19,7 @@ the release and move on their own schedule.
   A pushed thumbnail goes to the item's own prepare thread (every tier's downsample, its
   gutter, its mip chain). The render thread only uploads prepared cells, at most 24
   tiles and 3 ms per frame. A new atlas page is cleared on the GPU (`glClearTexImage`)
-  instead of a 16 MB CPU fill and upload. Over 13,200 images scrolled at 40 rows/s the
+  instead of a CPU fill uploaded to every mip level (21 MiB for a 2048 px page). Over 13,200 images scrolled at 40 rows/s the
   item's sync averages 0.8 ms (was 2.1) with a worst of 17 ms (was 25-31), and the frame
   p99 is 18-31 ms (was 25-29). The frames still over 33 ms are on the GUI thread: Python's
   gen-2 collection (55-80 ms, about once in 13 s with 13k items) and Python work under

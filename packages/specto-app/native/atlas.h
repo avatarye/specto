@@ -7,7 +7,8 @@
 // centred and the gutter filled by edge replication, which keeps linear and mip
 // sampling free of neighbour bleed. A new page is cleared to the placeholder tone on
 // the GPU (glClearTexImage) where the context has it, so creating one costs no CPU fill
-// and no 22 MB upload in the frame that needs it (SPEC-1).
+// and no upload (21 MiB for a 2048 px page with its mips) in the frame that needs it
+// (SPEC-1).
 #pragma once
 
 #include <QtCore/QSize>

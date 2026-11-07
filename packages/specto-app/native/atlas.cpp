@@ -113,7 +113,8 @@ AtlasPage::AtlasPage(QOpenGLExtraFunctions *f, QQuickWindow *window, int size, i
     f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels - 1);
     // Fresh pages start as the warm placeholder tone so an unwritten cell never flashes
     // black if it is ever sampled: cleared on the GPU where the context can (SPEC-1: the
-    // CPU fill and its 22 MB upload stalled the frame that opened a page), else filled.
+    // CPU fill and its upload, 21 MiB for a 2048 px page with its mips, stalled the
+    // frame that opened a page), else filled.
     static const uint8_t kTone[4] = {0xe9, 0xe3, 0xd9, 0xff};
     if (ClearTexImageFn clear = clearTexImageFn()) {
         for (int lv = 0; lv < levels; ++lv)

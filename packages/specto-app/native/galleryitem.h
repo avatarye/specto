@@ -57,7 +57,9 @@
 
 #include "atlas.h"
 
+#include <array>
 #include <atomic>
+#include <memory>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -102,6 +104,25 @@ struct StagedThumb {
     int index;
     int w, h;
     std::vector<uint8_t> rgba;   // w*h*4, straight alpha
+    uint32_t generation = 0;     // the collection it was pushed for (clearThumbs bumps it)
+};
+
+// The window's frames as the render thread timed them (SPEC-1). Shared with the
+// render-thread callbacks by shared_ptr, so a callback running while the item is
+// deleted touches only this, never the item; everything under `mutex`.
+struct FrameLog {
+    static constexpr int kMax = 16384;
+    QMutex mutex;
+    // per frame: swap-to-swap, sync-to-swap, sync-to-end-of-render (ms)
+    std::vector<std::array<float, 3>> frames;
+    QElapsedTimer clock;
+    qint64 lastSwapNs = 0, syncStartNs = 0, renderEndNs = 0;
+    void restart()
+    {
+        frames.clear();
+        clock.start();
+        lastSwapNs = syncStartNs = renderEndNs = 0;
+    }
 };
 
 // A staged thumb after the prepare thread (SPEC-1): one upload-ready cell per tier it
@@ -381,9 +402,12 @@ public:
     Q_INVOKABLE void setView(int columns, qreal scrollRows, bool fromUser);
     Q_INVOKABLE void resetStats();
     // The window's frames since resetStats, timed on the render thread (SPEC-1): each
-    // as [swap-to-swap ms, sync-to-swap ms], the newest kFrameLog. No Python runs on the
+    // as [swap-to-swap ms, sync-to-swap ms, sync-to-end-of-render ms], the newest
+    // FrameLog::kMax. No Python runs on the
     // render thread for it, so a busy interpreter cannot stretch what it measures.
     Q_INVOKABLE QVariantList frameTimes() const;
+    // thumbs waiting for the prepare thread ("raw") and for an upload ("prepared")
+    Q_INVOKABLE QVariantMap queueSizes();
 
     // render-thread entry points (called from GalleryNode during sync)
     std::vector<TileRec> &tiles() { return m_tiles; }
@@ -591,12 +615,8 @@ private:
     int m_statPagesCreated = 0;
     int m_pagesCreatedRt = 0;   // render thread; published with the stats
     // frame timing (render thread writes, frameTimes() copies under the mutex)
-    static constexpr int kFrameLog = 16384;
-    mutable QMutex m_frameMutex;
-    std::vector<std::pair<float, float>> m_frames;
-    qint64 m_lastSwapNs = 0, m_syncStartNs = 0;
-    QElapsedTimer m_frameClock;
-    QMetaObject::Connection m_syncConn, m_swapConn;
+    std::shared_ptr<FrameLog> m_frameLog = std::make_shared<FrameLog>();
+    QMetaObject::Connection m_syncConn, m_renderConn, m_swapConn;
     bool m_statsDirty = false;
     uint32_t m_uploadsSinceAspect = 0;
 };
