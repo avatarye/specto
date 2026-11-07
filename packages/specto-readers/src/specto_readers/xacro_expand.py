@@ -571,7 +571,13 @@ def literal_packages(
     ``$(find)``) is not followed and marks the scan ``dynamic``. Reads go through the
     same checks as the expansion (``_read_checked``: the root's folder, ``roots`` and the
     found package folders; device and network paths refused); a file that cannot be read
-    is skipped, the expansion reports it."""
+    is skipped, the expansion reports it.
+
+    A scan only: it grants nothing. Each package is still approved on its own, bound to
+    the root's bytes and args (:func:`package_hash`), by the user's click on the card that
+    lists it; the expansion checks every ``$(find)`` against those approvals. A ``dynamic``
+    scan is shown on the card as "needs review" and nothing in it is resolved on a guess:
+    the expansion asks for each such package when it meets it."""
     given = Path(os.path.abspath(os.fspath(path)))
     allowed = [*_both(given.parent)]
     for r in roots:
