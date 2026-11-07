@@ -926,6 +926,9 @@ class PromptBar(QObject):
         self._task = loop.create_task(self._run(text, verbatim))
 
     async def _run(self, text: str, verbatim: bool) -> None:
+        #: the agent got this turn's context: a verbatim turn that ran (a session that
+        #: failed to start, or ended mid-turn, may never have sent it: resend it)
+        delivered = False
         try:
             if self.session is None:
                 self.session = self.factory(self.tools)
@@ -939,11 +942,12 @@ class PromptBar(QObject):
                 on_delta=self._delta,
                 verbatim=verbatim,
             )
+            delivered = verbatim
         except Exception as e:
             msg = e.message if isinstance(e, SpectoError) else f"{type(e).__name__}: {e}"
             reply = Reply(text=msg, summary=msg.splitlines()[0][:200], status="failed", error=msg)
             print(f"[ERROR] prompt bar: {msg}")
-        self._finish(reply, context_sent=verbatim)
+        self._finish(reply, context_sent=delivered)
 
     def _delta(self, piece: str) -> None:
         self._text += piece
@@ -957,8 +961,9 @@ class PromptBar(QObject):
         self.reply = reply
         self.replies.append(reply)
         if context_sent:
-            # the agent has the document and the skills now; a project slash command
-            # went to the CLI without the context (SPEC-30), so the next turn carries it
+            # the agent has the document and the skills now; after a project slash
+            # command (the CLI got no context) or a turn that never reached the agent
+            # (SPEC-30) the next turn carries them
             self._last_hash = document_hash(self.live.data)
             self._skills_seen = skills_key(self.app.project.root)
         if reply.text and reply.text != self._text:

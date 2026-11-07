@@ -228,6 +228,50 @@ def test_a_project_slash_command_leaves_the_context_unseen(app, aspin):
     assert "document" not in settled and "commands" not in settled
 
 
+def test_a_turn_that_never_reached_the_agent_leaves_the_context_unseen(
+    qapp, project, aloop, spin, aspin
+):
+    """SPEC-30: the context counts as seen only once a turn delivered it. A session that
+    fails to start never sent the first prompt, so the next turn still carries the whole
+    document."""
+    from specto_app.app import SpectoApp
+
+    class FailsToStartOnce(ScriptedAgentSession):
+        attempts = 0
+
+        async def start(self) -> None:
+            FailsToStartOnce.attempts += 1
+            if FailsToStartOnce.attempts == 1:
+                raise RuntimeError("the agent CLI did not start")
+            await super().start()
+
+    sessions: list[ScriptedAgentSession] = []
+
+    def factory(tools):
+        sessions.append(FailsToStartOnce(tools, [[{"text": "Hello."}]]))
+        return sessions[-1]
+
+    app = SpectoApp(
+        project, jobs="inline", web=False, offscreen=True, serve=True, agent=factory, loop=aloop
+    )
+    app.start()
+    try:
+        spin(50)
+        bar = app.prompt_bar
+        assert bar.submit("hello") is True
+        aspin(until=lambda: not bar.busy)
+        assert bar.status == "failed" and "did not start" in bar.replyText
+        assert sessions and sessions[0].received == []  # nothing reached the agent
+
+        assert bar.submit("hello again") is True
+        aspin(until=lambda: not bar.busy)
+        assert bar.status == "answered"
+        assert set(context_block(sessions[-1], 0)["document"]["views"]) == {"fege"}
+    finally:
+        app.close()
+        spin(20)
+
+
 def test_ask_agent_to_change_prefills_the_field(app, spin):
     """The link popover's "Ask agent to change" (#45) calls ``promptBar.prefill``: the
     text lands in the field (``draft``), focused, with the bar up."""
