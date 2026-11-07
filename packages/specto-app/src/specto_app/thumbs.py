@@ -829,24 +829,24 @@ def _mix(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[in
 
 
 def _card(
-    kind: str, px: int, pal: dict[str, str]
+    kind: str, px: int, look: dict[str, str]
 ) -> tuple[Image.Image, ImageDraw.ImageDraw, int, int]:
     """A blank card with the kind badge in its corner; returns the image, a drawer,
     the padding and the y below the badge."""
     w, h = px, max(1, round(px / CARD_ASPECT))
-    im = Image.new("RGBA", (w, h), (*_rgb(pal["surface"]), 255))
+    im = Image.new("RGBA", (w, h), (*_rgb(look["surface"]), 255))
     d = ImageDraw.Draw(im)
-    d.rectangle((0, 0, w - 1, h - 1), outline=_rgb(pal["border"]))
+    d.rectangle((0, 0, w - 1, h - 1), outline=_rgb(look["border"]))
     pad = max(4, round(px * 0.06))
     label, token = BADGES.get(kind, (kind.upper()[:6], "text_muted"))
-    colour = _rgb(pal[token])
+    colour = _rgb(look[token])
     font = _font("bold", max(7, round(px / 22)))
     tw = d.textlength(label, font=font)
     bh = max(9, round(px / 13))
     d.rounded_rectangle(
         (pad, pad, pad + tw + bh * 0.8, pad + bh),
         radius=bh // 3,
-        fill=_mix(colour, _rgb(pal["surface"]), 0.82),
+        fill=_mix(colour, _rgb(look["surface"]), 0.82),
     )
     d.text((pad + bh * 0.4, pad + bh / 2), label, font=font, fill=colour, anchor="lm")
     return im, d, pad, pad + bh + max(3, round(px * 0.035))
@@ -927,9 +927,9 @@ def excerpt_lines(uri: str, kind: str) -> list[tuple[str, str]]:
     return [("code", ln.rstrip()) for ln in text.splitlines() if ln.strip()]
 
 
-def excerpt_card(uri: str, kind: str, px: int, pal: dict[str, str]) -> np.ndarray:
+def excerpt_card(uri: str, kind: str, px: int, look: dict[str, str]) -> np.ndarray:
     """The first lines of the file on a card (no web view, no layout engine)."""
-    im, d, pad, y = _card(kind, px, pal)
+    im, d, pad, y = _card(kind, px, look)
     w, h = im.size
     body = max(7, round(px / 15))
     fonts = {
@@ -937,7 +937,7 @@ def excerpt_card(uri: str, kind: str, px: int, pal: dict[str, str]) -> np.ndarra
         "body": _font("ui", body),
         "code": _font("mono", round(body * 0.92)),
     }
-    colours = {"head": _rgb(pal["text"]), "body": _rgb(pal["text"]), "code": _rgb(pal["text"])}
+    colours = {"head": _rgb(look["text"]), "body": _rgb(look["text"]), "code": _rgb(look["text"])}
     width = w - 2 * pad
     for style, line in excerpt_lines(uri, kind):
         font = fonts[style]
@@ -954,12 +954,12 @@ def excerpt_card(uri: str, kind: str, px: int, pal: dict[str, str]) -> np.ndarra
     return np.asarray(im, dtype=np.uint8)
 
 
-def kind_card(uri: str, kind: str, px: int, pal: dict[str, str]) -> np.ndarray:
+def kind_card(uri: str, kind: str, px: int, look: dict[str, str]) -> np.ndarray:
     """A card with a glyph for the kind and the file's extension."""
-    im, d, pad, top = _card(kind, px, pal)
+    im, d, pad, top = _card(kind, px, look)
     w, h = im.size
     _label, token = BADGES.get(kind, ("", "text_muted"))
-    colour = _rgb(pal[token])
+    colour = _rgb(look[token])
     ext = Path(uri.rsplit("#", 1)[-1]).suffix.lstrip(".").upper() or kind
     font = _font("bold", max(7, round(px / 14)))
     text_h = font.size + pad
@@ -970,14 +970,14 @@ def kind_card(uri: str, kind: str, px: int, pal: dict[str, str]) -> np.ndarray:
         # an isometric cube
         dx, dy = r * 0.87, r * 0.5
         top_face = [(cx, cy - r), (cx + dx, cy - dy), (cx, cy), (cx - dx, cy - dy)]
-        d.polygon(top_face, fill=_mix(colour, _rgb(pal["surface"]), 0.7))
+        d.polygon(top_face, fill=_mix(colour, _rgb(look["surface"]), 0.7))
         d.polygon(
             [(cx - dx, cy - dy), (cx, cy), (cx, cy + r), (cx - dx, cy + dy)],
-            fill=_mix(colour, _rgb(pal["surface"]), 0.45),
+            fill=_mix(colour, _rgb(look["surface"]), 0.45),
         )
         d.polygon(
             [(cx + dx, cy - dy), (cx, cy), (cx, cy + r), (cx + dx, cy + dy)],
-            fill=_mix(colour, _rgb(pal["surface"]), 0.2),
+            fill=_mix(colour, _rgb(look["surface"]), 0.2),
         )
         outline = [(cx, cy - r), (cx + dx, cy - dy), (cx + dx, cy + dy), (cx, cy + r)]
         outline += [(cx - dx, cy + dy), (cx - dx, cy - dy), (cx, cy - r)]
@@ -993,7 +993,7 @@ def kind_card(uri: str, kind: str, px: int, pal: dict[str, str]) -> np.ndarray:
         page = [(x0, y0), (x1 - f, y0), (x1, y0 + f), (x1, y1), (x0, y1)]
         d.polygon(page, outline=colour, width=lw)
         d.line([(x1 - f, y0), (x1 - f, y0 + f), (x1, y0 + f)], fill=colour, width=lw)
-    d.text((cx, h - pad), ext, font=font, fill=_rgb(pal["text_muted"]), anchor="ms")
+    d.text((cx, h - pad), ext, font=font, fill=_rgb(look["text_muted"]), anchor="ms")
     return np.asarray(im, dtype=np.uint8)
 
 
@@ -1050,7 +1050,7 @@ def submit_thumbs(
     refs: list[DataRef],
     px: int,
     cache_dir: str | None,
-    pal: dict[str, str],
+    look: dict[str, str],
     *,
     canvas: str | None = None,
     on_done: Callable[[Any], None] | None = None,
@@ -1062,7 +1062,7 @@ def submit_thumbs(
         [r.model_dump() for r in refs],
         int(px),
         cache_dir,
-        dict(pal),
+        dict(look),
         canvas=canvas,
         on_done=on_done,
     )

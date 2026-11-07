@@ -76,7 +76,6 @@ the release and move on their own schedule.
   compressed tar, which is read into memory), only with room left on the drive and within
   15 s, and a cancelled job stops it; past any of those, or with no cache folder, it
   keeps the kind card.
-  15 s; past any of those it keeps the kind card.
   decode as before. A video inside an archive shows its poster frame: the member, up to
   512 MB, is copied to a temporary file for libmpv and removed again.
 - Paused galleries, images and videos give back their GPU memory (SPEC-3, ADR 0030). A
