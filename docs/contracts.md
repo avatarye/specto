@@ -402,7 +402,10 @@ before. Thumbnails and posters never open an audio device.
   without pxr (default prim, up axis, metres per unit, time codes, Kit's camera,
   sublayers; `defaulted` and `unavailable` say what fell back and what needs the stage).
   `uses` names machine capabilities (`specto_core.machine`: `ovrtx`, detected by
-  importing ovrtx and ovstage in a child Python), and `describe view:<type>` reports them. Data kinds: `image2d image_seq video_ref pointcloud mesh splat usd_stage_ref
+  importing ovrtx and ovstage in a child Python), and `describe view:<type>` reports them.
+  Test-only: `SPECTO_DISABLE_CAPABILITIES` (comma-separated) makes capabilities absent
+  without detecting them, `SPECTO_FAKE_CAPABILITIES` present (the usd view then runs the
+  stub USD source in the faked renderer's place); a name in both is disabled. Data kinds: `image2d image_seq video_ref pointcloud mesh splat usd_stage_ref
   geojson json text markdown table message_stream pose_track`.
 - Intake (`specto-intake`): the intaker's params are the spec (section 2); items are
   `Item {key, parts: {role -> path}, index, meta}`; keys are the named groups of

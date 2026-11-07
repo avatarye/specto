@@ -377,6 +377,9 @@ def test_a_faked_capability_runs_the_stub_source_not_its_renderer(monkeypatch):
     def module(argv: list[str]) -> str:
         return argv[argv.index("-m") + 1]
 
+    def stands_in_for(argv: list[str]) -> str:
+        return argv[argv.index("--renderer") + 1]
+
     def caps(ovrtx: bool, storm: bool):
         return lambda: {
             "ovrtx": MachineCapability(name="ovrtx", present=ovrtx),
@@ -386,10 +389,16 @@ def test_a_faked_capability_runs_the_stub_source_not_its_renderer(monkeypatch):
     def view(renderer: str) -> dict:
         return {"type": "usd", "params": {"renderer": renderer}}
 
+    monkeypatch.setenv("SPECTO_DISABLE_CAPABILITIES", "")  # conftest disables both
     monkeypatch.setenv("SPECTO_FAKE_CAPABILITIES", "ovrtx")
-    assert module(source_command(view("auto"), caps(True, False), 64, 48)) == stub
-    assert module(source_command(view("rtx"), caps(True, False), 64, 48)) == stub
+    for asked in ("auto", "rtx"):
+        argv = source_command(view(asked), caps(True, False), 64, 48)
+        assert module(argv) == stub and stands_in_for(argv) == "rtx"
     monkeypatch.setenv("SPECTO_FAKE_CAPABILITIES", "storm")
-    assert module(source_command(view("storm"), caps(False, True), 64, 48)) == stub
+    argv = source_command(view("storm"), caps(False, True), 64, 48)
+    assert module(argv) == stub and stands_in_for(argv) == "storm"
+    monkeypatch.setenv("SPECTO_DISABLE_CAPABILITIES", "storm")  # disabled wins
+    assert module(source_command(view("storm"), caps(False, True), 64, 48)) != stub
+    monkeypatch.setenv("SPECTO_DISABLE_CAPABILITIES", "")
     monkeypatch.delenv("SPECTO_FAKE_CAPABILITIES")
     assert module(source_command(view("auto"), caps(True, False), 64, 48)) != stub

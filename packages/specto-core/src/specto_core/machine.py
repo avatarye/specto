@@ -139,16 +139,18 @@ def detect_storm(prefix: str | None = None) -> MachineCapability:
     return MachineCapability(name="storm", present=True, reason=f"OpenUSD imaging at {prefix}")
 
 
-def _named(env: str) -> set[str]:
+def _env_names(env: str) -> set[str]:
+    """The comma-separated names in environment variable ``env``."""
     return {n.strip() for n in os.environ.get(env, "").split(",") if n.strip()}
 
 
 def faked() -> set[str]:
-    """The capabilities named in ``SPECTO_FAKE_CAPABILITIES`` (comma-separated): present
-    for every choice (the renderer, the quotas, the notes) without detecting them, while
-    the usd view still runs the stub USD source in their place, so a scripted flow plays
-    a machine with ovrtx and never starts a renderer (SPEC-36)."""
-    return _named(FAKE_ENV)
+    """The capabilities named in ``SPECTO_FAKE_CAPABILITIES`` (comma-separated, test-only)
+    and not in ``SPECTO_DISABLE_CAPABILITIES`` (disabled wins): present for every choice
+    (the renderer, the quotas, the notes) without detecting them, while the usd view runs
+    the stub USD source in their place, so a scripted flow plays a machine with ovrtx and
+    never starts a renderer (SPEC-36)."""
+    return _env_names(FAKE_ENV) - _env_names(DISABLE_ENV)
 
 
 def machine_capabilities() -> dict[str, MachineCapability]:
@@ -157,7 +159,7 @@ def machine_capabilities() -> dict[str, MachineCapability]:
     and scripted flows can run as on a machine without them; the ones named in
     ``SPECTO_FAKE_CAPABILITIES`` are present without asking (:func:`faked`). Disabled
     wins over faked."""
-    off, fake = _named(DISABLE_ENV), faked()
+    off, fake = _env_names(DISABLE_ENV), faked()
     detect = {"ovrtx": detect_ovrtx, "storm": detect_storm}
 
     def one(name: str) -> MachineCapability:

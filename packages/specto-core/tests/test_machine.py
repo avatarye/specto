@@ -74,4 +74,4 @@ def test_a_capability_named_in_specto_fake_capabilities_is_present_without_detec
     assert caps["ovrtx"].present
     assert caps["ovrtx"].reason == "faked by SPECTO_FAKE_CAPABILITIES"
     assert not caps["storm"].present  # disabled wins
-    assert machine.faked() == {"ovrtx", "storm"}
+    assert machine.faked() == {"ovrtx"}  # everywhere: the usd view's source too

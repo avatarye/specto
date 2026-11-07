@@ -285,6 +285,13 @@ def storm_launcher(width: int, height: int) -> list[str]:
     return [*argv, "--width", str(width), "--height", str(height)]
 
 
+#: each renderer's machine capability and the launcher of its source process
+RENDERERS: dict[str, tuple[str, Callable[[int, int], list[str]]]] = {
+    "rtx": ("ovrtx", rtx_launcher),
+    "storm": ("storm", storm_launcher),
+}
+
+
 def source_command(view: dict[str, Any], caps: Capabilities, width: int, height: int) -> list[str]:
     """The command line of the frame-source process for ``view`` (its document entry),
     with a first frame of ``width x height``: the one place the renderer is chosen.
@@ -294,17 +301,19 @@ def source_command(view: dict[str, Any], caps: Capabilities, width: int, height:
     macOS ``auto`` is always Storm); the stub USD source where it has neither.
     ``caps`` is not called for an explicit rtx (detecting ovrtx starts a child Python).
     A renderer whose capability is faked (``SPECTO_FAKE_CAPABILITIES``, scripted flows)
-    is played by the stub. Every source speaks the stub USD source's protocol."""
+    is played by the stub, ``--renderer`` naming the one it stands in for (its start
+    phase; its panel still says Stub). Every source speaks the stub USD source's
+    protocol."""
     params = view.get("params") or {}
     asked = params.get("renderer") or "auto"
-    fake = faked()
     found: Mapping[str, Any] = {} if asked == "rtx" else caps()
-    if usd_renderer(params, found) == "rtx":
-        return stub_launcher(width, height) if "ovrtx" in fake else rtx_launcher(width, height)
-    storm = found.get("storm")
-    if storm is not None and storm.present:
-        return stub_launcher(width, height) if "storm" in fake else storm_launcher(width, height)
-    return stub_launcher(width, height)
+    renderer = usd_renderer(params, found)
+    if renderer == "storm" and not getattr(found.get("storm"), "present", False):
+        return stub_launcher(width, height)  # no Storm build here either
+    capability, launcher = RENDERERS[renderer]
+    if capability in faked():
+        return [*stub_launcher(width, height), "--renderer", renderer]
+    return launcher(width, height)
 
 
 def usd_part(item: Item) -> str | None:
