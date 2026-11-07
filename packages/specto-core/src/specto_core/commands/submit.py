@@ -162,8 +162,8 @@ class CanvasOpenFileResult(Result):
         default_factory=dict,
         description="Views collapsed in the same submit to make room for the view opened "
         "or expanded, each with every quota it was collapsed for (rtx_views: one live RTX "
-        "view per canvas, so a second stage's usd view collapses the first). Locked views "
-        "are never collapsed.",
+        "view per canvas, so where usd views render with RTX a second stage's view "
+        "collapses the first). Locked views are never collapsed.",
     )
 
 

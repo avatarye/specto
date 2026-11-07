@@ -59,7 +59,7 @@ declare namespace SpectoApi {
     submit?: SubmitResult | null;
     /** How it opened: contextual, or dedicated (asked for, or the fallback of a contextual open whose kind the preview cannot show; a file no view shows opens a text view saying Not supported). default: "contextual" */
     mode?: string;
-    /** Views collapsed in the same submit to make room for the view opened or expanded, each with every quota it was collapsed for (rtx_views: one live RTX view per canvas, so a second stage's usd view collapses the first). Locked views are never collapsed. */
+    /** Views collapsed in the same submit to make room for the view opened or expanded, each with every quota it was collapsed for (rtx_views: one live RTX view per canvas, so where usd views render with RTX a second stage's view collapses the first). Locked views are never collapsed. */
     collapsed?: Record<string, string[]>;
   }
   /** What a submit changed. ``empty`` when the document equalled the live one (no undo

@@ -4,7 +4,9 @@ type a dedicated or contextual open can add."""
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 import pytest
 
@@ -13,21 +15,33 @@ from specto_app.views import factories
 from specto_core import Engine, gestures
 from specto_core.canvas_document import file_tree_of
 from specto_core.jobs import InlineJobManager
+from specto_core.machine import MachineCapability
 
 
-@pytest.fixture
-def engine(qapp) -> Iterator[Engine]:
+@contextmanager
+def _app_engine(ovrtx: bool) -> Iterator[Engine]:
     """A headless engine whose registry holds the app's view manifests, registered the
-    way the shell registers them; the window frame is large enough that every view
-    opened beside the tree is live."""
-    engine = Engine(project=None, jobs=InlineJobManager())
+    way the shell registers them, on a machine with or without ovrtx; the window frame
+    is large enough that every view opened beside the tree is live."""
+    cap = MachineCapability(name="ovrtx", present=ovrtx, reason="test machine")
+    engine = Engine(project=None, jobs=InlineJobManager(), capabilities=lambda: {"ovrtx": cap})
     reg = HostRegistry(HostContext(engine, None), load_entry_points=False)
     for factory in factories():
         reg.add_factory(factory)
     gestures.set_window_frame(engine.live, (4000.0, 8000.0))
-    yield engine
-    reg.dispose_all()
-    engine.close()
+    try:
+        yield engine
+    finally:
+        reg.dispose_all()
+        engine.close()
+
+
+@pytest.fixture
+def engine(qapp, monkeypatch) -> Iterator[Engine]:
+    """On Windows with ovrtx: an auto usd view renders with RTX and counts an RTX view."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    with _app_engine(ovrtx=True) as engine:
+        yield engine
 
 
 def _open(engine: Engine, path: str, mode: str = "dedicated") -> gestures.OpenedFile:
@@ -84,3 +98,15 @@ def test_a_usd_view_is_collapsed_for_both_quotas_it_counts_toward(engine: Engine
         "one.usda · a collapsed to make room for two.usda · b: at most 3 live 3D viewports "
         "per canvas; at most 1 live RTX view per canvas"
     )
+
+
+def test_a_second_stage_collapses_nothing_where_auto_renders_with_storm(qapp, monkeypatch):
+    """SPEC-36: without ovrtx an auto usd view renders with Storm and costs no RTX view,
+    so a second stage opens beside the first and both stay live."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    with _app_engine(ovrtx=False) as engine:
+        first = _open(engine, "a/one.usda")
+        second = _open(engine, "b/two.usda")
+        assert second.collapsed == {}
+        views = engine.live.data["views"]
+        assert not any(views[o.view]["layout"].get("collapsed") for o in (first, second))

@@ -160,7 +160,15 @@ def _two_stages(engine: Engine, second_renderer: str) -> dict:
     return doc
 
 
-def test_one_live_rtx_view_per_canvas(engine: Engine):
+def _engine_with_ovrtx(present: bool, storm: bool = False) -> Engine:
+    cap = MachineCapability(name="ovrtx", present=present, reason="test machine")
+    st = MachineCapability(name="storm", present=storm, reason="test machine")
+    return Engine(project=None, capabilities=lambda: {"ovrtx": cap, "storm": st})
+
+
+def test_one_live_rtx_view_per_canvas(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    engine = _engine_with_ovrtx(True)
     assert Quotas().rtx_views == 1
     with pytest.raises(CanvasInvalid) as e:
         engine.live.submit(_two_stages(engine, "rtx"), origin=AGENT, label="two worlds")
@@ -169,15 +177,56 @@ def test_one_live_rtx_view_per_canvas(engine: Engine):
     assert "renderer: storm" in problem["fix"]
 
 
-def test_a_storm_view_costs_no_rtx_quota(engine: Engine):
+def test_a_storm_view_costs_no_rtx_quota(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    engine = _engine_with_ovrtx(True)
     result = engine.live.submit(_two_stages(engine, "storm"), origin=AGENT, label="rtx and storm")
     assert set(result.views["added"]) == {"kobi", "tamu"}
 
 
-def _engine_with_ovrtx(present: bool, storm: bool = False) -> Engine:
-    cap = MachineCapability(name="ovrtx", present=present, reason="test machine")
-    st = MachineCapability(name="storm", present=storm, reason="test machine")
-    return Engine(project=None, capabilities=lambda: {"ovrtx": cap, "storm": st})
+def test_an_auto_view_costs_no_rtx_quota_on_a_machine_without_ovrtx(monkeypatch):
+    """SPEC-36: auto resolves to Storm where ovrtx is missing, so two auto stages are
+    two Storm views and the RTX quota does not count them."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    engine = _engine_with_ovrtx(False, storm=True)
+    result = engine.live.submit(_two_stages(engine, "auto"), origin=AGENT, label="two worlds")
+    assert set(result.views["added"]) == {"kobi", "tamu"}
+
+
+def test_an_auto_view_costs_no_rtx_quota_on_macos(monkeypatch):
+    """SPEC-36: on macOS auto is always Storm, even where ovrtx reports present."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+    engine = _engine_with_ovrtx(True, storm=True)
+    result = engine.live.submit(_two_stages(engine, "auto"), origin=AGENT, label="two worlds")
+    assert set(result.views["added"]) == {"kobi", "tamu"}
+
+
+def test_an_auto_view_costs_an_rtx_view_where_it_resolves_to_rtx(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    engine = _engine_with_ovrtx(True)
+    with pytest.raises(CanvasInvalid) as e:
+        engine.live.submit(_two_stages(engine, "auto"), origin=AGENT, label="two worlds")
+    [problem] = e.value.problems
+    assert problem["message"].startswith("quota rtx_views=1 would be exceeded")
+
+
+def test_an_explicit_rtx_view_costs_an_rtx_view_even_without_ovrtx(monkeypatch):
+    """rtx asked for stays rtx (its health says why it cannot start), so it still counts;
+    the explicit renderers are judged without detecting the machine."""
+    monkeypatch.setattr(sys, "platform", "win32")
+
+    def no_detection() -> dict:
+        raise AssertionError("an explicit renderer needs no machine detection")
+
+    engine = Engine(project=None, capabilities=no_detection)
+    doc = _two_stages(engine, "rtx")
+    doc["views"]["kobi"]["params"] = {"renderer": "rtx"}
+    with pytest.raises(CanvasInvalid) as e:
+        engine.live.submit(doc, origin=AGENT, label="two worlds")
+    [problem] = e.value.problems
+    assert problem["message"].startswith("quota rtx_views=1 would be exceeded")
+    doc["views"]["kobi"]["params"] = {"renderer": "storm"}
+    engine.live.submit(doc, origin=AGENT, label="rtx and storm")
 
 
 def test_describe_says_auto_renders_with_rtx_where_ovrtx_is_present(monkeypatch):

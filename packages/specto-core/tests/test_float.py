@@ -205,7 +205,9 @@ def test_floating_views_count_against_the_quota_wherever_the_canvas_pans():
     live = LiveCanvas.headless(
         "demo",
         quotas=Quotas(web_views=1),
-        view_cost=lambda t: ViewCost(web_views=1) if t in ("json", "markdown") else ViewCost(),
+        view_cost=lambda v: (
+            ViewCost(web_views=1) if v["type"] in ("json", "markdown") else ViewCost()
+        ),
     )
     doc = live.document()
     doc["views"]["kobi"] = {

@@ -310,8 +310,10 @@ def _costed(quotas: Quotas | None = None) -> tuple[LiveCanvas, str]:
     The other view types' costs are the app's (``specto-app`` tests/test_open_make_room)."""
     plugins = app_plugins()
 
-    def view_cost(view_type: str):
-        m = plugins.view(view_type)
+    def view_cost(view: dict):
+        """The manifest's cost as it stands: a usd view counts an RTX view, as where
+        auto renders with RTX (SPEC-36's machine cases: test_usd_view)."""
+        m = plugins.view(view["type"])
         return m.cost if m is not None else None
 
     live = LiveCanvas.headless("demo", quotas=quotas, view_cost=view_cost)

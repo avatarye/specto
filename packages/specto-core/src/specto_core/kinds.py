@@ -398,7 +398,8 @@ BUILTIN_VIEWS: list[ViewManifest] = [
         "properties. Time is the stage's timecodes in seconds; camera is shared with the "
         "3d view. Nothing is written to the file.",
         accepts=["usd_stage_ref"],
-        # rtx_views drops out when params.renderer is storm (quotas.view_cost_of)
+        # rtx_views counts only where the renderer resolves to rtx: not storm, nor auto
+        # on macOS or without ovrtx (quotas.view_cost_of, SPEC-36)
         cost=ViewCost(viewports3d=1, rtx_views=1),
         uses=["ovrtx", "storm"],
         defaults={

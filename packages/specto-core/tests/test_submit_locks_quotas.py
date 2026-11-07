@@ -94,8 +94,8 @@ def test_a_quota_overrun_inside_the_window_frame_is_refused_with_the_offenders_n
     live = LiveCanvas.headless(
         "demo",
         quotas=Quotas(web_views=2),
-        view_cost=lambda t: (
-            ViewCost(web_views=1) if t in ("json", "markdown", "map") else ViewCost()
+        view_cost=lambda v: (
+            ViewCost(web_views=1) if v["type"] in ("json", "markdown", "map") else ViewCost()
         ),
     )
     doc = live.document()

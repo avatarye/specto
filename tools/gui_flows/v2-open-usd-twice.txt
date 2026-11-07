@@ -1,55 +1,78 @@
-# v2 SPEC-34: two stages double-clicked in turn. The first opens its dedicated usd view;
-# the second opens its own usd view too (one live RTX view per canvas, ADR 0025), and the
-# first collapses to its title bar to make room, in the same undo step, with a notice
-# naming it and the quota. A double-click on the first stage again expands its view and
-# collapses the second; the header's expand on the second does the reverse, its notice
-# naming the quota too; Undo brings the first back live and the second collapsed.
+# v2 SPEC-34, SPEC-36: stages double-clicked in turn, each opening its dedicated usd view.
+# The suite runs without ovrtx, so auto renders with Storm and a usd view costs no RTX
+# view (SPEC-36): the second and third stages open beside the first and nothing
+# collapses. Each usd view is a 3D viewport, though (at most 3 per canvas): the fourth
+# stage's view makes room (ADR 0025), the first collapsing to its title bar in the same
+# undo step, with a notice naming it and the quota. A double-click on the first stage
+# again expands its view and collapses the oldest live one (the second); the header's
+# expand on the second does the reverse, its notice naming the quota too; Undo brings
+# the first back live and the second collapsed.
 # Project: tools/gui_flows/v2-open-usd-seed.py <folder>. The suite runs the stub USD
-# source (no renderer), so no picture is judged here.
-resize 1600 960
+# source (no renderer), so no picture is judged here. The window is tall: dedicated views
+# stack below one another, and only views inside the window frame count toward a quota.
+resize 1600 2100
 wait 1500
 assert_found slot:@file_tree
 wait_until treeRow:@file_tree:worlds 20000
 expand @file_tree:worlds
 expand @file_tree:props
 wait_until treeRow:@file_tree:worlds/yard.usda 15000
-wait_until treeRow:@file_tree:props/crate.usda 15000
+wait_until treeRow:@file_tree:props/pallet.usda 15000
 # 1 the first stage: its dedicated usd view, live
 dblclick treeRow:@file_tree:worlds/yard.usda 0.6 0.5
 wait_until slot:@usd 15000
 wait 1200
 assert_text title:@usd yard.usda · worlds
 assert_meta @usd layout.collapsed null
-# 2 the second stage: its own usd view; the first collapses to make room, said in a notice
+# 2 the second and third stages: their own usd views, and no RTX view counted, so
+# nothing collapses (SPEC-36)
 dblclick treeRow:@file_tree:props/crate.usda 0.6 0.5
 wait_until slot:@usd#2 15000
 wait 1200
 assert_missing notice:error
+assert_missing notice:info
 assert_text title:@usd#2 crate.usda · props
-assert_meta @usd layout.collapsed true
+assert_meta @usd layout.collapsed null
 assert_meta @usd#2 layout.collapsed null
-assert_text noticeText:info yard.usda · worlds collapsed to make room for crate.usda · props: at most 1 live RTX view per canvas
-shot open-usd-twice-01-second-stage-collapses-the-first.png
-# 3 the first stage again: its view expands, the second collapses
+dblclick treeRow:@file_tree:props/barrel.usda 0.6 0.5
+wait_until slot:@usd#3 15000
+wait 1200
+assert_missing notice:error
+assert_missing notice:info
+assert_meta @usd layout.collapsed null
+assert_meta @usd#2 layout.collapsed null
+assert_meta @usd#3 layout.collapsed null
+shot open-usd-twice-01-storm-stages-collapse-nothing.png
+# 3 the fourth stage: one 3D viewport too many; the first collapses to make room
+dblclick treeRow:@file_tree:props/pallet.usda 0.6 0.5
+wait_until slot:@usd#4 15000
+wait 1200
+assert_missing notice:error
+assert_text title:@usd#4 pallet.usda · props
+assert_meta @usd layout.collapsed true
+assert_meta @usd#4 layout.collapsed null
+assert_text noticeText:info yard.usda · worlds collapsed to make room for pallet.usda · props: at most 3 live 3D viewports per canvas
+shot open-usd-twice-02-fourth-stage-collapses-the-first.png
+# 4 the first stage again: its view expands, the oldest live one (the second) collapses
 dblclick treeRow:@file_tree:worlds/yard.usda 0.6 0.5
 wait 1200
 assert_missing notice:error
-assert_missing slot:@usd#3
+assert_missing slot:@usd#5
 assert_meta @usd layout.collapsed null
 assert_meta @usd#2 layout.collapsed true
-shot open-usd-twice-02-double-click-again-expands-the-first.png
-# 4 the header's expand on the second: the first collapses, the notice names the quota
+shot open-usd-twice-03-double-click-again-expands-the-first.png
+# 5 the header's expand on the second: the first collapses, the notice names the quota
 click collapse:@usd#2
 wait 1200
 assert_missing notice:error
 assert_meta @usd layout.collapsed true
 assert_meta @usd#2 layout.collapsed null
-assert_text noticeText:info yard.usda · worlds collapsed to make room for crate.usda · props: at most 1 live RTX view per canvas
-shot open-usd-twice-03-expand-the-second-collapses-the-first.png
-# 5 Undo: the first live again, the second collapsed
+assert_text noticeText:info yard.usda · worlds collapsed to make room for crate.usda · props: at most 3 live 3D viewports per canvas
+shot open-usd-twice-04-expand-the-second-collapses-the-first.png
+# 6 Undo: the first live again, the second collapsed
 click undoButton
 wait 1200
 assert_meta @usd layout.collapsed null
 assert_meta @usd#2 layout.collapsed true
-shot open-usd-twice-04-undo.png
+shot open-usd-twice-05-undo.png
 print snap {"target": "canvas", "layout": true}

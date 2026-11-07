@@ -147,10 +147,11 @@ class LiveCanvas:
         self.project = project
         self.autosave = autosave and project is not None
         self.clock = clock
-        #: quotas judged at submit; ``view_cost`` is the plugin registry's cost per type
+        #: quotas judged at submit; ``view_cost`` is what one live view costs (the engine's:
+        #: the plugin registry's cost per type, with params and machine applied)
         #: (None: every view is free, as in headless tests without an engine)
         self.quotas = quotas or Quotas()
-        self.view_cost: ViewCostFn = view_cost or (lambda _type: None)
+        self.view_cost: ViewCostFn = view_cost or (lambda _view: None)
         jpath = project.journal_file if (project is not None and journal) else None
         self.journal = Journal(jpath)
         self.journal.on_write_error = lambda e: self._disk_denied(e, jpath, "the journal")

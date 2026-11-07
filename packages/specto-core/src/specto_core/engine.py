@@ -26,7 +26,7 @@ from .live_canvas import LiveCanvas
 from .machine import MachineCapability, machine_capabilities
 from .ports import LINK_KINDS, PORT_TYPES, VIEW_ROLES
 from .project import Project
-from .quotas import Quotas
+from .quotas import Quotas, view_cost_of
 from .registry import CommandContext, Registry
 from .registry import registry as default_registry
 from .report import ConversionReport
@@ -123,11 +123,13 @@ class Engine:
             self._capabilities = self._detect_capabilities()
         return self._capabilities
 
-    def view_cost(self, view_type: str) -> Any:
-        """The plugin registry's cost of one live view of ``view_type`` (None: unknown
-        type, free). Looked up at submit time, so plugins registered later count too."""
-        m = self.plugins.view(view_type)
-        return m.cost if m is not None else None
+    def view_cost(self, view: dict[str, Any]) -> Any:
+        """What one live view costs (``view``: its document entry): its type's cost in
+        the plugin registry, with its params and this machine applied
+        (``quotas.view_cost_of``; None: unknown type, free). Looked up at submit time, so
+        plugins registered later count too."""
+        m = self.plugins.view(view["type"])
+        return view_cost_of(view, m.cost, lambda: self.capabilities) if m is not None else None
 
     @property
     def links(self) -> LinkRuntime:

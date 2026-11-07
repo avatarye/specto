@@ -22,7 +22,7 @@ A canvas allows one live RTX view (quota `rtx_views=1`, #132), and ceilings on 3
 
 ## Consequences
 
-- Known gap (SPEC-36): a usd view with `renderer: auto` counts as an RTX view even where auto resolves to Storm (macOS, no ovrtx), so those machines collapse a stage's view to make room that Storm would not need.
+- Known gap (SPEC-36): a usd view with `renderer: auto` counts as an RTX view even where auto resolves to Storm (macOS, no ovrtx), so those machines collapse a stage's view to make room that Storm would not need. Closed by SPEC-36: a usd view counts toward `rtx_views` only where its renderer resolves to rtx on this machine.
 
 ## Considered options
 

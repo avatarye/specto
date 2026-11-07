@@ -415,8 +415,10 @@ before. Thumbnails and posters never open an audio device.
 ## 9. Quotas and locks (`specto_core.quotas`, `locks`)
 
 `Quotas(web_views=8, viewports3d=3, resident_points=20_000_000, video_decoders=4,
-rtx_views=1)`. A view counts by its manifest's `ViewCost` (a usd view with
-`params.renderer: storm` costs no `rtx_views`) when its layout rect touches the window frame
+rtx_views=1)`. A view counts by its manifest's `ViewCost`, with its params and this machine
+applied (`view_cost(view)`, `view_cost_of`: a usd view costs `rtx_views` only where its
+renderer resolves to rtx, so not with `params.renderer: storm`, nor with auto on macOS or
+without ovrtx; SPEC-36) when its layout rect touches the window frame
 (what renders; off-screen views are paused and free). `quota_problems(doc, quotas,
 view_cost)` is applied at submit, whoever submits; the problem names the offenders and
 the fix (move views out of the frame or close some). The gestures that make a view live

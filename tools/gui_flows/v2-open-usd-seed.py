@@ -1,6 +1,6 @@
-"""Seed the project folder for the SPEC-34 scripted flow (two stages opened in turn): two
-small Z-up stages, a ``.usda`` under worlds/ and a second ``.usda`` under props/, and a
-note. The folder is wiped first, so no ``.specto/`` from an earlier run survives. The app
+"""Seed the project folder for the SPEC-34 scripted flow (stages opened in turn): four
+small Z-up stages, a ``.usda`` under worlds/ and three under props/, and a note. The
+folder is wiped first, so no ``.specto/`` from an earlier run survives. The app
 initialises the project on open.
 
     uv run python tools/gui_flows/v2-open-usd-seed.py <folder>
@@ -35,7 +35,13 @@ def main() -> int:
     root = ap.parse_args().folder
     if root.exists():
         shutil.rmtree(root)
-    for rel, size in (("worlds/yard.usda", 100), ("props/crate.usda", 40)):
+    stages = (
+        ("worlds/yard.usda", 100),
+        ("props/crate.usda", 40),
+        ("props/barrel.usda", 30),
+        ("props/pallet.usda", 60),
+    )
+    for rel, size in stages:
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(STAGE % size, encoding="utf-8")

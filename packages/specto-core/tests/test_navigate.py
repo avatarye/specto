@@ -56,7 +56,9 @@ def test_an_agent_submit_keeps_the_frame_where_and_how_big_the_user_has_it():
 
 
 def test_quotas_count_the_views_in_the_panned_frame():
-    live = LiveCanvas.headless("demo", quotas=Quotas(web_views=1), view_cost=lambda t: _cost(t))
+    live = LiveCanvas.headless(
+        "demo", quotas=Quotas(web_views=1), view_cost=lambda v: _cost(v["type"])
+    )
     doc = live.document()
     for i, (name, x) in enumerate((("kobi", 3000), ("tamu", 3700))):
         doc["views"][name] = {

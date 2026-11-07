@@ -649,9 +649,10 @@ SUITE: dict[str, dict] = {
         "sessions": [{"flows": ["v2-open-views.txt"]}],
     },
     "open-usd-twice": {
-        # SPEC-34: a second stage double-clicked opens its own usd view and collapses the
-        # first to make room (one live RTX view), with a notice; expanding the first
-        # collapses the second (the stub USD source: no picture judged)
+        # SPEC-34, SPEC-36: without ovrtx auto usd views cost no RTX view, so a second
+        # and third stage open beside the first; a fourth (one 3D viewport too many)
+        # collapses the first to make room, with a notice; expanding the first collapses
+        # the second (the stub USD source: no picture judged)
         "seed": seed("v2-open-usd-seed.py", "{project}"),
         "sessions": [
             {

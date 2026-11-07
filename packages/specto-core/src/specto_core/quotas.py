@@ -10,7 +10,7 @@ inside the frame that count.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict
@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 from .canvas_document import Problem
 from .float_layer import is_floating
 from .kinds import ViewCost
+from .machine import MachineCapability, rtx_first, usd_renderer
 
 QUOTA_NAMES = ("web_views", "viewports3d", "video_decoders", "resident_points", "rtx_views")
 #: what each quota counts, in words, singular (``ceiling_words``)
@@ -29,8 +30,9 @@ QUOTA_WORDS = {
     "rtx_views": "RTX view",
 }
 
-#: ``view_cost(view type) -> ViewCost | None`` (None: a type without a manifest, free)
-ViewCostFn = Callable[[str], ViewCost | None]
+#: ``view_cost(view entry) -> ViewCost | None``: what one live view costs, from its
+#: document entry (None: a type without a manifest, free)
+ViewCostFn = Callable[[dict[str, Any]], ViewCost | None]
 
 
 class Quotas(BaseModel):
@@ -54,10 +56,21 @@ def is_collapsed(view: dict[str, Any]) -> bool:
     return bool((view.get("layout") or {}).get("collapsed"))
 
 
-def view_cost_of(view: dict[str, Any], cost: ViewCost) -> ViewCost:
-    """What this view costs, from its type's cost and its params: a view that asks for
-    the Storm renderer costs no RTX view (#132)."""
-    if cost.rtx_views and (view.get("params") or {}).get("renderer") == "storm":
+def view_cost_of(
+    view: dict[str, Any],
+    cost: ViewCost,
+    caps: Callable[[], Mapping[str, MachineCapability]],
+) -> ViewCost:
+    """What this view costs, from its type's cost and its params: an RTX view only where
+    its renderer resolves to rtx on this machine (``usd_renderer``), so storm, and auto
+    where it resolves to Storm (macOS, or no ovrtx), cost none (#132, SPEC-36).
+    ``caps()`` (this machine's capabilities) is called only for auto where RTX comes
+    first: detecting ovrtx starts a child Python."""
+    if not cost.rtx_views:
+        return cost
+    params = view.get("params") or {}
+    auto = (params.get("renderer") or "auto") == "auto"
+    if usd_renderer(params, caps() if auto and rtx_first() else {}) != "rtx":
         return cost.model_copy(update={"rtx_views": 0})
     return cost
 
@@ -84,10 +97,11 @@ def _usage(
     used: dict[str, int] = dict.fromkeys(QUOTA_NAMES, 0)
     counted: dict[str, list[str]] = {name: [] for name in QUOTA_NAMES}
     for vid, view in (doc.get("views") or {}).items():
-        cost = view_cost(view["type"])
-        if cost is None or is_collapsed(view) or not in_window_frame(doc, view):
+        if is_collapsed(view) or not in_window_frame(doc, view):
             continue
-        cost = view_cost_of(view, cost)
+        cost = view_cost(view)
+        if cost is None:
+            continue
         for name in QUOTA_NAMES:
             n = getattr(cost, name)
             if n > 0:
