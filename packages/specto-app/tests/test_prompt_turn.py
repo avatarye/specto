@@ -277,8 +277,8 @@ def test_a_successful_edit_ends_the_turn_and_its_label_is_the_reply(engine, tool
 
 
 def test_an_error_reached_the_agent_only_when_it_said_or_did_something(engine, tools):
-    """SPEC-30: an error with no assistant output (the CLI refused the turn) did not reach
-    the model; an error after a reply or a tool call did."""
+    """SPEC-52: an error with no output of the agent's (the CLI refused the turn) did not
+    reach the agent; an error after a reply or a tool call did."""
     from specto_app.prompt.turn import TurnOutcome
 
     class Ends(ScriptedAgentSession):

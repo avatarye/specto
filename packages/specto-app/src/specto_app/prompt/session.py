@@ -863,7 +863,9 @@ class ClaudeAgentSession:
                     if job.on_delta is not None:
                         job.on_delta(delta.get("text", ""))
             elif isinstance(m, AssistantMessage):
-                if m.parent_tool_use_id is None:
+                # an API failure's stand-in reply (``error`` set, "API Error: ..."): the
+                # CLI's, not the agent's; the failed result carries the prose (SPEC-52)
+                if m.parent_tool_use_id is None and m.error is None:
                     blocks += [b.text for b in m.content if isinstance(b, TextBlock)]
             elif isinstance(m, ResultMessage):
                 self.info["session_id"] = m.session_id

@@ -20,7 +20,8 @@ the release and move on their own schedule.
   the agent without the canvas context, yet the bar counted the document as seen, so the
   next turn could tell the agent the document was unchanged when it had never seen it.
   The same holds after a turn that never reached the agent: its session failed to start,
-  or Claude Code refused the turn with no reply at all (not logged in, SPEC-52).
+  or it ended with no reply of the agent's (not logged in, or an API error such as
+  "overloaded", SPEC-52).
 - Switching projects from the app no longer risks a console window popping up when the
   new window's agent or workers start (SPEC-28). The project switch now starts the new
   app the way `specto open` does, with a hidden console rather than none, through one

@@ -927,9 +927,9 @@ class PromptBar(QObject):
 
     async def _run(self, text: str, with_context: bool) -> None:
         #: the agent got this turn's context: a turn with the context whose run_turn
-        #: returned and reached the model (a session that failed to start or ended
+        #: returned and reached the agent (a session that failed to start or ended
         #: mid-turn, or a turn the CLI refused, may never have sent it: the next turn
-        #: resends it)
+        #: resends it, SPEC-30, SPEC-52)
         delivered = False
         try:
             if self.session is None:
@@ -964,8 +964,8 @@ class PromptBar(QObject):
         self.replies.append(reply)
         if context_sent:
             # the agent has the document and the skills now; after a project slash
-            # command (the CLI got no context) or a turn that never reached the agent
-            # (SPEC-30) the next turn carries them
+            # command (the CLI got no context, SPEC-30) or a turn that never reached the
+            # agent (SPEC-52) the next turn carries them
             self._last_hash = document_hash(self.live.data)
             self._skills_seen = skills_key(self.app.project.root)
         if reply.text and reply.text != self._text:

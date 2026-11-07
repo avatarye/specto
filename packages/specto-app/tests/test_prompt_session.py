@@ -790,3 +790,47 @@ def test_an_auth_refusal_fails_the_turn_at_once_with_what_to_do(root: Path):
     assert client.interrupted == 1
     assert outcome.is_error
     assert "403 authentication_failed" in outcome.error and "sign in again" in outcome.error
+
+
+def test_an_api_error_s_stand_in_reply_is_no_agent_output(root: Path):
+    """SPEC-52: on an API failure (overloaded, out of credit) the CLI emits an assistant
+    message of its own, marked with ``error``, whose text is the "API Error: ..." prose,
+    and a failed result. That text is not the agent's: the turn ends with no output and
+    did not reach the agent, so its context counts as unseen."""
+    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+
+    from specto_app.prompt.context import CanvasContext
+    from specto_app.prompt.session import ClaudeAgentSession, _Job
+    from specto_app.prompt.turn import run_turn
+
+    engine = Engine(project=None)
+    tools = TurnTools(AgentTools(lambda n, a: engine.call(n, a, PROMPT_BAR)), engine.live)
+    session = ClaudeAgentSession(tools, root, model="sonnet")
+    prose = "API Error: 529 Overloaded. Try again later."
+    messages = [
+        AssistantMessage(content=[TextBlock(prose)], model="<synthetic>", error="server_error"),
+        ResultMessage(
+            subtype="success",
+            duration_ms=900,
+            duration_api_ms=0,
+            is_error=True,
+            num_turns=1,
+            session_id="s1",
+            result=prose,
+        ),
+    ]
+
+    async def run():
+        return await session._turn(_FakeClient(messages), _Job("move", "ctx", None, True))
+
+    outcome = asyncio.run(run())
+    assert outcome.is_error and outcome.text == "" and "529 Overloaded" in outcome.error
+
+    class Replays:
+        async def turn(self, prompt, context_text, **kw):
+            return outcome
+
+    ctx = CanvasContext(document=engine.live.document(), viewport={}, mouse=None, selection={})
+    reply = asyncio.run(run_turn(Replays(), tools, "move", ctx))
+    assert reply.status == "failed" and reply.reached_agent is False
+    assert "529 Overloaded" in reply.summary

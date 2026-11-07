@@ -281,16 +281,20 @@ def test_a_turn_that_never_reached_the_agent_leaves_the_context_unseen(
 
 
 def test_an_error_with_no_agent_output_leaves_the_context_unseen(qapp, project, aloop, spin, aspin):
-    """SPEC-30: a turn that comes back as an error with no assistant output (the CLI
-    refused it: not logged in) never reached the model, so the next turn still carries
+    """SPEC-52: a turn that comes back as an error with no output of the agent's (the
+    CLI refused it: not logged in) never reached the agent, so the next turn still carries
     the whole document. An error after the agent answered or called a tool did reach it."""
     from specto_app.app import SpectoApp
     from specto_app.prompt.turn import TurnOutcome
 
     class RefusesFirstTurn(ScriptedAgentSession):
+        def __init__(self, *args, **kw) -> None:
+            super().__init__(*args, **kw)
+            self.refused: list[str] = []  # the prompts the CLI refused
+
         async def turn(self, prompt, context_text, **kw):
-            if not self.received:
-                self.received.append({"prompt": prompt, "context": context_text, "refused": 1})
+            if not self.refused:
+                self.refused.append(prompt)
                 return TurnOutcome(is_error=True, error="Not logged in: run claude /login")
             return await super().turn(prompt, context_text, **kw)
 
@@ -310,15 +314,16 @@ def test_an_error_with_no_agent_output_leaves_the_context_unseen(qapp, project, 
         assert bar.submit("hello") is True
         aspin(until=lambda: not bar.busy)
         assert bar.status == "failed" and "Not logged in" in bar.summary
+        assert sessions[0].refused == ["hello"] and sessions[0].received == []
 
         assert bar.submit("hello again") is True
         aspin(until=lambda: not bar.busy)
         assert bar.status == "answered"
-        assert set(context_block(sessions[0], 1)["document"]["views"]) == {"fege"}
+        assert set(context_block(sessions[0], 0)["document"]["views"]) == {"fege"}
         # that one reached the agent: the next turn has the hash alone
         assert bar.submit("and now?") is True
         aspin(until=lambda: not bar.busy)
-        assert "document" not in context_block(sessions[0], 2)
+        assert "document" not in context_block(sessions[0], 1)
     finally:
         app.close()
         spin(20)

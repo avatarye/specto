@@ -169,8 +169,9 @@ class Reply:
     #: what the turn launched (#186) or was refused (#192), in order: each a ``Launched``
     #: whose note is "launched Blender 4.2 on a.blend" / "refused System default on ..."
     launches: list[Launched] = field(default_factory=list)
-    #: the model got the prompt: False for an error with no assistant output (the CLI
-    #: refused the turn, e.g. not logged in), so its context counts as unseen (SPEC-30)
+    #: the turn reached the agent: False for an error with no output of the agent's
+    #: (the CLI refused it: not logged in, or an API failure's stand-in reply), so its
+    #: context counts as unseen (SPEC-52)
     reached_agent: bool = True
 
 
