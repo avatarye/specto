@@ -129,6 +129,8 @@ class GalleryItemLike(Protocol):
     def set_caption(self, text: str) -> None: ...
     def after_frame(self, fn: Callable[[], None]) -> None: ...
 
+    def set_new(self, count: int, first: int) -> None: ...
+
     # callbacks the host installs; the adapter wires them to the item's signals
     on_selected: Callable[[int, int], None] | None
     on_activated: Callable[[int], None] | None
@@ -182,7 +184,8 @@ class GalleryBridge(QObject):
 
     @Slot()
     def ackArrivals(self) -> None:
-        """Watch-mode arrivals are an intaker concern now; nothing to acknowledge."""
+        """The "+N new" pill retired (its items in view, the burst quiet): clear it."""
+        self._host.ack_arrivals()
 
 
 class NativeGallery:
@@ -370,6 +373,10 @@ class NativeGallery:
             with contextlib.suppress(RuntimeError, TypeError):
                 self.item.statsChanged.disconnect(once)
 
+    def set_new(self, count: int, first: int) -> None:
+        self.root.setProperty("newCount", int(count))
+        self.root.setProperty("newFirst", int(first))
+
     def cell_rect(self, index: int) -> Any:
         """The tile's cell in scene coordinates (``QRectF``), empty when scrolled out."""
         r = self.item.cellRectOf(int(index))
@@ -425,6 +432,12 @@ class GalleryHost(QuickViewHost):
         self._pump_timer: QTimer | None = None
         self._pump_pending = False
         self._in_pump = False
+        # the "+N new" pill (SPEC-59): the keys that arrived while watching and are not
+        # seen yet; the keys before an arrival notice and the generation it came at,
+        # until the collection it announced swaps in
+        self._new_keys: set[str] = set()
+        self._before: set[str] | None = None
+        self._arrival_gen = -1
         self.bridge = GalleryBridge(self)
 
         if gallery is None:
@@ -521,6 +534,7 @@ class GalleryHost(QuickViewHost):
         self._sigs = new_sigs
         self.names = [_image_name(it) for it in items]
         self._index_of = {k: i for i, k in enumerate(self.keys)}
+        self._take_arrivals()
         self.gallery.set_count(len(self.items))
         self.gallery.set_captions(self.keys, self.names)
         current = self._index_of.get(self._current_key, -1) if self._current_key else -1
@@ -548,6 +562,37 @@ class GalleryHost(QuickViewHost):
             self.set_health("loading", f"{len(self.items)} items, decoding")
         self._caption()
         self.schedule_pump()
+
+    # -- arrivals: the "+N new" pill (SPEC-59) ------------------------------------------
+    def on_arrivals(self, payload: dict[str, Any]) -> None:
+        """Files arrived in a watched folder (``link.arrivals``): the collection that
+        holds them is still resolving; remember what was there before it."""
+        if payload.get("added") and self._before is None:
+            self._before = set(self.keys)
+            self._arrival_gen = self.collection.generation if self.collection else -1
+
+    def _take_arrivals(self) -> None:
+        """After a reload: once the announced collection is in, its new keys join the
+        pill's; keys gone since drop out. Shows the count and the first's index."""
+        gen = self.collection.generation if self.collection is not None else -1
+        if self._before is not None and gen > self._arrival_gen:
+            self._new_keys |= set(self.keys) - self._before
+            self._before = None
+        self._new_keys &= self._index_of.keys()
+        self._show_new()
+
+    def ack_arrivals(self) -> None:
+        """The pill retired: nothing is new any more."""
+        self._new_keys.clear()
+        self._show_new()
+
+    def _show_new(self) -> None:
+        new = self._new_state()
+        self.gallery.set_new(new["count"], new["first"])
+
+    def _new_state(self) -> dict[str, int]:
+        first = min((self._index_of[k] for k in self._new_keys), default=-1)
+        return {"count": len(self._new_keys), "first": first}
 
     def _ordered(self, items: list[Item]) -> list[Item]:
         by, desc = self.sort.lstrip("-"), self.sort.startswith("-")
@@ -1083,6 +1128,8 @@ class GalleryHost(QuickViewHost):
             **super().snapshot(),
             "count": len(self.items),
             "sort": self.sort,
+            # the "+N new" pill: arrivals not seen yet, the index of the first (SPEC-59)
+            "new": self._new_state(),
             "collection": {
                 "link": self.collection.link if self.collection else None,
                 "generation": self.collection.generation if self.collection else None,

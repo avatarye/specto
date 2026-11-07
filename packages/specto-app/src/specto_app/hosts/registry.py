@@ -303,7 +303,11 @@ class HostRegistry(QObject):
                 self.ctx.set_health(vid, status, message)
 
         if ev.kind == "link.arrivals":
-            # watch mode: what the host shows stays until the new collection swaps in
+            # watch mode: what the host shows stays until the new collection swaps in;
+            # a host that marks arrivals (the gallery's "+N new", SPEC-59) hears of them
+            on_arrivals = getattr(self.hosts.get(vid), "on_arrivals", None)
+            if on_arrivals is not None:
+                on_arrivals(ev.payload)
             n = ev.payload.get("added", 0)
             gone = ev.payload.get("removed", 0)
             note = f"{n} arrived" if n else (f"{gone} removed" if gone else "files changed")

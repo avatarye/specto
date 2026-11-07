@@ -68,6 +68,7 @@ class FakeGallery:
         self.captions: tuple[list[str], list[str]] = ([], [])
         self.caption_mode = 1
         self.caption = ""
+        self.new = (0, -1)  # the "+N new" pill: how many, the index of the first (SPEC-59)
         self.on_selected: Callable[[int, int], None] | None = None
         self.on_activated: Callable[[int], None] | None = None
         self.on_quick_look: Callable[[int], None] | None = None
@@ -190,6 +191,9 @@ class FakeGallery:
         pending, self._after_frame = self._after_frame, []
         for fn in pending:
             fn()
+
+    def set_new(self, count: int, first: int) -> None:
+        self.new = (count, first)
 
     # -- test drivers (what a user would do) ----------------------------------------
     def user_click(self, index: int) -> None:
