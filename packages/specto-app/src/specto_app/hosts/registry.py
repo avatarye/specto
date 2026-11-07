@@ -32,7 +32,7 @@ from specto_core import Engine
 from specto_core.kinds import PluginManifest, ViewManifest
 from specto_core.links import Collection, ContentValue
 
-from .base import RELEASE_DELAY_S, HostContext, QuickViewHost, ViewHostFactory
+from .base import HostContext, QuickViewHost, ViewHostFactory
 
 ENTRY_POINT_GROUP = "specto.view_hosts"
 #: the empty-state line of a view that follows the file tree's picks (glossary: selection
@@ -75,7 +75,9 @@ class HostRegistry(QObject):
         self._fallbacks: dict[str, list[ViewHostFactory]] = {}
         self.hosts: dict[str, Any] = {}  # QuickViewHost or any host with an ``item``
         self._slots: dict[str, QQuickItem] = {}
-        self._parking: QQuickItem | None = None
+        # the hidden holder item (Main.qml) detached host items wait in, alive and
+        # out of sight, until a slot takes them
+        self._holder: QQuickItem | None = None
         # view id -> health before the pause (status, message, hint); the registry owns
         # the pause bookkeeping
         self._paused: dict[str, dict[str, str]] = {}
@@ -373,7 +375,7 @@ class HostRegistry(QObject):
             return {}
         try:
             snap = h.snapshot()
-            if getattr(h, "release_when_paused", False) and isinstance(snap, dict):
+            if h.release_when_paused and isinstance(snap, dict):
                 snap["released"] = view_id in self._released
             return snap
         except Exception as e:
@@ -427,9 +429,9 @@ class HostRegistry(QObject):
         """A paused host that asks for it (``release_when_paused``) gives back its GPU
         memory once it has stayed paused ``release_delay_s`` (SPEC-3): panning a view out
         and straight back costs nothing, one left off-screen is released."""
-        if not getattr(host, "release_when_paused", False):
+        if not host.release_when_paused:
             return
-        delay = float(getattr(host, "release_delay_s", RELEASE_DELAY_S))
+        delay = float(host.release_delay_s)
         if delay <= 0:
             self._release(view_id)
             return
@@ -463,8 +465,8 @@ class HostRegistry(QObject):
         _call_hook(host, "on_release")
 
     def _restore(self, view_id: str, host: Any) -> None:
-        """Back from a release: the item goes into its slot (or, with none now, hidden
-        into the parking until a slot takes it), then the host hears ``on_restore``."""
+        """Back from a release: the item goes into its slot (or, with none now, into the
+        hidden holder item until a slot takes it), then the host hears ``on_restore``."""
         if view_id not in self._released:
             return
         self._released.discard(view_id)
@@ -474,7 +476,7 @@ class HostRegistry(QObject):
             if slot is not None:
                 self._place(item, slot)
             else:
-                self._park(item)
+                self._hide_unslotted(item)
         _call_hook(host, "on_restore")
 
     def snapshot_image(self, view_id: str) -> Any:
@@ -490,9 +492,9 @@ class HostRegistry(QObject):
             return None
 
     # -- slots (called from QML) ----------------------------------------------------------
-    def set_parking(self, item: QQuickItem | None) -> None:
-        """A hidden item that keeps detached host items alive and off screen."""
-        self._parking = item
+    def set_holder(self, item: QQuickItem | None) -> None:
+        """The hidden holder item that keeps detached host items alive and off screen."""
+        self._holder = item
 
     @Slot(str, QQuickItem, result=bool)
     def attach(self, view_id: str, slot: QQuickItem) -> bool:
@@ -513,9 +515,10 @@ class HostRegistry(QObject):
             self._place(item, slot)
         return True
 
-    def _park(self, item: QQuickItem) -> None:
-        """Into the hidden parking, alive and out of sight, until a slot takes it."""
-        item.setParentItem(self._parking)
+    def _hide_unslotted(self, item: QQuickItem) -> None:
+        """An item with no slot goes into the hidden holder item, alive and out of sight,
+        until a slot takes it."""
+        item.setParentItem(self._holder)
         item.setVisible(False)
 
     @staticmethod
@@ -535,7 +538,7 @@ class HostRegistry(QObject):
         if item is None:
             return
         if item.parentItem() is slot:
-            self._park(item)
+            self._hide_unslotted(item)
         if self._slots.get(view_id) is slot:
             self._slots.pop(view_id, None)
 

@@ -560,6 +560,10 @@ _Avoid_: limit, budget (for the enforced ceiling)
 An external renderer (ovrtx, Blender, Storm as fallback) that sends frames into a view and takes camera and input back.
 _Avoid_: frame (bare), viewport, renderer plugin
 
+**Holder item**:
+The shell's one hidden, zero-sized QML item that a host's view item is parented to while it has no slot (before its slot exists, between a detach and the next attach, or back from a release with no slot yet): alive and out of sight, never drawn (`hosts.set_holder`).
+_Avoid_: parking (the retired parked shelf), parked (a parked view is in no group)
+
 ### Recipes and trust
 
 **Recipe**:

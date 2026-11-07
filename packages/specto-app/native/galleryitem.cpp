@@ -548,7 +548,8 @@ void GalleryItem::revealIndex(int index, bool animate)
     if (index < 0 || index >= m_count)
         return;
     if (width() <= 0 || height() <= 0) {
-        // not laid out yet (parked, or before the slot sized it): reveal on the first layout
+        // not laid out yet (in the hidden holder item, or before the slot sized it): reveal
+        // on the first layout
         m_pendingReveal = index;
         return;
     }

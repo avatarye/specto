@@ -154,7 +154,7 @@ def test_a_view_without_a_slot_is_never_marked_released(app, spin):
     images(app)
     host = gallery(app, spin)
     slot = app.hosts.slot_of("kobi")
-    # the slot went (a rebuild): the item waits hidden in the parking
+    # the slot went (a rebuild): the item waits in the hidden holder item
     app.hosts.detach("kobi", slot)
     assert app.hosts.pause("kobi")
     assert not app.hosts.is_released("kobi")
@@ -171,7 +171,7 @@ def test_a_released_item_whose_slot_went_waits_hidden_until_a_slot_takes_it(app,
     slot = app.hosts.slot_of("kobi")
     app.hosts.detach("kobi", slot)
     app.hosts.resume("kobi")
-    assert host.item.parentItem() is app.hosts._parking and not host.item.isVisible()
+    assert host.item.parentItem() is app.hosts._holder and not host.item.isVisible()
     assert app.hosts.attach("kobi", slot)
     assert in_scene(app, host, "kobi")
 
@@ -277,7 +277,7 @@ def test_a_playing_video_released_by_the_registry_comes_back_on_its_frame_then_p
     import shutil
 
     from gallery_helpers import TESTDATA
-    from test_video_host import FakeMpv
+    from video_helpers import FakeMpv
 
     video = TESTDATA / "runs" / "run-001" / "video"
     if not (video / "cam-a.mp4").exists():

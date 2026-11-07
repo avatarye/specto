@@ -80,8 +80,9 @@ Window {
         function onOpenProjectRequested() { openDialog.open() }
     }
 
-    // Detached host items wait here, invisible, until a slot takes them again.
-    Item { id: parking; objectName: "parking"; visible: false; width: 0; height: 0 }
+    // The hidden holder item: detached host items wait here, invisible, until a slot
+    // takes them again (hosts.set_holder).
+    Item { id: holder; objectName: "holder"; visible: false; width: 0; height: 0 }
 
     DetailsPopover { id: details }
 

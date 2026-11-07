@@ -116,9 +116,9 @@ VOLUME_STEPS = 20
 class PlayOnLanding(enum.Enum):
     """A video released while playing plays again once back on its frame (SPEC-3)."""
 
-    NO = 0
-    AWAIT_REOPEN = 1  # the file is reopening for the new render context
-    AWAIT_LANDING = 2  # the seek back to the frame shown is in flight
+    NO = enum.auto()
+    AWAIT_REOPEN = enum.auto()  # the file is reopening for the new render context
+    AWAIT_LANDING = enum.auto()  # the seek back to the frame shown is in flight
 
 
 class VideoBridge(QObject):

@@ -426,8 +426,7 @@ class SpectoApp(QObject):
         self.window.installEventFilter(self.context_menus)  # the Menu key, Shift+F10
         self.window.installEventFilter(self.walk_stage)  # a walk's keys, ahead of the canvas's
         self.context_menus.keep_f10()  # Windows: F10 enters no menu mode (#165)
-        parking = self.window.findChild(QQuickItem, "parking")
-        self.hosts.set_parking(parking)
+        self.hosts.set_holder(self.window.findChild(QQuickItem, "holder"))
         self._fit_window()
         self.controller.patched.connect(self._on_patched)
         # worker results land on the GUI thread from here (contracts 11); 8 ms so a

@@ -282,7 +282,8 @@ def test_notches_of_one_zoom_keep_the_first_anchor(app):
 @gui_test
 def test_columns_before_width_and_reveal_before_height(app):
     """A host sets the zoom and reveals the selection before the shell has sized the
-    item (it is created parked, 0 x 0): both apply at the first real layout, and the
+    item (it is created in the hidden holder item, 0 x 0): both apply at the first real
+    layout, and the
     first row starts at the top margin, not scrolled under the view header."""
     engine, comp, g = _item(
         app,
@@ -297,7 +298,7 @@ def test_columns_before_width_and_reveal_before_height(app):
     assert g.property("effectiveColumns") == 4 and g.property("tileWidth") == 240
     g.setHeight(600)
     assert g.property("scrollY") == 0 and g.rectOf(0).y() == 8
-    # a restored scroll position (rows, set while parked) survives the first layout
+    # a restored scroll position (rows, set while in the holder) survives the first layout
     engine2, comp2, g2 = _item(
         app,
         b"import QtQuick\nimport Specto.Native\n"

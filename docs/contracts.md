@@ -588,7 +588,7 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   leaves the document. Exceptions in a host land in the view's health.
 - Item lifecycle: the shell calls `hosts.attach(view_id, slot)` from the view's QML slot
   (`objectName "slot:<id>"`) and `detach` when it goes; the item is re-parented and
-  resized to the slot, parked invisibly in between. Culling (section 12) calls
+  resized to the slot, held in a hidden holder item in between. Culling (section 12) calls
   `hosts.pause/resume`; the overworld reads `hosts.snapshot_image`.
 - Paused views give back GPU memory (ADR 0030). A host with `release_when_paused`
   (gallery, image, video) that stays paused for its `release_delay_s` (3 s) has its
@@ -598,7 +598,7 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   `on_release`, where it frees what lives elsewhere (the image view lets go of its
   decoded picture). On resume the item goes back into its slot, its own state
   untouched, `on_restore` runs, then `resume`. A slot made meanwhile gets the item
-  only at the resume; with no slot then, the item waits hidden in the parking. Web
+  only at the resume; with no slot then, the item waits in the hidden holder item. Web
   views keep their pages.
 - `HostContext` (one per shell): `engine`, `live`, `links`, `qml_engine`, `notices`,
   `project_root`, `view(view_id)`, `manifest_for(type)`, `emit(view_id, port, value)`,
