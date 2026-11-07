@@ -10,6 +10,7 @@ import pytest
 from readers_helpers import (
     CAM_A,
     add_one,
+    below_normal,
     crash,
     empty_array,
     first_jpg,
@@ -137,6 +138,14 @@ def test_unpicklable_function_fails_cleanly(pool: PoolJobManager):
 def test_workers_never_import_qt(pool: PoolJobManager):
     j = pool.submit("t", qt_loaded)
     assert pool.wait([j], WAIT) and j.result is False
+
+
+def test_workers_run_below_normal_priority(pool: PoolJobManager):
+    """SPEC-1: a pool decoding on every core must not take the CPU from the GUI and
+    render threads, or scrolling stalls while thumbnails decode."""
+    j = pool.submit("t", below_normal)
+    assert pool.wait([j], WAIT)
+    assert j.result is True
 
 
 def test_events_and_default_size():

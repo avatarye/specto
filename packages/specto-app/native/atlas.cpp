@@ -1,7 +1,9 @@
 #include "atlas.h"
 
 #include <QtCore/QDebug>
+#include <QtGui/QOpenGLContext>
 #include <QtGui/QOpenGLExtraFunctions>
+#include <QtGui/QSurfaceFormat>
 #include <QtQuick/QQuickWindow>
 #include <QtQuick/QSGTexture>
 #include <QtQuick/qsgtexture_platform.h>
@@ -65,6 +67,38 @@ void buildCell(const uint8_t *thumb, int w, int h, int cell, int gutter, std::ve
     }
 }
 
+void prepareCell(const uint8_t *thumb, int w, int h, int cell, int gutter, int levels,
+                 PreparedTier &out)
+{
+    out.w = w;
+    out.h = h;
+    out.levels.resize(size_t(levels));
+    int ox, oy;
+    buildCell(thumb, w, h, cell, gutter, out.levels[0], ox, oy);
+    int prev = cell;
+    for (int lv = 1; lv < levels; ++lv) {
+        const int sz = cell >> lv;
+        out.levels[size_t(lv)].resize(size_t(sz) * sz * 4);
+        boxDownsample(out.levels[size_t(lv - 1)].data(), prev, prev, out.levels[size_t(lv)].data(),
+                      sz, sz);
+        prev = sz;
+    }
+}
+
+ClearTexImageFn clearTexImageFn()
+{
+    // resolved for the current context each time: a page is made a few times a session,
+    // and WGL entry points may differ between contexts
+    auto *ctx = QOpenGLContext::currentContext();
+    if (!ctx || ctx->isOpenGLES())
+        return nullptr;
+    const QSurfaceFormat fmt = ctx->format();
+    const bool has = fmt.version() >= qMakePair(4, 4) || ctx->hasExtension("GL_ARB_clear_texture");
+    if (!has || qEnvironmentVariableIsSet("SPECTO_GALLERY_CPU_FILL"))
+        return nullptr;
+    return reinterpret_cast<ClearTexImageFn>(ctx->getProcAddress("glClearTexImage"));
+}
+
 AtlasPage::AtlasPage(QOpenGLExtraFunctions *f, QQuickWindow *window, int size, int cell, int gutter,
                      int levels)
     : m_size(size), m_cell(cell), m_gutter(gutter), m_levels(levels), m_cols(size / cell)
@@ -78,8 +112,13 @@ AtlasPage::AtlasPage(QOpenGLExtraFunctions *f, QQuickWindow *window, int size, i
     f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     f->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels - 1);
     // Fresh pages start as the warm placeholder tone so an unwritten cell never flashes
-    // black if it is ever sampled.
-    {
+    // black if it is ever sampled: cleared on the GPU where the context can (SPEC-1: the
+    // CPU fill and its 22 MB upload stalled the frame that opened a page), else filled.
+    static const uint8_t kTone[4] = {0xe9, 0xe3, 0xd9, 0xff};
+    if (ClearTexImageFn clear = clearTexImageFn()) {
+        for (int lv = 0; lv < levels; ++lv)
+            clear(m_tex, lv, GL_RGBA, GL_UNSIGNED_BYTE, kTone);
+    } else {
         std::vector<uint8_t> fill(size_t(size) * size * 4);
         for (size_t i = 0; i < fill.size(); i += 4) {
             fill[i] = 0xe9;
@@ -140,25 +179,19 @@ void AtlasPage::releaseAll()
         m_free.push_back(i);
 }
 
-void AtlasPage::upload(QOpenGLExtraFunctions *f, int cellIdx, const uint8_t *thumb, int w, int h)
+void AtlasPage::upload(QOpenGLExtraFunctions *f, int cellIdx, const PreparedTier &tier)
 {
+    if (int(tier.levels.size()) < m_levels)
+        return;
     const int cx = (cellIdx % m_cols) * m_cell;
     const int cy = (cellIdx / m_cols) * m_cell;
-    int ox, oy;
-    buildCell(thumb, w, h, m_cell, m_gutter, m_scratch[0], ox, oy);
     f->glBindTexture(GL_TEXTURE_2D, m_tex);
     f->glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     f->glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
-    f->glTexSubImage2D(GL_TEXTURE_2D, 0, cx, cy, m_cell, m_cell, GL_RGBA, GL_UNSIGNED_BYTE,
-                       m_scratch[0].data());
-    int prev = m_cell;
-    for (int lv = 1; lv < m_levels; ++lv) {
+    for (int lv = 0; lv < m_levels; ++lv) {
         const int sz = m_cell >> lv;
-        m_scratch[lv].resize(size_t(sz) * sz * 4);
-        boxDownsample(m_scratch[lv - 1].data(), prev, prev, m_scratch[lv].data(), sz, sz);
         f->glTexSubImage2D(GL_TEXTURE_2D, lv, cx >> lv, cy >> lv, sz, sz, GL_RGBA, GL_UNSIGNED_BYTE,
-                           m_scratch[lv].data());
-        prev = sz;
+                           tier.levels[size_t(lv)].data());
     }
     f->glBindTexture(GL_TEXTURE_2D, 0);
 }
