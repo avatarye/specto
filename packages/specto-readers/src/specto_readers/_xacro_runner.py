@@ -3,8 +3,8 @@
 Started by ``xacro_expand.xacro_task`` for every expansion, so an approved file's code
 never runs in a pool worker. Reads one pickled request on stdin from that parent
 (``path``, ``find_package``, ``trusted``, ``args``, ``approved_root_sha``, ``roots``),
-calls ``expand_xacro`` and prints one JSON line: ``{urdf, files, warnings}``,
-``{needs_approval: {path, sha256, include}}`` or ``{error}``. What xacro or the file's
+calls ``expand_xacro`` and prints one JSON line: ``{urdf, files, accepted, warnings}``,
+``{needs_approval: {path, sha256, role, args}}`` or ``{error}``. What xacro or the file's
 code prints goes to stderr, so it never mixes with the reply.
 """
 
@@ -35,9 +35,14 @@ def main() -> int:
                 approved_root_sha=request["approved_root_sha"],
                 roots=request["roots"],
             )
-            reply = {"urdf": res.urdf, "files": res.files, "warnings": res.warnings}
+            reply = {
+                "urdf": res.urdf,
+                "files": res.files,
+                "accepted": res.accepted,
+                "warnings": res.warnings,
+            }
         except XacroNeedsApproval as e:
-            reply = {"needs_approval": {"path": e.path, "sha256": e.sha256, "include": e.include}}
+            reply = {"needs_approval": e.to_json()}
         except XacroError as e:
             reply = {"error": str(e)}
         except Exception as e:  # one line back to the parent, whatever it was

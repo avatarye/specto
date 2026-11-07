@@ -145,17 +145,17 @@ class _Failed(Exception):
 
 
 #: on Windows the interpreter gets no console window of its own (the app has none)
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
-def _kill_tree(proc: subprocess.Popen) -> None:
+def kill_tree(proc: subprocess.Popen) -> None:
     """End the script and whatever it started (a child holding the pipes would keep the
     run from ever returning)."""
     if os.name == "nt":
         subprocess.run(
             ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
             capture_output=True,
-            creationflags=_NO_WINDOW,
+            creationflags=NO_WINDOW,
         )
     else:  # pragma: no cover - the session was started for this
         with contextlib.suppress(OSError):
@@ -173,7 +173,7 @@ def _run(request: dict[str, Any], where: str, root: str, timeout: float) -> Any:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=root or None,
-        creationflags=_NO_WINDOW,
+        creationflags=NO_WINDOW,
         start_new_session=os.name != "nt",
     )
     try:
@@ -181,7 +181,7 @@ def _run(request: dict[str, Any], where: str, root: str, timeout: float) -> Any:
             json.dumps(request, default=str).encode("utf-8"), timeout=timeout
         )
     except subprocess.TimeoutExpired:
-        _kill_tree(proc)
+        kill_tree(proc)
         with contextlib.suppress(subprocess.TimeoutExpired, OSError, ValueError):
             proc.communicate(timeout=2.0)
         raise _Failed(f"{where} did not finish in {timeout:g} s; fix it to return sooner") from None
@@ -598,6 +598,7 @@ def collection_of(value: Any, root: str) -> Collection:
 
 
 __all__ = [
+    "NO_WINDOW",
     "RUNNER",
     "SHAPES",
     "ScriptFailed",
@@ -608,6 +609,7 @@ __all__ = [
     "check_output",
     "code_hash",
     "collection_of",
+    "kill_tree",
     "lookup",
     "read_contents",
     "sha256_of",

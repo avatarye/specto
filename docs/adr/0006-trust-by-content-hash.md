@@ -19,7 +19,7 @@ Trust is the user's decision on a content hash, regardless of who wrote the cont
 - No command approves (#203): the endpoint's `link.approve`, which the CLI and any local process can call, only opens an approval card in the window naming the requester; the user's click on it, or on the view's Approve, is the approval. Headless tests stand in for that click with the repo conftest's `approve_link` fixture, never a flag.
 - The SDK has one mode, remote; "headless" means core plus intake plus readers without a GUI, and `snap` always needs a running app (HLD 2, R11).
 - A bad script cannot crash the app.
-- The code-running paths are listed in contracts section 10: Python links and xacro expansion (SPEC-43.3, whose `${...}` is a Python eval). Each runs approved content only, in its own `python -I` process; xacro also hashes every file it includes or loads as YAML before reading it.
+- The code-running paths are listed in contracts section 10: Python links and xacro expansion (SPEC-43.3, whose `${...}` is a Python eval). Each runs approved content only, in its own `python -I` process whose whole tree a timeout kills. xacro's approval covers the root's bytes together with its args (an agent can write the args), and every file it includes or loads as YAML is hashed and confined to the project and the found packages before it is read.
 - Capabilities are built by the app from a view's manifest and bindings, never from the page or its state (contracts section 17).
 - Not yet implemented in code as of M2 (no trust store or Restricted Mode found under `packages/`); recipes with code are M4.
 

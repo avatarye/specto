@@ -504,12 +504,18 @@ the transport-agnostic handler; `specto_app.endpoint.LocalEndpoint` serves it;
   the user approved in the window, in its own `python -I -X utf8` process started from a
   pool worker, never in the app or a worker:
   - Python links (section 6, `_python_link_runner.py`);
-  - xacro expansion (`specto_readers.xacro_expand`, `_xacro_runner.py`): the root file's
-    hash must be approved; every file xacro reads (includes and `load_yaml` files) is
-    hashed before it is parsed and must be approved too, except during the Approve of
-    that exact root (`approved_root_sha`), whose reads the host then records; `$(find)`
-    goes to Specto's package resolver, and `roots` confine reads to the project and the
-    found packages. Untrusted, it says "xacro needs Approve"; plain URDF always opens.
+  - xacro expansion (`specto_readers.xacro_expand`, `_xacro_runner.py`): the root is
+    approved as `approval_hash(root bytes, xacro_args)`, because `$(arg)` is substituted
+    inside `${...}` before the eval and the args live in the agent-writable canvas: a
+    change to either needs Approve again, and the Approve card shows the args. Every
+    file xacro reads (includes and `load_yaml` files) is opened, its final path checked
+    against the allowed folders (the root's folder, the project, the packages
+    `$(find)` found; always on), read once and hashed before xacro parses it, and must
+    be approved too, except during the Approve of that exact root and args
+    (`approved_root_sha`): that run lists each file it accepted (`accepted`, path and
+    hash), which the host records and shows. A timeout kills the child's process tree;
+    output past its byte caps fails the run. Untrusted, it says "xacro needs Approve";
+    plain URDF always opens.
 
 ## 11. View hosts (specto-app; `specto_app.hosts`)
 
