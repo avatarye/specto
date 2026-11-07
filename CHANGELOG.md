@@ -15,6 +15,10 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- After a project slash command (`/layout review`), the agent's next turn gets the
+  canvas document and the project's commands again (SPEC-30). A slash command goes to
+  the agent without the canvas context, yet the bar counted the document as seen, so the
+  next turn could tell the agent the document was unchanged when it had never seen it.
 - Switching projects from the app no longer risks a console window popping up when the
   new window's agent or workers start (SPEC-28). The project switch now starts the new
   app the way `specto open` does, with a hidden console rather than none, through one

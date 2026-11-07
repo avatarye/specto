@@ -192,6 +192,42 @@ def test_every_prompt_carries_the_canvas_context(app, aspin):
     assert "document" not in picked  # nothing changed the document since
 
 
+def test_a_project_slash_command_leaves_the_context_unseen(app, aspin):
+    """SPEC-30: a project slash command goes to the CLI alone (``verbatim=False``: no
+    canvas context), so the turn after it still carries what the agent has not seen: the
+    document a user gesture changed and the commands added since its last turn."""
+    from specto_core.gestures import move_view
+
+    bar = app.prompt_bar
+    bar.submit("add front and rear galleries")
+    aspin(until=lambda: not bar.busy)
+    session = app.sessions[0]
+    assert "document" in context_block(session, 0)
+
+    # since that turn the user moved a view and the project gained a command
+    move_view(app.live, "kobi", (320, 40))
+    commands = app.project.root / ".claude" / "commands"
+    commands.mkdir(parents=True)
+    (commands / "layout.md").write_text("Review the layout. $ARGUMENTS\n", encoding="utf-8")
+
+    assert bar.submit("/layout review") is True
+    aspin(until=lambda: not bar.busy)
+    assert session.received[1]["prompt"] == "/layout review"
+    assert session.received[1]["verbatim"] is False  # the context never reached the agent
+
+    bar.submit("what changed?")
+    aspin(until=lambda: not bar.busy)
+    after = context_block(session, 2)
+    assert after["document"]["views"]["kobi"]["layout"]["position"] == [320, 40]
+    assert [c["name"] for c in after["commands"]] == ["/layout"]
+
+    # that turn did carry them: the next one has the hash alone again
+    bar.submit("and now?")
+    aspin(until=lambda: not bar.busy)
+    settled = context_block(session, 3)
+    assert "document" not in settled and "commands" not in settled
+
+
 def test_ask_agent_to_change_prefills_the_field(app, spin):
     """The link popover's "Ask agent to change" (#45) calls ``promptBar.prefill``: the
     text lands in the field (``draft``), focused, with the bar up."""

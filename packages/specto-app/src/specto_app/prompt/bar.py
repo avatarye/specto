@@ -943,7 +943,7 @@ class PromptBar(QObject):
             msg = e.message if isinstance(e, SpectoError) else f"{type(e).__name__}: {e}"
             reply = Reply(text=msg, summary=msg.splitlines()[0][:200], status="failed", error=msg)
             print(f"[ERROR] prompt bar: {msg}")
-        self._finish(reply)
+        self._finish(reply, context_sent=verbatim)
 
     def _delta(self, piece: str) -> None:
         self._text += piece
@@ -953,11 +953,14 @@ class PromptBar(QObject):
             self._agent_entry.text = self._text
             self._thread.entry_changed(self._agent_entry)
 
-    def _finish(self, reply: Reply) -> None:
+    def _finish(self, reply: Reply, *, context_sent: bool = True) -> None:
         self.reply = reply
         self.replies.append(reply)
-        self._last_hash = document_hash(self.live.data)
-        self._skills_seen = skills_key(self.app.project.root)
+        if context_sent:
+            # the agent has the document and the skills now; a project slash command
+            # went to the CLI without the context (SPEC-30), so the next turn carries it
+            self._last_hash = document_hash(self.live.data)
+            self._skills_seen = skills_key(self.app.project.root)
         if reply.text and reply.text != self._text:
             self._text = reply.text
             self.replyChanged.emit()
