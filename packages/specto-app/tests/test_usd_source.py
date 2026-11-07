@@ -388,3 +388,26 @@ def test_compiling_shaders_says_first_run_only_on_a_cold_shader_cache(tmp_path, 
         assert wait_health(src, "compiling shaders")["message"] == ""
     finally:
         src.close()
+
+
+def test_a_load_reports_where_its_time_went_with_its_first_frame(fake, stage_file):
+    """SPEC-27: the ``ok`` that ends a load carries ``timings`` (seconds): the stage opened
+    with usd-core, the renderer's stage populated, the first frame drawn, all of it; with
+    ``--fresh-renderer`` a load after the first also says what the renderer swap cost."""
+    src = spawn(fake, "--fresh-renderer")
+    try:
+        src.wait_event("ready")
+        src.send("load", path=str(stage_file))
+        first = wait_health(src, "ok")["timings"]
+        assert set(first) == {"open_s", "populate_s", "first_frame_s", "total_s"}
+        assert all(isinstance(v, float) and v >= 0 for v in first.values())
+        assert (
+            first["total_s"]
+            >= first["open_s"] + first["populate_s"] + first["first_frame_s"] - 0.01
+        )
+        src.send("load", path=str(stage_file))
+        again = wait_health(src, "ok")["timings"]
+        assert set(again) == {"renderer_s", "open_s", "populate_s", "first_frame_s", "total_s"}
+        assert again["total_s"] >= again["renderer_s"]
+    finally:
+        src.close()

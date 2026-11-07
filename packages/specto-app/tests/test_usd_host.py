@@ -402,3 +402,12 @@ def test_a_faked_capability_runs_the_stub_source_not_its_renderer(monkeypatch):
     monkeypatch.setenv("SPECTO_DISABLE_CAPABILITIES", "")
     monkeypatch.delenv("SPECTO_FAKE_CAPABILITIES")
     assert module(source_command(view("auto"), caps(True, False), 64, 48).argv) != stub
+
+
+def test_snap_reports_where_the_last_load_spent_its_time(host: UsdHost, tmp_path: Path, spin):
+    """SPEC-27: the source's ``ok`` carries its load's ``timings``; ``snap`` keeps them."""
+    host.receive("data", stages(tmp_path / "w", "valley"))
+    spin(until=lambda: health(host)["status"] == "ok")
+    timings = {"open_s": 0.3, "populate_s": 0.7, "first_frame_s": 6.9, "total_s": 8.0}
+    host._on_event("health", {"state": "ok", "message": "valley.usda", "timings": timings})
+    assert host.snapshot()["load_timings"] == timings

@@ -28,7 +28,11 @@ source's methods (#139), so the usd host drives either one:
   when the renderer cannot show all of the stage (Storm: MDL materials) or lights it
   itself (rtx: a stage without lights gets a default dome, #148). ``ok`` comes
   with the stage's first frame in the ring, its ``seq`` the stage's first complete
-  frame (#166: past the frames in flight), which the source always draws. The renderer
+  frame (#166: past the frames in flight), which the source always draws, and its
+  ``timings`` where the load's seconds went (SPEC-27): ``renderer_s`` (a fresh
+  renderer's swap, ``--fresh-renderer``), ``open_s`` (usd-core opens the stage),
+  ``populate_s`` (the renderer's stage filled), ``first_frame_s`` (its first frame drawn:
+  geometry, materials, textures) and ``total_s``. The renderer
   itself starts with the process, as ``compiling shaders`` for rtx (about 2.5 minutes on
   a cold shader cache, said in its message, a few seconds warm), ``starting`` for storm;
 - ``set_camera {position, target, up, fov_y, near, far, cut}`` in the stage's frame;
@@ -239,6 +243,9 @@ class UsdSource:
         self.settle_steps = max(1, settle)
         self.make_renderer = make_renderer
         self.fresh_renderer = bool(getattr(args, "fresh_renderer", False))
+        # where the current load's time goes (seconds), sent with its ``ok`` (SPEC-27)
+        self.load_timings: dict[str, float] = {}
+        self._load_started = self._first_step_from = 0.0
         self.renderer: Any = None
         self.info: Any = None  # stage.StageInfo of the loaded stage
         self.camera: CameraState | None = None
@@ -537,10 +544,13 @@ class UsdSource:
             if restart:
                 self._restart()
             if load:
+                started = time.perf_counter()
+                self.load_timings = {}
                 if self.fresh_renderer and self.info is not None and not restart:
                     self._close_renderer()  # no second stage in a renderer (#155)
                     self._start_renderer()
-                self._load(load)
+                    self.load_timings["renderer_s"] = time.perf_counter() - started
+                self._load(load, started)
             modes = self._take_mode()  # against the stage loaded now
             if self.renderer is None or self.info is None or self.failed:
                 if timecode is not None:
@@ -865,12 +875,19 @@ class UsdSource:
         self.timecode = timecode
         self._budget = self.settle_steps
 
-    def _load(self, path: str) -> None:
+    def _load(self, path: str, started: float | None = None) -> None:
+        """Open ``path`` and hand it to the renderer; its first frame ends the load, and
+        ``ok`` reports where the time went (``load_timings``, SPEC-27). ``started``: when
+        the load was taken (a fresh renderer's swap counts in it), else now."""
         from .stage import open_stage
 
+        self._load_started = started if started is not None else time.perf_counter()
+        if started is None:
+            self.load_timings = {}
         self.health("composing", os.path.basename(path))
         self._building_shown = False  # the load's own phases say what goes on now
         self._drain()
+        t = time.perf_counter()
         try:
             info = open_stage(path)
         except Exception as e:
@@ -881,6 +898,7 @@ class UsdSource:
         self.timecode = None
         if self._overlay is not None:
             self._overlay.stop.set()  # no one needs the old stage's hulls
+        self.load_timings["open_s"] = time.perf_counter() - t
         with self._info_lock:
             self.info = info
         self.camera = Nav(info.bounds, info.up_axis).state()
@@ -900,6 +918,7 @@ class UsdSource:
             return
         self.health("first frame")
         self.view_mode = "lit"  # a new stage starts lit
+        t = time.perf_counter()
         self.renderer.load(
             info.path,
             info.up_axis,
@@ -910,6 +929,8 @@ class UsdSource:
             (info.start_time_code, info.end_time_code, info.time_codes_per_second),
             lighting=info.lighting,
         )
+        self.load_timings["populate_s"] = time.perf_counter() - t
+        self._first_step_from = time.perf_counter()
         if self.environment_shown != "stage" and hasattr(self.renderer, "set_environment"):
             self._show_environment(self.environment_shown, info.up_axis)
             self._sky_compiling(self.environment_shown)  # under the loading label
@@ -966,7 +987,11 @@ class UsdSource:
             self._first_frame = False
             self._compiling_sky = False
             name = self.info.name if self.info is not None else ""
-            self.health("ok", name, seq=self.frames.ring.seq + IN_FLIGHT)
+            now = time.perf_counter()
+            self.load_timings["first_frame_s"] = now - self._first_step_from
+            self.load_timings["total_s"] = now - self._load_started
+            timings = {k: round(v, 3) for k, v in self.load_timings.items()}
+            self.health("ok", name, seq=self.frames.ring.seq + IN_FLIGHT, timings=timings)
             if self._building_shown:  # a collision ask still waits on its overlay
                 self._building_shown = False
                 self._show_building(True)

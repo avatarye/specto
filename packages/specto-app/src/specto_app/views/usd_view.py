@@ -286,7 +286,9 @@ def stub_launcher(width: int, height: int) -> list[str]:
 def rtx_launcher(width: int, height: int) -> list[str]:
     """``specto-usd-source`` with the RTX renderer (#137), a fresh renderer for each stage
     after the first: both #155 crashes were GPU page faults about 3 s after a stage was
-    attached to a running renderer; a fresh one costs under a second more per switch."""
+    attached to a running renderer. A fresh one costs 1-1.5 s more per switch, up to 4 s
+    after a large stage (SPEC-27, tools/bench_usd_load.py), next to the 4-7 s the first
+    frame of a large world takes either way."""
     argv = [sys.executable, "-m", "specto_app.usd.source", "--renderer", "rtx"]
     return [*argv, "--width", str(width), "--height", str(height), "--fresh-renderer"]
 
@@ -1256,6 +1258,8 @@ class UsdHost(Stepping, QuickViewHost):
             if self.frame_item is not None:
                 self.frame_item.setProperty("ring", params.get("name", ""))
         elif name == "health":
+            if params.get("state") == "ok" and isinstance(params.get("timings"), dict):
+                self.stage["load_timings"] = dict(params["timings"])  # snap (SPEC-27)
             seq = params.get("seq")
             self._on_phase(
                 str(params.get("state", "")),
@@ -2420,6 +2424,7 @@ class UsdHost(Stepping, QuickViewHost):
             "renderer": str(self.stage.get("renderer", "")),
             "renderer_note": str(self.stage.get("renderer_note", "")),
             "fallback_reason": self.fallback,
+            "load_timings": dict(self.stage.get("load_timings") or {}),
             "renderer_warnings": list(self.stage.get("warnings") or []),
             "up_axis": self.stage.get("up_axis"),
             "bounds": self.stage.get("bounds"),
