@@ -116,7 +116,10 @@ def test_an_edit_of_the_view_the_user_changed_mid_turn_is_refused_with_its_live_
     assert problem["path"] == "/views/kobi"
     assert "by the user" in problem["message"] and "[700.0,300.0]" in problem["message"]
     assert "layout.position" in problem["message"]
-    assert "again" in problem["fix"]
+    # since stays the turn's start: a retry of the same change is refused again, so the
+    # fix-it says to keep the user's value or ask, never to write over it
+    assert "keep the user's" in problem["fix"] and "ask" in problem["fix"]
+    assert "layout.position" in problem["fix"] and "over" not in problem["fix"]
     assert position(live, "kobi") == [700.0, 300.0] and len(live.history) == depth
 
 
@@ -159,3 +162,84 @@ def test_without_a_mark_there_is_no_check(live: LiveCanvas):
     gestures.move_views(live, {"kobi": (700, 300)})
     live.submit(edits={"views": {"kobi": {"layout": {"position": [330, 0]}}}}, origin=AGENT)
     assert position(live, "kobi") == [330.0, 0.0]
+
+
+def test_an_edit_setting_a_field_the_user_changed_back_to_its_turn_start_value_conflicts(
+    live: LiveCanvas,
+):
+    """An edit names what it changes: setting kobi's label back to its turn-start value
+    is a change of the agent's, not a stale copy, so it meets the user's relabel as a
+    conflict instead of being dropped silently."""
+    since = live.mark()
+    live.submit(edits={"views": {"kobi": {"label": "front"}}}, origin="user")
+
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(edits={"views": {"kobi": {"label": "kobi"}}}, origin=AGENT, since=since)
+
+    assert "label" in e.value.problems[0]["message"]
+    assert live.data["views"]["kobi"]["label"] == "front"
+
+
+def follow(src: str, dst: str) -> dict:
+    return {
+        "kind": "follow",
+        "source": {"view": src, "port": "selection"},
+        "target": {"view": dst, "port": "selection"},
+        "two_way": True,
+        "params": {"match": None},
+        "summary": {"sentence": f"{dst} follows the pick in {src}."},
+    }
+
+
+def user_link(live: LiveCanvas) -> str:
+    res = live.submit(edits={"links": {"new1": follow("kobi", "tamu")}}, origin="user")
+    return res.renamed["new1"]
+
+
+def test_removing_a_view_the_user_linked_mid_turn_is_a_conflict_on_that_link(live: LiveCanvas):
+    since = live.mark()
+    lid = user_link(live)
+
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(edits={"views": {"kobi": None}}, origin=AGENT, since=since)
+
+    (problem,) = e.value.problems
+    assert problem["path"] == f"/links/{lid}" and "kobi" in problem["message"]
+    assert "kobi" in live.data["views"] and lid in live.data["links"]
+
+
+def test_a_stale_whole_document_without_a_view_the_user_linked_is_a_conflict_too(
+    live: LiveCanvas,
+):
+    since = live.mark()
+    turn_start = live.document()
+    lid = user_link(live)
+    del turn_start["views"]["kobi"]
+    turn_start["links"] = {
+        k: v for k, v in turn_start["links"].items() if v["target"]["view"] != "kobi"
+    }
+
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(turn_start, origin=AGENT, since=since)
+
+    assert [p["path"] for p in e.value.problems] == [f"/links/{lid}"]
+
+
+def test_a_stale_whole_document_keeps_a_link_the_user_added(live: LiveCanvas):
+    since = live.mark()
+    turn_start = live.document()
+    lid = user_link(live)
+    turn_start["views"]["tamu"]["label"] = "rear"
+
+    live.submit(turn_start, origin=AGENT, since=since)
+
+    assert lid in live.data["links"] and live.data["views"]["tamu"]["label"] == "rear"
+
+
+def test_each_mark_keeps_its_own_turn_start_copy(live: LiveCanvas):
+    first = live.mark()
+    second = live.mark()
+    assert first != second  # two marks with no change between are still two turn starts
+    gestures.move_views(live, {"kobi": (700, 300)})
+    live.submit(edits={"views": {"kobi": {"label": "front"}}}, origin=AGENT, since=first)
+    assert position(live, "kobi") == [700.0, 300.0]

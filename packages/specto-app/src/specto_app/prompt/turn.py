@@ -228,8 +228,9 @@ class TurnTools:
         #: the messages this turn sent to the fleet, or tried to (#187)
         self.fleet_sends: list[FleetSend] = []
         self.start_cursor = live.cursor
-        #: the turn's start in the canvas's changes (``LiveCanvas.mark``)
-        self.since = live.mark()
+        #: the turn's start (``LiveCanvas.mark``, taken by ``begin``; None before a turn:
+        #: no turn-start check)
+        self.since: int | None = None
         self.failures = 0
         self.labels: list[str] = []
         self.calls: list[ToolResult] = []
