@@ -680,8 +680,12 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   into markdown (text; png assets embedded; links relative to the page, `file:///` off
   the project; a Specto item as a quote with its source); `collection(page)` is the page
   (key = page id, part `.md`) then each local file and picture it links (key = path
-  relative to the project). The card store before markdown (`index.json`) migrates on
-  open. `ScratchHost` is a web host (`scratch/index.html`: the markdown renderer and
+  relative to the project). A link target and a dropped `file:` URL pass
+  `specto_core.pathguard` (section 6) before `links()`, `open_link` or a drop asks
+  whether the file exists: a network path (`\\host\share`, `//host`, percent-encoded, or
+  a `file://host/...` URL) or an NT object path is no link, since agents write pad text
+  and the pad rebuilds its collection on every change (SPEC-67). The card store before
+  markdown (`index.json`) migrates on open. `ScratchHost` is a web host (`scratch/index.html`: the markdown renderer and
   outline, Monaco for the source; page events `save`, `caret`, `open`, `paste`) inside
   `Specto/Scratch/ScratchView.qml` (the tab strip, the drop area over the page); it
   serves its pages under the link id `scratch-<view>` (`ScratchItems`, `read:link`

@@ -7,7 +7,9 @@ counters. Each page is one markdown file ``<page id>.md``; the pictures dropped 
 png files in ``<page id>.assets/``, embedded with ``![label](<page id>.assets/<name>.png)``.
 Links point at files with paths relative to the page (``../../runs/front/00042.jpg``, so
 the note reads the same in any markdown viewer); a file outside the project is a
-``file:///`` URL. ``markdown_of`` turns dropped entries into markdown: text as text,
+``file:///`` URL, and never a network path: every link target and dropped ``file:`` URL
+passes ``specto_core.pathguard`` before anything asks whether the file exists (SPEC-67).
+``markdown_of`` turns dropped entries into markdown: text as text,
 pictures as embedded assets, files and prims as links, an item from a Specto view as a
 short quote with its source.
 
@@ -46,6 +48,7 @@ from .errors import InvalidArgs, NotFound, TxnError
 from .kinds import Item
 from .links import Collection
 from .locks import is_user_origin
+from .pathguard import file_uri_path, path_refusal
 
 SCRATCH_DIR = ".specto/scratch"
 PAGES_FILE = "pages.json"
@@ -281,7 +284,11 @@ class ScratchStore:
 
     def resolve_target(self, target: str) -> Path | None:
         """A link target of a page as a local path (relative to the scratch folder, or a
-        ``file:`` URL); ``None`` for a web link or an anchor."""
+        ``file:`` URL); ``None`` for a web link, an anchor, or a path the shared guard
+        refuses (``specto_core.pathguard``: a network path ``\\\\host``, ``//host``, also
+        percent-encoded, an NT object or device path). Agents write pad text and
+        ``links()`` runs on every rebuild, so the text is judged before anything asks
+        whether the file exists (SPEC-67)."""
         target = unquote(str(target or "").strip().strip("<>")).split("#")[0]
         if not target:
             return None
@@ -291,6 +298,8 @@ class ScratchStore:
         if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.I) and not re.match(
             r"^[a-z]:[\\/]", target, re.I
         ):
+            return None
+        if path_refusal(target):
             return None
         p = Path(target)
         return p if p.is_absolute() else (self.dir / p).resolve()
@@ -767,16 +776,15 @@ def _decode(data: bytes | None) -> str:
 
 
 def local_path(url: str) -> str | None:
-    """A ``file:`` URL's local path (``file:///C:/a%20b.png`` -> ``C:/a b.png``)."""
-    u = urlparse(url.strip())
-    if u.scheme != "file":
+    """A ``file:`` URL's local path (``file:///C:/a%20b.png`` -> ``C:/a b.png``); ``None``
+    for another scheme, for a URL naming a host (``file://server/share/x``: a network
+    path, never built as a UNC share, SPEC-67) and for a path the shared guard refuses
+    (``specto_core.pathguard.file_uri_path``)."""
+    url = url.strip()
+    if urlparse(url).scheme != "file":
         return None
-    path = unquote(u.path)
-    if u.netloc and u.netloc not in ("", "localhost"):
-        return f"//{u.netloc}{path}"  # a UNC share
-    if os.name == "nt" and re.match(r"^/[A-Za-z]:", path):
-        path = path[1:]  # /C:/x -> C:/x; elsewhere /C:/x is a folder named C:
-    return path
+    path, why = file_uri_path(url)
+    return None if why else path
 
 
 def entries_from_mime(formats: Mapping[str, bytes]) -> list[NewItem]:

@@ -15,6 +15,14 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Security fix (SPEC-67): a link in a scratch pad page can no longer make Specto connect
+  to another machine. A network path as a link target (`\\host\share\x.png`, `//host/...`,
+  the same percent-encoded, a `file://host/...` URL or the `\??\UNC\...` spelling) was
+  turned into a network path, and the pad asked whether that file exists on every rebuild
+  of its collection, which on Windows connects out over SMB and can hand the user's
+  sign-in hash to that host; agents write pad text, so no click was needed. Link targets
+  and dropped `file:` URLs now pass the same allowlist as SPEC-61's paths
+  (`specto_core.pathguard`) before anything is read; a `file://host/...` URL is no link.
 - The 3d reader's check of an OBJ's MTL and texture references at resolve goes through
   the same path allowlist as the items host (SPEC-68, `specto_core.pathguard`): a
   reference naming a network or device path, in any spelling (`\\host\x`, `//host/x`,

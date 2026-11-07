@@ -432,10 +432,63 @@ def test_a_file_url_is_a_local_path_by_the_platform_s_rules():
     from specto_core.scratch import local_path
 
     assert local_path("https://x.org/a.png") is None
-    assert local_path("file://server/share/a.png") == "//server/share/a.png"
-    assert local_path("file://localhost/data/a%20b.png") == "/data/a b.png"
+    assert local_path("file://server/share/a.png") is None  # a host: a network path
+    assert local_path("file:///%2F%2Fserver/share/a.png") is None
     if os.name == "nt":
         assert local_path("file:///C:/a%20b.png") == "C:/a b.png"
+        assert local_path("file://localhost/C:/a%20b.png") == "C:/a b.png"
+        assert local_path("file://localhost/data/a%20b.png") is None  # drive-less: rooted
     else:
+        assert local_path("file://localhost/data/a%20b.png") == "/data/a b.png"
         assert local_path("file:///home/u/a%20b.png") == "/home/u/a b.png"
         assert local_path("file:///C:/a.png") == "/C:/a.png"  # a folder named C: here
+
+
+_NETWORK_LINK_FORMS = (
+    r"\\host\share\x.png",
+    "//host/share/x.png",
+    "%5C%5Chost%5Cshare%5Cx.png",
+    "file://host/share/x.png",
+    "file:///%5C%5Chost/share/x.png",
+    r"\??\UNC\host\share\x.png",
+)
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")
+def test_a_page_s_network_links_never_reach_a_filesystem_call(store, monkeypatch):
+    """SPEC-67: ``links()`` runs on every pad rebuild and agents write pad text, so a
+    ``\\\\host\\share`` link (plain, forward-slash, percent-encoded, a ``file://host`` URL or
+    an NT object path) made ``is_file`` ask that host over SMB, with no click. Every link
+    target passes the shared path guard before any filesystem call."""
+    import os
+    import pathlib
+
+    text = "\n\n".join(f"[l{i}]({t})" for i, t in enumerate(_NETWORK_LINK_FORMS))
+    text += f"\n\n![pic]({_NETWORK_LINK_FORMS[0]})"
+    monkeypatch.setattr(store, "text", lambda page=None: text)
+    calls: list[str] = []
+
+    def boom(path, *_a, **_k):
+        calls.append(str(path))
+        raise AssertionError(f"a filesystem call on {path}")
+
+    for name in ("is_file", "exists", "stat", "resolve", "is_dir"):
+        monkeypatch.setattr(pathlib.Path, name, boom)
+    for name in ("stat", "lstat", "open", "listdir", "scandir"):
+        monkeypatch.setattr(os, name, boom)
+    monkeypatch.setattr(os.path, "realpath", boom)
+    monkeypatch.setattr(os.path, "exists", boom)
+    try:
+        got = store.links()
+    except AssertionError as e:
+        got = e
+    finally:
+        monkeypatch.undo()  # before anything reports: pytest itself stats files
+    assert calls == [] and got == []
+    for target in _NETWORK_LINK_FORMS:
+        assert store.resolve_target(target) is None, target
+
+
+def test_a_network_link_is_no_link_on_any_platform(store):
+    for target in ("//host/share/x.png", "file://host/share/x.png", "file:////host/share/x"):
+        assert store.resolve_target(target) is None, target
