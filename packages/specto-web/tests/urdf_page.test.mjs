@@ -224,7 +224,8 @@ test("a pose turns the joints; a mimic follows its master", async () => {
   const r = page.last();
   assert.equal(r.source, "params");
   assert.equal(r.footer.source, "joints: params");
-  assert.equal(r.joints.finger_mimic.text, "= gripper_joint  20.0 mm");
+  assert.equal(r.joints.finger_mimic.text, "20.0 mm");
+  assert.equal(sliderRow(page, "finger_mimic").querySelector(".follows").textContent, "= gripper_joint");
 });
 
 test("sliders: degrees and mm with the URDF limits, live while dragged, one `joints` message on release", async () => {

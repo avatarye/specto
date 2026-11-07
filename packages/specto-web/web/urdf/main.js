@@ -372,6 +372,7 @@
     if (e) options.pluginExtension = "." + e;
     const t = templates[url] = { promise: null, holder: null, error: null };
     t.promise = BABYLON.ImportMeshAsync(url.slice(slash + 1), scene, options).then(function (res) {
+      if (e === "stl") res.meshes.forEach(stlNormals);
       const holder = new BABYLON.TransformNode("template:" + url, scene);
       res.meshes.forEach(function (m) { if (!m.parent) m.parent = holder; });
       holder.setEnabled(false);
@@ -379,6 +380,28 @@
       return t;
     }, function (err) { t.error = String(err && err.message || err); throw err; });
     return t.promise;
+  }
+
+  /** STL normals from the geometry, turned outward: many exporters write zero normals,
+   * and the file's winding is reversed by the unaltered coordinates. Outward is judged
+   * against the centroid (a closed part's normals point away from it on the whole). */
+  function stlNormals(m) {
+    if (!m.getVerticesData || !m.getIndices || !BABYLON.VertexData) return;
+    const pos = m.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+    const idx = m.getIndices();
+    if (!pos || !idx || !pos.length) return;
+    const nrm = new Array(pos.length).fill(0);
+    BABYLON.VertexData.ComputeNormals(pos, idx, nrm);
+    const n = pos.length / 3;
+    const c = [0, 0, 0];
+    for (let i = 0; i < n; i++) { c[0] += pos[3 * i]; c[1] += pos[3 * i + 1]; c[2] += pos[3 * i + 2]; }
+    c[0] /= n; c[1] /= n; c[2] /= n;
+    let out = 0;
+    for (let i = 0; i < n; i++) {
+      out += nrm[3 * i] * (pos[3 * i] - c[0]) + nrm[3 * i + 1] * (pos[3 * i + 1] - c[1]) + nrm[3 * i + 2] * (pos[3 * i + 2] - c[2]);
+    }
+    if (out < 0) for (let i = 0; i < nrm.length; i++) nrm[i] = -nrm[i];
+    m.setVerticesData(BABYLON.VertexBuffer.NormalKind, nrm);
   }
 
   function visualMaterial(mat) {
@@ -1183,7 +1206,7 @@
       o.disabled = !e.url;
       envSelect.appendChild(o);
     });
-    envSelect.value = off ? (lastPicked || "") : name;
+    envSelect.value = off ? lastHdri() : name;
     envSelect.disabled = off;
     envIntensityInput.value = String(envIntensity());
     envIntensityValue.textContent = envIntensity().toFixed(2) + "x";
@@ -1310,6 +1333,7 @@
       const value = el("span", "value");
       head.append(name, el("span", "type", K.typeLetter(j.type)), value);
       row.appendChild(head);
+      if (j.mimic) row.appendChild(el("div", "follows", "= " + j.mimic.joint + (j.mimic.multiplier !== 1 ? " x " + fmt(j.mimic.multiplier) : "") + (j.mimic.offset ? (j.mimic.offset > 0 ? " + " : " - ") + fmt(Math.abs(j.mimic.offset)) : "")));
       const spec = K.sliderSpec(j);
       let input = null;
       if (j.mimic) {
@@ -1349,7 +1373,7 @@
     Object.keys(sliders).forEach(function (n) {
       const s = sliders[n];
       if (s.typing) return;
-      s.value.textContent = s.joint.mimic ? "= " + s.joint.mimic.joint + "  " + K.displayText(s.joint, v[n]) : K.displayText(s.joint, v[n]);
+      s.value.textContent = K.displayText(s.joint, v[n]);
       if (s.input) {
         if (dragging !== n) s.input.value = String(K.toDisplay(s.joint, v[n]));
         s.input.disabled = locked();
@@ -1586,8 +1610,11 @@
       if (pe[1].placeholder) placeholders += 1;
       if (pe[1].kind === "collision") collisions += 1;
     });
+    const box = loading ? null : boundsOf(null);
+    const round = function (v) { return v.asArray().map(function (x) { return +x.toFixed(3); }); };
     Specto.report({
       generation: generation,
+      bounds: box ? [round(box.min), round(box.max)] : null,
       robot: model ? { name: model.name, root: K.rootOf(model), links: (model.links || []).length, joints: (model.joints || []).length } : null,
       joints: joint,
       values: model ? K.resolve(model, values) : {},

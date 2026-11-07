@@ -39,7 +39,7 @@ button.pill {
 button.pill:hover { background: var(--color-bg); }
 button.pill svg { width: 12px; height: 12px; }
 .pills { display: flex; flex-wrap: wrap; gap: 4px; }
-.seg-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--color-text-muted); font-size: var(--metric-font-px-small); }
+.seg-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; white-space: nowrap; color: var(--color-text-muted); font-size: var(--metric-font-px-small); }
 .seg button.quiet { font-size: var(--metric-font-px-small); padding: 1px 8px; }
 .env-row { margin: 6px 0; }
 .env-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
@@ -93,6 +93,7 @@ button.pill svg { width: 12px; height: 12px; }
 .joint-row input[type=range] { width: 100%; margin: 2px 0 0; height: 10px; accent-color: var(--color-accent); }
 .joint-row.mimic .name, .joint-row.mimic .value { color: var(--color-text-faint); }
 .joint-row.mimic .value { cursor: default; }
+.joint-row .follows { color: var(--color-text-faint); font-family: var(--font-mono), Consolas, monospace; font-size: 10px; padding-left: 8px; }
 .joint-row.mimic .value:hover { background: transparent; }
 .joint-row.locked input[type=range] { opacity: 0.55; }
 .joint-row.selected { background: var(--color-accent-soft); }
