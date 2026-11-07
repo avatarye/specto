@@ -274,6 +274,7 @@ links.approval_request(link_id) -> {link, path, hash, target, approved}  # what 
 links.approve(link_id)                  # Python links (ADR 0006): the USER's gesture only (the view's
                                         # Approve, the approval card; never a command, #203)
 links.refresh(view_id=None) -> [link ids]  # rescan: the project's links, or a view's (stat afresh), #102
+links.retarget(view_id) -> [link ids]   # the view's type changed: forget its inputs, resolve its links again (SPEC-48)
 links.poll() -> [link ids]              # the app's 8 ms timer: delivers job results, watch arrivals
 links.watching(); links.watch_status(link_id)
 links.global_clock: GlobalClock         # section 7
@@ -676,7 +677,10 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   a view in the document, attaches it to the link runtime (already-resolved inputs are
   replayed), routes `on_patch` with only that view's ops and `on_arrivals` with the
   `link.arrivals` payloads for its inputs, disposes it when the view leaves the
-  document. Exceptions in a host land in the view's health.
+  document. A submit that keeps a view's id but changes its type rebuilds its host: the
+  old one is disposed, `links.retarget` resolves the view's links again for the new
+  type, the new host takes the slot and, if the view was paused, is paused with the
+  same reason (SPEC-48). Exceptions in a host land in the view's health.
 - Item lifecycle: the shell calls `hosts.attach(view_id, slot)` from the view's QML slot
   (`objectName "slot:<id>"`) and `detach` when it goes; the item is re-parented and
   resized to the slot, held in a hidden holder item in between. Culling (section 12) calls

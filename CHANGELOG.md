@@ -77,8 +77,10 @@ the release and move on their own schedule.
   `first`).
 - Changing a view's type by a submit that keeps its id builds the new type's view
   (SPEC-48). The old host stayed (a 3d view turned gallery kept saying it had no host);
-  now it goes, and the new one takes the view's place, paused if the view is off screen
-  or collapsed.
+  now it goes, the view's links resolve again for the new type (a 3d view gets its
+  scenes prepared), and the new one takes the view's place, paused if the view is off
+  screen or collapsed. A collapsed view that pauses is labelled collapsed, not
+  off-screen.
 - The web build leaves no truncated HDRI behind (SPEC-45): each `.hdr` streams into a
   `.part` beside it and is renamed into place once its sha256 matches, and a source
   checkout's `specto_web.hdri_source` serves a cached `.hdr` only at the manifest's

@@ -1014,6 +1014,22 @@ class LinkRuntime:
             self.resolve(lid)
         return lids
 
+    def retarget(self, view_id: str) -> list[str]:
+        """The view's type changed under the same id (SPEC-48): what its links resolved
+        for the old type is forgotten, so a host attaching now is handed nothing stale,
+        and every link into it resolves again, since resolution depends on the target
+        type (an intaker feeding a 3d view prepares scene buffers; one feeding a
+        gallery does not). Returns the link ids resolved."""
+        for key in [k for k in self.inputs if k[0] == view_id]:
+            if isinstance(self.inputs.pop(key), Collection):
+                self.global_clock.forget(view_id)
+        lids = [
+            lid for lid, ln in self.live.data["links"].items() if ln["target"]["view"] == view_id
+        ]
+        for lid in lids:
+            self.resolve(lid)
+        return lids
+
     def _oriented(self, link_id: str, link: dict[str, Any]) -> dict[str, Any]:
         """The link as the resolver sees it: source and target swapped when its target
         end spoke last (two-way)."""

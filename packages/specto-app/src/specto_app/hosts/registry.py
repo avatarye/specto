@@ -354,11 +354,14 @@ class HostRegistry(QObject):
 
     def _rebuild(self, view_id: str) -> None:
         """Replace a view's host with one of its document type: the old host goes, the
-        new one takes its slot and, off screen or collapsed, stays paused."""
+        view's links resolve again for the new type (``links.retarget``: resolution
+        depends on the target type, and no link changed), the new host takes its slot
+        and, off screen or collapsed, stays paused with the reason it had."""
         slot = self._slots.get(view_id)
         paused = view_id in self._paused
         why = self.ctx.health_of(view_id).get("message") or "off-screen"
         self.dispose(view_id)
+        self.ctx.links.retarget(view_id)
         if self.host(view_id) is None:
             return
         if slot is not None:
@@ -425,7 +428,7 @@ class HostRegistry(QObject):
         try:
             _call_hook(h, "pause")
             self._schedule_release(view_id, h)
-            self.ctx.set_health(view_id, "paused", "off-screen")
+            self.ctx.set_health(view_id, "paused", why)
         except Exception as e:
             self.ctx.set_health(view_id, "error", f"pause: {type(e).__name__}: {e}")
         return True
