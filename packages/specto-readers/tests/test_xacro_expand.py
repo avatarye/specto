@@ -1,14 +1,13 @@
 """xacro expansion (SPEC-43.3): only trusted content expands (ADR 0006), the root's
-approval covers its args, every read is gated and confined, and the expansion runs in a
-process of its own; Specto's package resolver stands in for ``$(find pkg)``."""
+approval covers its args and each package folder, the environment never reaches the
+eval, every read is checked before it opens, and the expansion runs in a process of its
+own; Specto's package resolver stands in for ``$(find pkg)``."""
 
 from __future__ import annotations
 
 import hashlib
 import os
 import subprocess
-import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -18,6 +17,7 @@ from specto_readers.xacro_expand import (
     XacroNeedsApproval,
     approval_hash,
     expand_xacro,
+    package_hash,
 )
 
 XNS = 'xmlns:xacro="http://www.ros.org/wiki/xacro"'
@@ -49,12 +49,20 @@ def _approval(root: Path, args: dict | None = None) -> str:
     return approval_hash(root.read_bytes(), args)
 
 
-class Approvals:
-    """Stands in for the trust store: the user approved these files (by content) and
-    these roots with ``args`` (by approval hash)."""
+def _package(root: Path, name: str, folder: Path, args: dict | None = None) -> str:
+    return package_hash(_approval(root, args), name, os.path.abspath(folder))
 
-    def __init__(self, *paths: Path, args: dict | None = None) -> None:
+
+class Approvals:
+    """Stands in for the trust store: the user approved these files (by content), these
+    roots with ``args`` (by approval hash) and, under the first, these packages."""
+
+    def __init__(
+        self, *paths: Path, args: dict | None = None, packages: dict | None = None
+    ) -> None:
         self.hashes = {_sha(p) for p in paths} | {_approval(p, args) for p in paths}
+        for name, folder in (packages or {}).items():
+            self.hashes.add(_package(paths[0], name, folder, args))
 
     def __call__(self, sha256: str) -> bool:
         return sha256 in self.hashes
@@ -111,6 +119,18 @@ def test_changed_args_need_approve_again(tmp_path: Path):
         expand_xacro(root, find_package=_no_packages, trusted=trusted)
 
 
+def test_the_environment_never_reaches_the_eval(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SPECTO_TEST_PAYLOAD", "python.vars(python.type)")
+    for body in (
+        '<link name="${$(optenv SPECTO_TEST_PAYLOAD)}"/>',
+        '<link name="$(env SPECTO_TEST_PAYLOAD)"/>',
+    ):
+        root = _write(tmp_path / "env.xacro", _robot(body))
+        with pytest.raises(XacroError, match=r"\$\(env\) and \$\(optenv\) are off") as e:
+            expand_xacro(root, find_package=_no_packages, trusted=Approvals(root))
+        assert "xacro_args" in str(e.value)
+
+
 def test_an_untrusted_xacro_needs_approve_and_is_never_evaluated(tmp_path: Path):
     # the file is not even well-formed: nothing parses it before the trust check
     root = _write(tmp_path / "arm.xacro", "<robot ${__import__('os')}")
@@ -142,11 +162,41 @@ def test_find_resolves_through_specto_s_package_resolver(tmp_path: Path):
         asked.append(name)
         return str(pkg) if name == "arm_description" else None
 
-    out = expand_xacro(root, find_package=find, trusted=Approvals(root, inc))
+    trusted = Approvals(root, inc, packages={"arm_description": pkg})
+    out = expand_xacro(root, find_package=find, trusted=trusted)
     assert '<link name="gripper">' in out.urdf
     assert f"{pkg.as_posix()}/meshes/gripper.stl" in out.urdf.replace("\\", "/")
     assert "arm_description" in asked
     assert set(out.files) == {str(root.resolve()), str(inc.resolve())}
+
+
+def test_a_moved_package_needs_approve_again(tmp_path: Path):
+    """$(find) puts the folder's path into the eval text and package_paths is
+    agent-writable: each package folder is approved under its root."""
+    first = tmp_path / "pkgs" / "desc"
+    moved = tmp_path / "other" / "desc"
+    first.mkdir(parents=True)
+    moved.mkdir(parents=True)
+    root = _write(tmp_path / "a.xacro", _robot("<link name=\"${r'$(find desc)'[-4:]}\"/>"))
+    trusted = Approvals(root, packages={"desc": first})
+    out = expand_xacro(root, find_package={"desc": str(first)}.get, trusted=trusted)
+    assert '<link name="desc"/>' in out.urdf
+    with pytest.raises(XacroNeedsApproval, match="its package desc at") as e:
+        expand_xacro(root, find_package={"desc": str(moved)}.get, trusted=trusted)
+    assert e.value.role == "package" and e.value.package == "desc"
+    assert e.value.sha256 == _package(root, "desc", moved)
+
+
+def test_a_package_folder_that_could_break_the_eval_text_is_refused(tmp_path: Path):
+    evil = tmp_path / "x'+python.str(1)+'"
+    evil.mkdir()
+    root = _write(tmp_path / "a.xacro", _robot("<link name=\"${'$(find desc)'}\"/>"))
+    with pytest.raises(XacroError, match="quote"):
+        expand_xacro(
+            root,
+            find_package={"desc": str(evil)}.get,
+            trusted=Approvals(root, packages={"desc": evil}),
+        )
 
 
 def test_an_unknown_package_names_the_fix(tmp_path: Path):
@@ -168,34 +218,42 @@ def test_a_changed_include_needs_approve_again(tmp_path: Path):
     assert e.value.path == str(inc.resolve()) and e.value.role == "include"
 
 
-def test_the_approve_gesture_on_that_root_accepts_and_lists_what_it_reads(tmp_path: Path):
+def test_the_approve_gesture_on_that_root_accepts_and_lists_what_it_meets(tmp_path: Path):
+    pkg = tmp_path / "desc"
     inc = _write(tmp_path / "sub" / "part.xacro", '<robot><link name="part"/></robot>')
     known = _write(tmp_path / "sub" / "known.xacro", '<robot><link name="known"/></robot>')
+    _write(pkg / "p.xacro", '<robot><link name="p"/></robot>')
     root = _write(
         tmp_path / "a.xacro",
         _robot(
-            '<xacro:include filename="sub/part.xacro"/><xacro:include filename="sub/known.xacro"/>'
+            '<xacro:include filename="sub/part.xacro"/>'
+            '<xacro:include filename="sub/known.xacro"/>'
+            '<xacro:include filename="$(find desc)/p.xacro"/>'
         ),
     )
-    # the user approved the file they opened; what it reads comes with that click
+    find = {"desc": str(pkg)}.get
+    # the user approved the file they opened; what it meets comes with that click
     out = expand_xacro(
         root,
-        find_package=_no_packages,
+        find_package=find,
         trusted=Approvals(root, known),
         approved_root_sha=_approval(root),
     )
-    assert '<link name="part"/>' in out.urdf
-    # what the host records and shows: the root's approval and each newly trusted file
-    assert out.accepted == {str(root.resolve()): _approval(root), str(inc.resolve()): _sha(inc)}
+    assert '<link name="part"/>' in out.urdf and '<link name="p"/>' in out.urdf
+    # what the host records and shows: the root's approval and each newly trusted thing
+    assert out.accepted == {
+        str(root.resolve()): _approval(root),
+        str(inc.resolve()): _sha(inc),
+        f"package desc: {os.path.abspath(pkg)}": _package(root, "desc", pkg),
+        str((pkg / "p.xacro").resolve()): _sha(pkg / "p.xacro"),
+    }
     # an approval of another root's hash accepts nothing here
     with pytest.raises(XacroNeedsApproval):
-        expand_xacro(
-            root, find_package=_no_packages, trusted=Approvals(root), approved_root_sha="0" * 64
-        )
+        expand_xacro(root, find_package=find, trusted=Approvals(root), approved_root_sha="0" * 64)
     # and the root itself is never accepted that way
     with pytest.raises(XacroNeedsApproval):
         expand_xacro(
-            root, find_package=_no_packages, trusted=Approvals(), approved_root_sha=_approval(root)
+            root, find_package=find, trusted=Approvals(), approved_root_sha=_approval(root)
         )
 
 
@@ -250,15 +308,15 @@ def test_reads_are_confined_by_default(tmp_path: Path):
         project / "robots" / "a.xacro",
         _robot('<xacro:include filename="../../elsewhere/x.xacro"/>'),
     )
-    trusted = Approvals(sneaky, outside, part)
+    trusted = Approvals(sneaky, outside)
     with pytest.raises(XacroError, match=r"x\.xacro is outside the project"):
         expand_xacro(sneaky, find_package=_no_packages, trusted=trusted)
     with pytest.raises(XacroError, match="outside"):
         expand_xacro(sneaky, find_package=_no_packages, trusted=trusted, roots=[project])
     # the opt-out (tests only): the trust gate alone decides
-    out = expand_xacro(sneaky, find_package=_no_packages, trusted=trusted, confine=False)
+    out = expand_xacro(sneaky, find_package=_no_packages, trusted=trusted, _confine=False)
     assert '<link name="x"/>' in out.urdf
-    # a package the resolver found is allowed, and so is the project
+    # an approved package is allowed, and so is the project
     sibling = _write(project / "shared" / "s.xacro", '<robot><link name="s"/></robot>')
     viafind = _write(
         project / "robots" / "b.xacro",
@@ -270,10 +328,56 @@ def test_reads_are_confined_by_default(tmp_path: Path):
     out = expand_xacro(
         viafind,
         find_package={"desc": str(pkg)}.get,
-        trusted=Approvals(viafind, part, sibling),
+        trusted=Approvals(viafind, part, sibling, packages={"desc": pkg}),
         roots=[project],
     )
     assert '<link name="part"/>' in out.urdf and '<link name="s"/>' in out.urdf
+
+
+def test_device_and_network_paths_are_refused_before_anything_opens(tmp_path: Path):
+    targets = (
+        ["/dev/zero"]
+        if os.name != "nt"
+        else [
+            r"\\.\PhysicalDrive0",
+            r"\\?\GLOBALROOT\Device\Null",
+            str(tmp_path / "NUL"),
+            str(tmp_path / "nul.xacro"),
+        ]
+    )
+    for target in targets:
+        root = _write(tmp_path / "dev.xacro", _robot(f'<xacro:include filename="{target}"/>'))
+        with pytest.raises(XacroError, match="device"):
+            expand_xacro(
+                root,
+                find_package=_no_packages,
+                trusted=Approvals(root),
+                approved_root_sha=_approval(root),  # even during an Approve run
+                _confine=False,
+            )
+    if os.name == "nt":
+        root = _write(
+            tmp_path / "glob.xacro", _robot(r'<xacro:include filename="\\server\share\*.xacro"/>')
+        )
+        with pytest.raises(XacroError, match="network path"):  # never listed
+            expand_xacro(root, find_package=_no_packages, trusted=Approvals(root), _confine=False)
+        root = _write(
+            tmp_path / "unc.xacro", _robot(r'<xacro:include filename="\\server\share\x.xacro"/>')
+        )
+        with pytest.raises(XacroError, match="outside"):
+            expand_xacro(root, find_package=_no_packages, trusted=Approvals(root))
+        with pytest.raises(XacroError, match="network path"):
+            expand_xacro(root, find_package=_no_packages, trusted=Approvals(root), _confine=False)
+
+
+def test_a_file_past_the_size_cap_is_refused(tmp_path: Path, monkeypatch):
+    from specto_readers import xacro_expand
+
+    monkeypatch.setattr(xacro_expand, "MAX_FILE_BYTES", 100)
+    big = _write(tmp_path / "big.xacro", "<robot>" + " " * 200 + "</robot>")
+    root = _write(tmp_path / "a.xacro", _robot('<xacro:include filename="big.xacro"/>'))
+    with pytest.raises(XacroError, match="larger than 100 bytes"):
+        expand_xacro(root, find_package=_no_packages, trusted=Approvals(root, big))
 
 
 def _link_dir(link: Path, target: Path) -> None:
@@ -293,11 +397,13 @@ def test_a_link_out_of_the_project_is_refused_by_where_it_lands(tmp_path: Path):
     project.mkdir()
     _link_dir(project / "linked", outside.parent)
     root = _write(project / "a.xacro", _robot('<xacro:include filename="linked/x.xacro"/>'))
-    with pytest.raises(XacroError, match="outside"):
-        expand_xacro(
-            root, find_package=_no_packages, trusted=Approvals(root, outside), roots=[project]
-        )
-    (project / "linked").rmdir() if os.name == "nt" else (project / "linked").unlink()
+    try:
+        with pytest.raises(XacroError, match="outside"):
+            expand_xacro(
+                root, find_package=_no_packages, trusted=Approvals(root, outside), roots=[project]
+            )
+    finally:
+        (project / "linked").rmdir() if os.name == "nt" else (project / "linked").unlink()
 
 
 def test_xacro_reads_files_only_through_the_bare_open():
@@ -339,12 +445,16 @@ def test_a_xacro_error_comes_back_as_one_message(tmp_path: Path):
 def test_xacro_is_left_as_it_was(tmp_path: Path):
     import xacro
     import yaml
-    from xacro import substitution_args
+    from xacro import substitution_args as sa
 
     def state():
         return (
-            substitution_args._eval_find,
-            substitution_args._eval_dict["find"],
+            sa._eval_find,
+            sa._env,
+            sa._optenv,
+            sa._eval_env,
+            sa._eval_optenv,
+            {k: sa._eval_dict[k] for k in ("find", "env", "optenv")},
             "open" in vars(xacro),
             dict(yaml.SafeLoader.yaml_constructors),
         )
@@ -355,54 +465,6 @@ def test_xacro_is_left_as_it_was(tmp_path: Path):
     with pytest.raises(XacroNeedsApproval):
         expand_xacro(root, find_package=_no_packages, trusted=Approvals())
     assert state() == before
-
-
-def _alive(pid: int) -> bool:
-    if os.name == "nt":
-        import ctypes
-
-        k32 = ctypes.windll.kernel32
-        h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            return False
-        code = ctypes.c_ulong()
-        k32.GetExitCodeProcess(h, ctypes.byref(code))
-        k32.CloseHandle(h)
-        return code.value == 259  # STILL_ACTIVE
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
-def test_a_timeout_kills_the_child_and_what_it_started(tmp_path: Path):
-    from specto_readers.xacro_expand import run_child
-
-    pidfile = tmp_path / "grandchild.pid"
-    script = (
-        "import subprocess, sys, time\n"
-        "p = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
-        f"open(r'{pidfile}', 'w').write(str(p.pid))\n"
-        "time.sleep(60)\n"
-    )
-    run = run_child([sys.executable, "-c", script], b"", timeout=3.0)
-    assert run.timed_out
-    pid = int(pidfile.read_text())
-    deadline = time.monotonic() + 10
-    while _alive(pid) and time.monotonic() < deadline:
-        time.sleep(0.2)
-    assert not _alive(pid)
-
-
-def test_output_past_the_cap_fails_the_run():
-    from specto_readers.xacro_expand import run_child
-
-    script = "import sys; sys.stdout.write('x' * 300000); sys.stdout.flush()"
-    run = run_child([sys.executable, "-c", script], b"", timeout=30.0, out_cap=100000)
-    assert run.over_cap == "stdout"
-    ok = run_child([sys.executable, "-c", script], b"", timeout=30.0)
-    assert ok.over_cap is None and len(ok.stdout) == 300000
 
 
 def test_expansion_runs_in_its_own_process_never_in_a_pool_worker(tmp_path: Path):
@@ -429,7 +491,7 @@ def test_expansion_runs_in_its_own_process_never_in_a_pool_worker(tmp_path: Path
         assert pending["path"] == str(root.resolve()) and pending["args"] == args
         assert pending["sha256"] == _approval(root, args)
         assert "urdf" not in job.result
-        # the user's Approve: the root's approval goes into the store, what it reads along
+        # the user's Approve: the root's approval goes into the store, what it meets along
         store.approve(pending["sha256"], path=str(root))
         job = submit_xacro(
             pool,

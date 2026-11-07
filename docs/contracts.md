@@ -502,20 +502,30 @@ the transport-agnostic handler; `specto_app.endpoint.LocalEndpoint` serves it;
   and atomic, so sessions hold no open state.
 - Code-running paths (ADR 0006), the complete list; each runs only content whose sha256
   the user approved in the window, in its own `python -I -X utf8` process started from a
-  pool worker, never in the app or a worker:
+  pool worker, never in the app or a worker (`specto_core.children`: `kill_tree` ends a
+  child's whole tree, `run_child` caps its output and can start it with `minimal_env`):
   - Python links (section 6, `_python_link_runner.py`);
-  - xacro expansion (`specto_readers.xacro_expand`, `_xacro_runner.py`): the root is
-    approved as `approval_hash(root bytes, xacro_args)`, because `$(arg)` is substituted
-    inside `${...}` before the eval and the args live in the agent-writable canvas: a
-    change to either needs Approve again, and the Approve card shows the args. Every
-    file xacro reads (includes and `load_yaml` files) is opened, its final path checked
-    against the allowed folders (the root's folder, the project, the packages
-    `$(find)` found; always on), read once and hashed before xacro parses it, and must
-    be approved too, except during the Approve of that exact root and args
-    (`approved_root_sha`): that run lists each file it accepted (`accepted`, path and
-    hash), which the host records and shows. A timeout kills the child's process tree;
-    output past its byte caps fails the run. Untrusted, it says "xacro needs Approve";
-    plain URDF always opens.
+  - xacro expansion (`specto_readers.xacro_expand`, `_xacro_runner.py`), whose `${...}`
+    is a Python eval; everything that can reach the eval text is approved or refused:
+    - the root, as `approval_hash(root bytes, xacro_args)` (`$(arg)` is substituted
+      before the eval and the canvas, which an agent can write, holds the args); the
+      Approve card shows the args;
+    - each `$(find)` package folder, as `package_hash` under that root (package_paths is
+      agent-writable); a folder whose path holds a quote, `$`, a backtick or a brace is
+      refused, and so is any file whose folder does (`$(dirname)`);
+    - the environment: `$(env)` and `$(optenv)` are refused, and the child starts with a
+      minimal environment;
+    - every file xacro reads (includes and `load_yaml` files) and every include glob:
+      the path text is checked first (device paths, network paths and anything outside
+      the root's folder, the project and the approved packages are refused before
+      anything opens), then the opened handle's final path, then the file is read once
+      (at most 32 MB), hashed and must be approved too;
+    - during the Approve of that exact root and args (`approved_root_sha`), what the run
+      meets is accepted and listed in `accepted` (label and hash), which the host
+      records and shows.
+
+    A timeout kills the child's process tree; output past its byte caps fails the run.
+    Untrusted, it says "xacro needs Approve"; plain URDF always opens.
 
 ## 11. View hosts (specto-app; `specto_app.hosts`)
 

@@ -39,6 +39,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from .children import NO_WINDOW, kill_tree
 from .clock import now_iso
 from .contents import ContentEntry, ContentValue, format_for, read_entry
 from .kinds import Item
@@ -142,26 +143,6 @@ class _Failed(Exception):
     def __init__(self, message: str, trace: str = "") -> None:
         super().__init__(message)
         self.failed = ScriptFailed(message=message, trace=trace)
-
-
-#: on Windows the interpreter gets no console window of its own (the app has none)
-NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
-def kill_tree(proc: subprocess.Popen) -> None:
-    """End the script and whatever it started (a child holding the pipes would keep the
-    run from ever returning)."""
-    if os.name == "nt":
-        subprocess.run(
-            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-            capture_output=True,
-            creationflags=NO_WINDOW,
-        )
-    else:  # pragma: no cover - the session was started for this
-        with contextlib.suppress(OSError):
-            os.killpg(proc.pid, 9)
-    with contextlib.suppress(OSError):
-        proc.kill()
 
 
 def _run(request: dict[str, Any], where: str, root: str, timeout: float) -> Any:
@@ -598,7 +579,6 @@ def collection_of(value: Any, root: str) -> Collection:
 
 
 __all__ = [
-    "NO_WINDOW",
     "RUNNER",
     "SHAPES",
     "ScriptFailed",
@@ -609,7 +589,6 @@ __all__ = [
     "check_output",
     "code_hash",
     "collection_of",
-    "kill_tree",
     "lookup",
     "read_contents",
     "sha256_of",
