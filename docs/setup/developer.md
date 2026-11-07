@@ -386,8 +386,9 @@ git-ignored) and the report, one line per flow, in `<out>/suite-<tier>.txt`. `--
 `--net` the html view with live embeds.
 
 The offscreen and GPU tiers go through the app's test driver: `tools/gui_qtdrive.py`
-starts `specto-app --test-driver`, asks `shell.locate` where items are and sends Qt test
-events (`QTest`, synthetic wheel and key events) on the app's own GUI thread
+starts `specto-app --test-driver`, asks `shell.locate` where items are (after the window's
+next frame, so a list's removed rows are gone, SPEC-41) and sends Qt test events
+(`QTest`, synthetic wheel and key events) on the app's own GUI thread
 (`specto_app.testdrive`). Nothing in the run reaches the desktop: the clipboard is an
 in-memory one, mpv plays into the null audio output, launchers start only the flows' fake
 programs, `window.raise` raises nothing, and off the offscreen platform the window opens

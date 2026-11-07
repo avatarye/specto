@@ -15,6 +15,11 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The offscreen `search` flow no longer fails now and then (SPEC-41). The test driver
+  answers a `locate` after the window's next frame, so it reads the item tree that frame
+  draws: a list applies its model's row changes at its polish, and until then a removed
+  row's delegate was still found, visible (3 runs in 8 on `main`). A normal `shell.locate`
+  forces nothing; the fix is in the driver alone.
 - Paused galleries, images and videos give back their GPU memory (SPEC-3, ADR 0030). A
   paused view is one off-screen, collapsed or behind the overworld. After 3 s paused,
   the view leaves the scene: the gallery's atlas and the video's frame buffer and mpv

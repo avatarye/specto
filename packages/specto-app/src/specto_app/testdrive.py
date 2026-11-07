@@ -29,6 +29,7 @@ Nothing here is reachable through the command endpoint, so the generated SDK and
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -37,7 +38,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import shiboken6
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, Qt, Slot
+from PySide6.QtCore import (
+    QCoreApplication,
+    QEvent,
+    QObject,
+    QPoint,
+    QPointF,
+    QRect,
+    Qt,
+    QTimer,
+    Slot,
+)
 from PySide6.QtGui import QFocusEvent, QGuiApplication, QKeyEvent, QWheelEvent, QWindow
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtQuick import QQuickWindow
@@ -258,6 +269,60 @@ def window_flags(base: Qt.WindowType) -> Qt.WindowType:
     return base
 
 
+#: ops answered once the window has synchronised its next frame (:class:`NextSync`)
+NEXT_FRAME_OPS = frozenset({"locate"})
+#: how long an op waits for that frame (a hidden or unexposed window draws none)
+FRAME_WAIT_MS = 500
+
+
+class NextSync(QObject):
+    """Run ``fn`` once ``win`` has synchronised its next frame (SPEC-41), at most
+    ``timeout_ms`` later. A ListView applies its model's row changes at its polish, and
+    until then a removed row's delegate is still in the item tree, visible; every render
+    loop polishes the window's items just before it synchronises, so after the next
+    ``beforeSynchronizing`` the tree is the one that frame draws. That signal, not
+    ``frameSwapped``: a frame already rendering when the wait starts (the threaded loop)
+    swaps without the polish it is waiting for, while a synchronisation always follows a
+    polish done on the GUI thread after it. Nothing is forced: ``win.update()`` asks for
+    the frame the window would draw anyway. Queued, so ``fn`` runs on the GUI thread."""
+
+    def __init__(self, win: QQuickWindow, fn: Any, timeout_ms: int = FRAME_WAIT_MS) -> None:
+        super().__init__()
+        self._win = win
+        self._fn = fn
+        self._done = False
+        #: it ran on the timeout, not on a frame
+        self.timed_out = False
+        win.beforeSynchronizing.connect(self._synced, Qt.ConnectionType.QueuedConnection)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._timed_out)
+        self._timer.start(int(timeout_ms))
+        win.update()
+
+    @property
+    def done(self) -> bool:
+        return self._done
+
+    @Slot()
+    def _synced(self) -> None:
+        self._finish()
+
+    @Slot()
+    def _timed_out(self) -> None:
+        self.timed_out = not self._done
+        self._finish()
+
+    def _finish(self) -> None:
+        if self._done:
+            return
+        self._done = True
+        self._timer.stop()
+        with contextlib.suppress(RuntimeError, TypeError):  # the window is gone
+            self._win.beforeSynchronizing.disconnect(self._synced)
+        self._fn()
+
+
 class TestDriver(QObject):
     """One ``QLocalServer``; every connection speaks the one-line JSON protocol."""
 
@@ -274,6 +339,8 @@ class TestDriver(QObject):
         self.server.newConnection.connect(self._on_new_connection)
         self._bufs: dict[int, bytes] = {}
         self._socks: dict[int, QLocalSocket] = {}
+        #: a socket's op waiting for the next frame (its later lines wait behind it)
+        self._waits: dict[int, NextSync] = {}
         self.info = {
             "pid": os.getpid(),
             "address": self.server.fullServerName(),
@@ -323,6 +390,7 @@ class TestDriver(QObject):
         key = id(sock)
         self._socks.pop(key, None)
         self._bufs.pop(key, None)
+        self._waits.pop(key, None)
         if sock is not None and shiboken6.isValid(sock):
             sock.deleteLater()
 
@@ -333,13 +401,50 @@ class TestDriver(QObject):
         if sock is None or key not in self._socks or not shiboken6.isValid(sock):
             return
         self._bufs[key] += bytes(sock.readAll().data())
-        while b"\n" in self._bufs[key]:
+        self._drain(sock, key)
+
+    def _drain(self, sock: QLocalSocket, key: int) -> None:
+        """Answer the socket's complete lines in order; an op in ``NEXT_FRAME_OPS`` is
+        answered after the window's next frame, and the lines behind it wait for it."""
+        while key not in self._waits and b"\n" in self._bufs.get(key, b""):
             line, self._bufs[key] = self._bufs[key].split(b"\n", 1)
-            if not line.strip():
+            text = line.decode("utf-8", "replace")
+            if not text.strip():
                 continue
-            reply = self.handle_line(line.decode("utf-8", "replace"))
-            sock.write((json.dumps(reply) + "\n").encode("utf-8"))
-            sock.flush()
+            win = self._frame_window(text)
+            if win is not None:
+                self._waits[key] = NextSync(
+                    win, lambda text=text: self._answer_later(sock, key, text)
+                )
+                return
+            self._write(sock, self.handle_line(text))
+
+    def _frame_window(self, text: str) -> QQuickWindow | None:
+        """The window to wait a frame for, for an op in ``NEXT_FRAME_OPS``; None to
+        answer at once (another op, bad json, no visible window)."""
+        try:
+            op = str(json.loads(text).get("op", ""))
+        except (ValueError, AttributeError):
+            return None
+        if op not in NEXT_FRAME_OPS:
+            return None
+        try:
+            win = self.window()
+        except RuntimeError:
+            return None
+        return win if win.isVisible() else None
+
+    def _answer_later(self, sock: QLocalSocket, key: int, text: str) -> None:
+        self._waits.pop(key, None)
+        if key not in self._socks or not shiboken6.isValid(sock):
+            return
+        self._write(sock, self.handle_line(text))
+        self._drain(sock, key)
+
+    @staticmethod
+    def _write(sock: QLocalSocket, reply: dict[str, Any]) -> None:
+        sock.write((json.dumps(reply) + "\n").encode("utf-8"))
+        sock.flush()
 
     def handle_line(self, line: str) -> dict[str, Any]:
         try:
