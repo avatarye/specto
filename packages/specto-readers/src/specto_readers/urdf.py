@@ -1,11 +1,19 @@
-"""The urdf view's robot model (SPEC-43.1, ADR 0028): a URDF parsed into the host/page
-contract's model (ADR 0028, "The host and page contract"), with its mesh and
-texture references found by Specto's own ``package://`` resolver.
+"""The urdf view's robot model (SPEC-43.1, ADR 0029): a URDF parsed into the host/page
+contract's model (ADR 0029, "The host and page contract"), with its mesh and texture
+references found by Specto's own ``package://`` resolver.
 
-``build_robot(path, ...)`` is the whole job, picklable for the process pool: yourdfpy
-parses (``build_scene_graph=False, load_meshes=False``: it only reads the XML, no mesh is
-loaded and no scene graph built), and each ``<mesh filename>`` and ``<texture filename>``
-goes through ``PackageResolver``, in the design's order:
+``parse_urdf(path)`` reads the XML with the standard library (``xml.etree``): no
+third-party parser, since the maintained one (yourdfpy) needs lxml, whose binary wheels
+bundle LGPL-2.1 iconv (ADR 0029). A URDF never needs a DTD, so a document with a
+``<!DOCTYPE`` or an entity declaration is refused before it is parsed (no entity
+expansion). Numbers are coerced strictly (a bad ``xyz`` is an error naming its element),
+``rpy`` is kept exactly as written, a visual's named material takes the robot's global
+material of that name, and mimic joints keep their ``joint``, ``multiplier`` and
+``offset``.
+
+``build_robot(path, ...)`` is the whole job, picklable for the process pool: it parses,
+then sends each ``<mesh filename>`` and ``<texture filename>`` through
+``PackageResolver``, in the design's order:
 
 1. ``package_paths`` (the view's ``params.package_paths``): ``{name: folder}``, or a list
    of folders each searched for the package;
@@ -25,14 +33,14 @@ groups the causes into the view's health notes.
 The model leaves the files out: a mesh geometry carries ``file`` (a role, ``m0``,
 ``m1``, ...) and a material ``texture_file``, both keys of the result's ``files``
 (``{role: absolute path}``); the host serves those through the items host and swaps
-each role for its URL. A DAE goes as its SPEC-42 sidecar ``<name>.dae.glb`` when one
-next to it is as new as the DAE, else as the DAE itself (``ext: "dae"``).
+each role for its URL. A mesh keeps its URDF reference as ``uri``.
 """
 
 from __future__ import annotations
 
 import math
 import os
+import re
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Mapping
@@ -40,6 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
+from xml.parsers import expat
 
 #: mesh file extension -> the Babylon loader the page uses (``ext`` in the model)
 MESH_EXTS: dict[str, str] = {
@@ -50,7 +59,6 @@ MESH_EXTS: dict[str, str] = {
     ".dae": "dae",
 }
 SUPPORTED_NOTE = "STL, OBJ, DAE, glTF"
-DAE_SIDECAR = ".glb"  # SPEC-42: <name>.dae.glb next to the DAE
 #: how deep the project's folders and a package_paths / ROS_PACKAGE_PATH folder are
 #: searched for a package.xml, and how many folders at most (bounded on a big tree)
 SEARCH_DEPTH = 5
@@ -58,6 +66,12 @@ SEARCH_MAX_DIRS = 4000
 SKIP_DIRS = frozenset({".git", ".hg", ".svn", ".specto", "node_modules", "__pycache__"})
 NOT_FETCHED = "http(s) is never fetched (offline)"
 PACKAGE_HINT = "set `params.package_paths`"
+#: URDF's joint types; floating and planar get no slider (ADR 0029)
+JOINT_TYPES = ("revolute", "continuous", "prismatic", "fixed", "floating", "planar")
+#: joint types a slider moves
+ACTUATED = ("revolute", "continuous", "prismatic")
+#: the largest URDF read (a robot description is kilobytes; this bounds a wrong pick)
+MAX_BYTES = 64 * 1024 * 1024
 
 Vec = list[float]
 
@@ -78,14 +92,49 @@ class Resolution:
     package: str | None = None
 
 
+# -- safe XML --------------------------------------------------------------------------------
+
+
+class _Refused(Exception):
+    pass
+
+
+def _refuse(*_args: Any) -> None:
+    raise _Refused
+
+
+def safe_xml(data: bytes, name: str = "the file") -> ET.Element:
+    """``data`` parsed by ``xml.etree``, after an expat pass that refuses any DOCTYPE
+    or entity declaration (a URDF never needs one; nothing is expanded) and reports a
+    document that is not well-formed. Raises ``UrdfError``."""
+    probe = expat.ParserCreate()
+    probe.StartDoctypeDeclHandler = _refuse
+    probe.EntityDeclHandler = _refuse
+    probe.UnparsedEntityDeclHandler = _refuse
+    probe.ExternalEntityRefHandler = _refuse
+    try:
+        probe.Parse(data, True)
+    except _Refused:
+        raise UrdfError(
+            f"{name} declares a DOCTYPE or an entity; a URDF needs neither, so Specto "
+            "does not read it"
+        ) from None
+    except expat.ExpatError as e:
+        raise UrdfError(f"{name} is not well-formed XML: {e}") from None
+    try:
+        return ET.fromstring(data)
+    except ET.ParseError as e:  # pragma: no cover - expat accepted it above
+        raise UrdfError(f"{name} is not well-formed XML: {e}") from None
+
+
 def package_name_of(folder: Path) -> str | None:
     """The ``<name>`` of ``folder/package.xml``, or None."""
     xml = folder / "package.xml"
     try:
         if not xml.is_file():
             return None
-        name = ET.parse(xml).getroot().findtext("name")
-    except (OSError, ET.ParseError):
+        name = safe_xml(xml.read_bytes(), "package.xml").findtext("name")
+    except (OSError, UrdfError):
         return None
     return name.strip() if name else None
 
@@ -168,6 +217,12 @@ class PackageResolver:
         self.packages[name] = (hit[0].resolve(), hit[1])
         return self.packages[name]
 
+    def folder(self, name: str) -> str | None:
+        """The package's folder, or None (xacro's ``$(find name)``, SPEC-43.3: a bound
+        method of a picklable resolver, so it crosses into the xacro child process)."""
+        hit = self.find_package(name)
+        return str(hit[0]) if hit is not None else None
+
     def _find(self, name: str) -> tuple[Path, str] | None:
         # 1. params.package_paths
         if name in self.by_name:
@@ -230,44 +285,281 @@ class PackageResolver:
         return Resolution(str(target), None, via)
 
 
-# -- the model -----------------------------------------------------------------------------
+# -- the parser ------------------------------------------------------------------------------
+
+_SPACE = re.compile(r"\s+")
 
 
-def _floats(values: Any, n: int, default: float = 0.0) -> Vec:
-    if values is None:
-        return [default] * n
+def _numbers(text: str | None, n: int | tuple[int, ...], what: str) -> Vec:
+    """``text`` as ``n`` floats (``n`` may allow several counts: a mesh scale of 1 or 3);
+    a missing, short, long or non-numeric value is an error naming ``what``."""
+    counts = (n,) if isinstance(n, int) else n
+    parts = [p for p in _SPACE.split((text or "").strip()) if p]
     try:
-        out = [float(v) for v in values]
-    except TypeError:  # a scalar (a uniform mesh scale)
-        out = [float(values)] * n
-    return (out + [default] * n)[:n]
+        out = [float(p) for p in parts]
+    except ValueError:
+        raise UrdfError(f"{what} is not numbers: {text!r}") from None
+    if len(out) not in counts or not all(math.isfinite(v) for v in out):
+        want = " or ".join(str(c) for c in counts)
+        raise UrdfError(
+            f"{what} needs {want} finite number{'s' if counts[-1] != 1 else ''}: {text!r}"
+        )
+    return out
 
 
-def _origin(matrix: Any) -> dict[str, Vec]:
-    """A 4x4 homogeneous transform as URDF's ``{xyz, rpy}`` (fixed-axis roll, pitch,
-    yaw: R = Rz(yaw) Ry(pitch) Rx(roll))."""
-    if matrix is None:
-        return {"xyz": [0.0, 0.0, 0.0], "rpy": [0.0, 0.0, 0.0]}
-    m = [[float(matrix[i][j]) for j in range(4)] for i in range(4)]
-    xyz = [m[0][3], m[1][3], m[2][3]]
-    sy = math.hypot(m[0][0], m[1][0])
-    if sy > 1e-9:
-        roll = math.atan2(m[2][1], m[2][2])
-        pitch = math.atan2(-m[2][0], sy)
-        yaw = math.atan2(m[1][0], m[0][0])
-    else:  # gimbal lock: pitch is +-90 degrees, roll and yaw share one angle
-        roll = math.atan2(-m[1][2], m[1][1])
-        pitch = math.atan2(-m[2][0], sy)
-        yaw = 0.0
-    return {"xyz": [_clean(v) for v in xyz], "rpy": [_clean(v) for v in (roll, pitch, yaw)]}
+def _number(el: ET.Element | None, attr: str, what: str, default: float | None = 0.0) -> float:
+    """One float attribute of ``el``; ``default`` when the element or attribute is
+    absent (None: required)."""
+    raw = el.get(attr) if el is not None else None
+    if raw is None:
+        if default is None:
+            raise UrdfError(f"{what} has no {attr}")
+        return float(default)
+    return _numbers(raw, 1, f"{what} {attr}")[0]
 
 
-def _clean(v: float) -> float:
-    """-0.0 and float noise around zero as 0.0 (stable JSON for the page and tests)."""
-    return 0.0 if abs(v) < 1e-12 else float(v)
+def _origin(parent: ET.Element, what: str) -> dict[str, Vec]:
+    """``<origin xyz rpy>`` (each defaulting to zeros), exactly as written."""
+    el = parent.find("origin")
+    xyz = el.get("xyz") if el is not None else None
+    rpy = el.get("rpy") if el is not None else None
+    return {
+        "xyz": _numbers(xyz, 3, f"{what} <origin xyz>") if xyz is not None else [0.0, 0.0, 0.0],
+        "rpy": _numbers(rpy, 3, f"{what} <origin rpy>") if rpy is not None else [0.0, 0.0, 0.0],
+    }
 
 
-class _Builder:
+def _name(el: ET.Element, what: str) -> str:
+    name = (el.get("name") or "").strip()
+    if not name:
+        raise UrdfError(f"a {what} has no name")
+    return name
+
+
+def _geometry(parent: ET.Element, what: str) -> dict[str, Any] | None:
+    """The one shape of ``<geometry>``; None when there is no geometry or no shape in
+    it (the shape is left out of the model)."""
+    geo = parent.find("geometry")
+    if geo is None:
+        return None
+    for shape in geo:
+        tag = shape.tag
+        if tag == "box":
+            return {"type": "box", "size": _numbers(shape.get("size"), 3, f"{what} <box size>")}
+        if tag == "cylinder":
+            return {
+                "type": "cylinder",
+                "radius": _number(shape, "radius", f"{what} <cylinder>", None),
+                "length": _number(shape, "length", f"{what} <cylinder>", None),
+            }
+        if tag == "sphere":
+            return {"type": "sphere", "radius": _number(shape, "radius", f"{what} <sphere>", None)}
+        if tag == "mesh":
+            uri = (shape.get("filename") or "").strip()
+            if not uri:
+                raise UrdfError(f"{what} <mesh> has no filename")
+            raw = shape.get("scale")
+            scale = _numbers(raw, (1, 3), f"{what} <mesh scale>") if raw is not None else [1.0]
+            ext = MESH_EXTS.get(Path(urlparse(uri).path or uri).suffix.lower())
+            return {
+                "type": "mesh",
+                "url": None,
+                "ext": ext,
+                "scale": scale * 3 if len(scale) == 1 else scale,
+                "uri": uri,
+            }
+    return None
+
+
+def _material_parts(el: ET.Element, what: str) -> tuple[Vec | None, str | None]:
+    color = el.find("color")
+    rgba = (
+        _numbers(color.get("rgba"), 4, f"{what} <color rgba>")
+        if color is not None and color.get("rgba") is not None
+        else None
+    )
+    texture = el.find("texture")
+    tex = (texture.get("filename") or "").strip() if texture is not None else ""
+    return rgba, tex or None
+
+
+def _material(
+    el: ET.Element | None, named: dict[str, tuple[Vec | None, str | None]], what: str
+) -> dict[str, Any] | None:
+    """A visual's ``<material>``: its own colour and texture, else the robot's global
+    material of the same name."""
+    if el is None:
+        return None
+    name = (el.get("name") or "").strip() or None
+    rgba, tex = _material_parts(el, what)
+    glob = named.get(name) if name else None
+    if glob is not None:
+        rgba = rgba if rgba is not None else glob[0]
+        tex = tex if tex is not None else glob[1]
+    out: dict[str, Any] = {"name": name, "color": rgba, "texture_url": None}
+    if tex is not None:
+        out["texture"] = tex
+    return out
+
+
+def _link(el: ET.Element, named: dict[str, tuple[Vec | None, str | None]]) -> dict[str, Any]:
+    name = _name(el, "<link>")
+    what = f"link {name}"
+    visuals = []
+    for v in el.findall("visual"):
+        geo = _geometry(v, what)
+        if geo is None:
+            continue
+        visuals.append(
+            {
+                "origin": _origin(v, what),
+                "geometry": geo,
+                "material": _material(v.find("material"), named, what),
+            }
+        )
+    collisions = []
+    for c in el.findall("collision"):
+        geo = _geometry(c, what)
+        if geo is not None:
+            collisions.append({"origin": _origin(c, what), "geometry": geo})
+    inertial = None
+    ine = el.find("inertial")
+    if ine is not None:
+        tensor = ine.find("inertia")
+        inertial = {
+            "origin": _origin(ine, f"{what} <inertial>"),
+            "mass": _number(ine.find("mass"), "value", f"{what} <mass>"),
+            "inertia": {
+                k: _number(tensor, k, f"{what} <inertia>")
+                for k in ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+            },
+        }
+    return {"name": name, "visuals": visuals, "collisions": collisions, "inertial": inertial}
+
+
+def _joint(el: ET.Element) -> dict[str, Any]:
+    name = _name(el, "<joint>")
+    what = f"joint {name}"
+    jtype = (el.get("type") or "").strip()
+    if jtype not in JOINT_TYPES:
+        raise UrdfError(f"{what} has type {jtype!r}; URDF's are {', '.join(JOINT_TYPES)}")
+    ends = {}
+    for end in ("parent", "child"):
+        e = el.find(end)
+        link = (e.get("link") or "").strip() if e is not None else ""
+        if not link:
+            raise UrdfError(f"{what} has no <{end} link>")
+        ends[end] = link
+    axis_el = el.find("axis")
+    axis = (
+        _numbers(axis_el.get("xyz"), 3, f"{what} <axis xyz>")
+        if axis_el is not None and axis_el.get("xyz") is not None
+        else [1.0, 0.0, 0.0]
+    )
+    lim = el.find("limit")
+    limit = None
+    if lim is not None:
+        limit = {
+            k: _number(lim, k, f"{what} <limit>") for k in ("lower", "upper", "effort", "velocity")
+        }
+    mim = el.find("mimic")
+    mimic = None
+    if mim is not None:
+        master = (mim.get("joint") or "").strip()
+        if not master:
+            raise UrdfError(f"{what} <mimic> names no joint")
+        mimic = {
+            "joint": master,
+            "multiplier": _number(mim, "multiplier", f"{what} <mimic>", 1.0),
+            "offset": _number(mim, "offset", f"{what} <mimic>", 0.0),
+        }
+    dyn = el.find("dynamics")
+    dynamics = None
+    if dyn is not None:
+        dynamics = {
+            "damping": _number(dyn, "damping", f"{what} <dynamics>"),
+            "friction": _number(dyn, "friction", f"{what} <dynamics>"),
+        }
+    return {
+        "name": name,
+        "type": jtype,
+        "parent": ends["parent"],
+        "child": ends["child"],
+        "origin": _origin(el, what),
+        "axis": axis,
+        "limit": limit,
+        "mimic": mimic,
+        "dynamics": dynamics,
+    }
+
+
+def parse_urdf(source: str | Path | bytes) -> dict[str, Any]:
+    """A URDF (a path, or its bytes) as the contract's model, files unresolved: mesh
+    geometries carry ``uri`` and ``url: None``, materials their ``texture`` filename;
+    ``missing`` is empty. Raises ``UrdfError`` for anything that is not a readable URDF:
+    not XML, a DOCTYPE or entity, no ``<robot>``, a nameless or duplicate link or joint,
+    a joint of an unknown type or between links the robot does not have, a mimic of a
+    joint it does not have, a number that is not one."""
+    if isinstance(source, bytes):
+        data, label = source, "the URDF"
+    else:
+        path = Path(source)
+        label = path.name
+        try:
+            if path.stat().st_size > MAX_BYTES:
+                raise UrdfError(f"{label} is over {MAX_BYTES // (1024 * 1024)} MB; not a URDF")
+            data = path.read_bytes()
+        except OSError as e:
+            raise UrdfError(f"cannot read {label}: {e.strerror or e}") from None
+    root = safe_xml(data, label)
+    if root.tag != "robot":
+        raise UrdfError(f"{label} is not a URDF (its root element is <{root.tag}>)")
+    named: dict[str, tuple[Vec | None, str | None]] = {}
+    for m in root.findall("material"):
+        mname = (m.get("name") or "").strip()
+        if mname:
+            named[mname] = _material_parts(m, f"material {mname}")
+    links = [_link(el, named) for el in root.findall("link")]
+    joints = [_joint(el) for el in root.findall("joint")]
+    for kind, items in (("link", links), ("joint", joints)):
+        seen: set[str] = set()
+        for it in items:
+            if it["name"] in seen:
+                raise UrdfError(f"two {kind}s are named {it['name']!r}")
+            seen.add(it["name"])
+    link_names = {lk["name"] for lk in links}
+    joint_names = {j["name"] for j in joints}
+    children: set[str] = set()
+    for j in joints:
+        for end in ("parent", "child"):
+            if j[end] not in link_names:
+                raise UrdfError(f"joint {j['name']}: {end} link {j[end]!r} is not in the robot")
+        if j["child"] in children:
+            raise UrdfError(f"link {j['child']!r} is the child of two joints")
+        children.add(j["child"])
+        if j["mimic"] is not None and j["mimic"]["joint"] not in joint_names:
+            raise UrdfError(f"joint {j['name']} mimics {j['mimic']['joint']!r}, not in the robot")
+    root_link = next((lk["name"] for lk in links if lk["name"] not in children), None)
+    return {
+        "name": (root.get("name") or "").strip() or Path(label).stem,
+        "root": root_link,
+        "links": links,
+        "joints": joints,
+        "missing": [],
+    }
+
+
+# -- files: resolved and served --------------------------------------------------------------
+
+
+def dae_source(path: str) -> tuple[str, str]:
+    """A DAE's file for the page. TODO(SPEC-42): ask SPEC-42's ``dae.prepare`` for its
+    converted GLB (it owns the freshness rule and the cache fallback) once it is on
+    main; until then the DAE itself goes, ``ext: "dae"``."""
+    return path, "dae"
+
+
+class _Files:
     def __init__(self, resolver: PackageResolver) -> None:
         self.resolver = resolver
         self.files: dict[str, str] = {}
@@ -282,96 +574,30 @@ class _Builder:
             self.files[role] = path
         return role
 
-    def geometry(self, geo: Any, link: str, kind: str) -> dict[str, Any] | None:
-        if geo is None:
-            return None
-        if geo.box is not None:
-            return {"type": "box", "size": _floats(geo.box.size, 3)}
-        if geo.cylinder is not None:
-            return {
-                "type": "cylinder",
-                "radius": float(geo.cylinder.radius),
-                "length": float(geo.cylinder.length),
-            }
-        if geo.sphere is not None:
-            return {"type": "sphere", "radius": float(geo.sphere.radius)}
-        if geo.mesh is not None:
-            return self.mesh(str(geo.mesh.filename), geo.mesh.scale, link, kind)
-        return None
-
-    def mesh(self, uri: str, scale: Any, link: str, kind: str) -> dict[str, Any]:
-        ext = MESH_EXTS.get(Path(urlparse(uri).path or uri).suffix.lower())
-        out: dict[str, Any] = {
-            "type": "mesh",
-            "url": None,
-            "ext": ext,
-            "scale": _floats(scale, 3, 1.0),
-        }
-        hit = self.resolver.resolve(uri)
-        cause = hit.cause
-        path = hit.path
+    def mesh(self, geo: dict[str, Any], link: str, kind: str) -> None:
+        hit = self.resolver.resolve(geo["uri"])
+        cause, path = hit.cause, hit.path
         if path is not None:
             suffix = Path(path).suffix.lower()
             if suffix not in MESH_EXTS:
                 fmt = suffix or "(none)"
                 cause, path = f"mesh format {fmt} is not supported ({SUPPORTED_NOTE})", None
             else:
-                out["ext"] = MESH_EXTS[suffix]
+                geo["ext"] = MESH_EXTS[suffix]
                 if suffix == ".dae":
-                    path, out["ext"] = dae_source(path)
+                    path, geo["ext"] = dae_source(path)
         if path is None:
-            self.missing.append({"link": link, "kind": kind, "uri": uri, "cause": cause})
-            return out
-        out["file"] = self.role_for(path)
-        return out
+            self.missing.append({"link": link, "kind": kind, "uri": geo["uri"], "cause": cause})
+            return
+        geo["file"] = self.role_for(path)
 
-    def material(self, mat: Any, named: dict[str, Any]) -> dict[str, Any] | None:
-        if mat is None:
-            return None
-        glob = named.get(mat.name) if mat.name else None
-        color = mat.color if mat.color is not None else (glob.color if glob else None)
-        texture = mat.texture if mat.texture is not None else (glob.texture if glob else None)
-        out: dict[str, Any] = {
-            "name": mat.name,
-            "color": _floats(color.rgba, 4) if color is not None else None,
-            "texture_url": None,
-        }
-        if texture is not None and texture.filename:
-            hit = self.resolver.resolve(str(texture.filename))
-            if hit.path is not None:
-                out["texture_file"] = self.role_for(hit.path)
-        return out
-
-
-def dae_source(path: str) -> tuple[str, str]:
-    """A DAE's file for the page: its SPEC-42 sidecar ``<name>.dae.glb`` when one next to
-    it is at least as new, else the DAE itself."""
-    sidecar = Path(path + DAE_SIDECAR)
-    try:
-        if sidecar.is_file() and sidecar.stat().st_mtime >= Path(path).stat().st_mtime:
-            return str(sidecar), "glb"
-    except OSError:
-        pass
-    return path, "dae"
-
-
-def _parse(path: Path) -> Any:
-    try:
-        text = path.read_bytes()
-    except OSError as e:
-        raise UrdfError(f"cannot read {path.name}: {e.strerror or e}") from e
-    try:
-        root = ET.fromstring(text)
-    except ET.ParseError as e:
-        raise UrdfError(f"{path.name} is not well-formed XML: {e}") from e
-    if root.tag != "robot":
-        raise UrdfError(f"{path.name} is not a URDF (its root element is <{root.tag}>)")
-    import yourdfpy  # parse only (module docstring)
-
-    try:
-        return yourdfpy.URDF.load(str(path), build_scene_graph=False, load_meshes=False)
-    except Exception as e:  # yourdfpy raises bare ValueError / AttributeError on bad input
-        raise UrdfError(f"{path.name}: {type(e).__name__}: {e}") from e
+    def texture(self, mat: dict[str, Any]) -> None:
+        tex = mat.pop("texture", None)
+        if tex is None:
+            return
+        hit = self.resolver.resolve(tex)
+        if hit.path is not None:
+            mat["texture_file"] = self.role_for(hit.path)
 
 
 def build_robot(
@@ -385,55 +611,29 @@ def build_robot(
     """Parse ``path`` and resolve its files: ``{model, files, packages, actuated,
     parse_ms}`` (module docstring). Raises ``UrdfError`` for a file that is not a
     readable URDF."""
-    path = Path(path)
     start = time.perf_counter()
     if progress:
         progress(0.0, "parsing")
-    urdf = _parse(path)
-    robot = urdf.robot
+    model = parse_urdf(path)
     resolver = PackageResolver(
         path, package_paths=package_paths, search_roots=search_roots, environ=environ
     )
-    b = _Builder(resolver)
-    named = {m.name: m for m in robot.materials if m.name}
-    links = []
-    for lk in robot.links:
-        links.append(
-            {
-                "name": lk.name,
-                "visuals": [
-                    {
-                        "origin": _origin(v.origin),
-                        "geometry": b.geometry(v.geometry, lk.name, "visual"),
-                        "material": b.material(v.material, named),
-                    }
-                    for v in lk.visuals
-                ],
-                "collisions": [
-                    {
-                        "origin": _origin(c.origin),
-                        "geometry": b.geometry(c.geometry, lk.name, "collision"),
-                    }
-                    for c in lk.collisions
-                ],
-                "inertial": _inertial(lk.inertial),
-            }
-        )
-    joints = [_joint(j) for j in robot.joints]
-    children = {j["child"] for j in joints}
-    root = next((lk["name"] for lk in links if lk["name"] not in children), None)
-    model = {
-        "name": robot.name,
-        "root": root,
-        "links": links,
-        "joints": joints,
-        "missing": b.missing,
-    }
+    files = _Files(resolver)
+    for link in model["links"]:
+        for kind, shapes in (("visual", link["visuals"]), ("collision", link["collisions"])):
+            for shape in shapes:
+                if shape["geometry"]["type"] == "mesh":
+                    files.mesh(shape["geometry"], link["name"], kind)
+                mat = shape.get("material")
+                if mat is not None:
+                    files.texture(mat)
+    model["missing"] = files.missing
+    joints = model["joints"]
     if progress:
-        progress(1.0, f"{len(links)} links, {len(joints)} joints")
+        progress(1.0, f"{len(model['links'])} links, {len(joints)} joints")
     return {
         "model": model,
-        "files": b.files,
+        "files": files.files,
         "packages": {
             name: {"path": str(folder), "via": via}
             for name, (folder, via) in resolver.packages.items()
@@ -441,69 +641,6 @@ def build_robot(
         "actuated": [j["name"] for j in joints if j["type"] in ACTUATED and j["mimic"] is None],
         # parsing and resolving, measured (SPEC-43: parse times measured in slice 1)
         "parse_ms": round((time.perf_counter() - start) * 1000.0, 3),
-    }
-
-
-#: joint types a slider moves (floating and planar get none, ADR 0028)
-ACTUATED = ("revolute", "continuous", "prismatic")
-
-
-def _inertial(inertial: Any) -> dict[str, Any] | None:
-    if inertial is None:
-        return None
-    m = inertial.inertia
-    tensor = [[float(m[i][j]) for j in range(3)] for i in range(3)] if m is not None else None
-    return {
-        "origin": _origin(inertial.origin),
-        "mass": float(inertial.mass or 0.0),
-        "inertia": {
-            "ixx": tensor[0][0] if tensor else 0.0,
-            "ixy": tensor[0][1] if tensor else 0.0,
-            "ixz": tensor[0][2] if tensor else 0.0,
-            "iyy": tensor[1][1] if tensor else 0.0,
-            "iyz": tensor[1][2] if tensor else 0.0,
-            "izz": tensor[2][2] if tensor else 0.0,
-        },
-    }
-
-
-def _num(v: Any, default: float = 0.0) -> float:
-    try:
-        return float(v) if v is not None else default
-    except (TypeError, ValueError):
-        return default
-
-
-def _joint(j: Any) -> dict[str, Any]:
-    limit = None
-    if j.limit is not None:
-        limit = {
-            "lower": _num(j.limit.lower),
-            "upper": _num(j.limit.upper),
-            "effort": _num(j.limit.effort),
-            "velocity": _num(j.limit.velocity),
-        }
-    mimic = None
-    if j.mimic is not None:
-        mimic = {
-            "joint": str(j.mimic.joint),
-            "multiplier": _num(j.mimic.multiplier, 1.0),
-            "offset": _num(j.mimic.offset),
-        }
-    dynamics = None
-    if j.dynamics is not None:
-        # yourdfpy keeps these as the attribute strings
-        dynamics = {"damping": _num(j.dynamics.damping), "friction": _num(j.dynamics.friction)}
-    return {
-        "name": j.name,
-        "type": j.type,
-        "parent": j.parent,
-        "child": j.child,
-        "origin": _origin(j.origin),
-        "axis": _floats(j.axis, 3) if j.axis is not None else [1.0, 0.0, 0.0],
-        "limit": limit,
-        "mimic": mimic,
-        "dynamics": dynamics,
     }
 
 
@@ -527,6 +664,7 @@ def missing_notes(missing: Iterable[Mapping[str, Any]]) -> list[str]:
 
 __all__ = [
     "ACTUATED",
+    "JOINT_TYPES",
     "MESH_EXTS",
     "PackageResolver",
     "Resolution",
@@ -535,4 +673,6 @@ __all__ = [
     "dae_source",
     "missing_notes",
     "package_name_of",
+    "parse_urdf",
+    "safe_xml",
 ]

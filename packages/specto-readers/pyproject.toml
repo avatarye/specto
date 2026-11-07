@@ -4,7 +4,7 @@ version = "0.2.0"
 description = "Specto readers: built-in locators and decoders (images, JSON, text)."
 requires-python = ">=3.12,<3.13"
 license = "MIT"
-dependencies = ["specto-core", "numpy>=2.0", "pillow>=10.4", "yourdfpy>=0.0.60"]
+dependencies = ["specto-core", "numpy>=2.0", "pillow>=10.4"]
 
 [build-system]
 requires = ["hatchling"]

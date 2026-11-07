@@ -32,9 +32,6 @@ dev = [
 
 [tool.uv]
 package = false
-# yourdfpy (the urdf view's parser) asks for trimesh[easy]; Specto only parses URDF with it
-# (no meshes loaded, no scene graph), so plain trimesh: no GPL/LGPL or heavy extras
-override-dependencies = ["trimesh>=3.11.2"]
 
 # Public PyPI only. Project indexes are searched before any user-level uv.toml index,
 # so a private index there is never consulted (no auth, no leaked package names).

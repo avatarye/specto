@@ -1,5 +1,5 @@
-"""The urdf view's robot model (SPEC-43.1, ADR 0028): a URDF parsed
-(yourdfpy, parse only) into the host/page contract's model, its mesh references found by
+"""The urdf view's robot model (SPEC-43.1, ADR 0029): a URDF parsed (the standard
+library's xml.etree) into the host/page contract's model, its mesh references found by
 Specto's own package:// resolver, in the design's order, and what cannot be found listed
 under ``missing`` with its cause, never guessed by stripping prefixes and never fetched."""
 
@@ -15,6 +15,7 @@ from specto_readers.urdf import (
     UrdfError,
     build_robot,
     missing_notes,
+    parse_urdf,
 )
 
 ARM = """<?xml version="1.0"?>
@@ -100,6 +101,7 @@ def test_the_model_follows_the_contract(tmp_path: Path):
         "url": None,
         "ext": "stl",
         "scale": [0.001, 0.001, 0.001],
+        "uri": "package://arm_description/meshes/base.stl",
         "file": "m0",
     }
     # a named material takes its colour from the robot's global material
@@ -363,7 +365,13 @@ def test_missing_meshes_are_listed_with_their_causes(tmp_path: Path):
     ]
     # a missing mesh keeps its geometry with no url: the page draws the placeholder
     geo = robot["model"]["links"][0]["visuals"][0]["geometry"]
-    assert geo == {"type": "mesh", "url": None, "ext": "stl", "scale": [1.0, 1.0, 1.0]}
+    assert geo == {
+        "type": "mesh",
+        "url": None,
+        "ext": "stl",
+        "scale": [1.0, 1.0, 1.0],
+        "uri": "package://arm_description/meshes/gone.stl",
+    }
     assert robot["files"] == {}
 
     # one health note per cause, most meshes first
@@ -375,7 +383,7 @@ def test_missing_meshes_are_listed_with_their_causes(tmp_path: Path):
     ]
 
 
-def test_a_dae_goes_as_dae_until_its_glb_sidecar_exists(tmp_path: Path):
+def test_a_dae_goes_as_the_dae_until_spec_42_prepares_its_glb(tmp_path: Path):
     urdf = write(
         tmp_path / "d.urdf",
         """<robot name="d"><link name="a"><visual><geometry>
@@ -385,11 +393,10 @@ def test_a_dae_goes_as_dae_until_its_glb_sidecar_exists(tmp_path: Path):
     robot = build_robot(urdf)
     geo = robot["model"]["links"][0]["visuals"][0]["geometry"]
     assert geo["ext"] == "dae" and robot["files"]["m0"].endswith("body.dae")
-    # SPEC-42's converted sidecar next to it is preferred
+    # TODO(SPEC-42): its dae.prepare decides when a converted GLB is fresh; until it is
+    # on main a sidecar beside the DAE is not guessed at
     stl(tmp_path / "m" / "body.dae.glb")
-    robot = build_robot(urdf)
-    geo = robot["model"]["links"][0]["visuals"][0]["geometry"]
-    assert geo["ext"] == "glb" and robot["files"]["m0"].endswith("body.dae.glb")
+    assert build_robot(urdf)["files"]["m0"].endswith("body.dae")
 
 
 def test_a_material_texture_is_resolved_like_a_mesh(tmp_path: Path):
@@ -405,3 +412,227 @@ def test_a_material_texture_is_resolved_like_a_mesh(tmp_path: Path):
     mat = robot["model"]["links"][0]["visuals"][0]["material"]
     assert mat == {"name": "skin", "color": None, "texture_url": None, "texture_file": "m0"}
     assert robot["files"]["m0"].endswith("skin.png")
+
+
+def test_a_mesh_keeps_its_uri(tmp_path: Path):
+    urdf = write(tmp_path / "u.urdf", ARM)
+    model = parse_urdf(urdf)
+    cover = model["links"][1]["visuals"][1]["geometry"]
+    assert cover["uri"] == "meshes/cover.obj" and cover["url"] is None
+    assert cover["scale"] == [1.0, 1.0, 1.0]
+
+
+# -- the parser: the standard library, strict about what it reads ------------------------------
+
+
+def robot(body: str, name: str = "r") -> bytes:
+    return f'<?xml version="1.0"?><robot name="{name}">{body}</robot>'.encode()
+
+
+def test_a_doctype_or_an_entity_is_refused_before_parsing():
+    bomb = (
+        b'<?xml version="1.0"?><!DOCTYPE robot [<!ENTITY a "aaaaaaaaaa">'
+        b'<!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;&a;&a;">]><robot name="&b;"/>'
+    )
+    with pytest.raises(UrdfError, match="DOCTYPE or an entity"):
+        parse_urdf(bomb)
+    with pytest.raises(UrdfError, match="DOCTYPE"):
+        parse_urdf(b'<!DOCTYPE robot SYSTEM "robot.dtd"><robot name="r"/>')
+    with pytest.raises(UrdfError, match="DOCTYPE"):
+        parse_urdf(b'<!DOCTYPE robot><robot name="r"/>')
+
+
+def test_a_doctype_in_a_package_xml_is_not_read(tmp_path: Path):
+    pkg = tmp_path / "evil"
+    write(
+        pkg / "package.xml",
+        '<!DOCTYPE p [<!ENTITY n "arm_description">]><package><name>&n;</name></package>',
+    )
+    urdf = write(pkg / "urdf" / "arm.urdf", ARM)
+    res = PackageResolver(urdf, environ={})
+    assert res.find_package("arm_description") is None
+
+
+def test_numbers_are_coerced_strictly_and_rpy_is_kept_as_written():
+    model = parse_urdf(
+        robot(
+            '<link name="a"><visual>'
+            '<origin xyz=" 1e-3  2\t3 " rpy="0.1 -0.2 3.14159265358979"/>'
+            '<geometry><box size="1 2 3"/></geometry></visual></link>'
+        )
+    )
+    origin = model["links"][0]["visuals"][0]["origin"]
+    assert origin == {"xyz": [0.001, 2.0, 3.0], "rpy": [0.1, -0.2, 3.14159265358979]}
+
+
+BOX = '<geometry><box size="1 1 1"/></geometry>'
+
+
+@pytest.mark.parametrize(
+    ("body", "match"),
+    [
+        (
+            f'<link name="a"><visual><origin xyz="1 2"/>{BOX}</visual></link>',
+            "link a <origin xyz> needs 3",
+        ),
+        (
+            f'<link name="a"><visual><origin rpy="1 x 2"/>{BOX}</visual></link>',
+            "link a <origin rpy> is not numbers",
+        ),
+        (
+            '<link name="a"><visual><geometry><box size="1 1 nan"/></geometry></visual></link>',
+            "<box size> needs 3 finite",
+        ),
+        (
+            '<link name="a"><visual><geometry><cylinder radius="0.1"/></geometry></visual></link>',
+            "<cylinder> has no length",
+        ),
+        (
+            '<link name="a"><inertial><mass value="heavy"/></inertial></link>',
+            "<mass> value is not numbers",
+        ),
+        (
+            '<link name="a"/><link name="b"/><joint name="j" type="revolute"><parent link="a"/>'
+            '<child link="b"/><limit lower="-1" upper="one"/></joint>',
+            "joint j <limit> upper",
+        ),
+        (
+            '<link name="a"><visual><geometry><mesh filename="a.stl" scale="1 2"/></geometry>'
+            "</visual></link>",
+            "<mesh scale> needs 1 or 3",
+        ),
+    ],
+)
+def test_a_number_that_is_not_one_is_an_error_naming_its_element(body: str, match: str):
+    with pytest.raises(UrdfError, match=match):
+        parse_urdf(robot(body))
+
+
+def test_named_materials_resolve_and_a_visuals_own_colour_wins():
+    sphere = '<geometry><sphere radius="1"/></geometry>'
+    model = parse_urdf(
+        robot(
+            '<material name="blue"><color rgba="0 0 1 1"/></material>'
+            '<link name="a">'
+            f'<visual>{sphere}<material name="blue"/></visual>'
+            f'<visual>{sphere}<material name="blue"><color rgba="1 0 0 0.5"/></material></visual>'
+            f'<visual>{sphere}<material name="nope"/></visual>'
+            "</link>"
+        )
+    )
+    mats = [v["material"] for v in model["links"][0]["visuals"]]
+    assert mats[0] == {"name": "blue", "color": [0.0, 0.0, 1.0, 1.0], "texture_url": None}
+    assert mats[1]["color"] == [1.0, 0.0, 0.0, 0.5]
+    assert mats[2] == {"name": "nope", "color": None, "texture_url": None}
+
+
+def test_mimic_defaults_and_a_mimic_of_nothing_is_refused():
+    body = (
+        '<link name="a"/><link name="b"/><link name="c"/>'
+        '<joint name="m" type="revolute"><parent link="a"/><child link="b"/>'
+        '<limit lower="-1" upper="1" effort="1" velocity="1"/></joint>'
+        '<joint name="f" type="revolute"><parent link="b"/><child link="c"/>'
+        '<mimic joint="m"/></joint>'
+    )
+    _m, f = parse_urdf(robot(body))["joints"]
+    assert f["mimic"] == {"joint": "m", "multiplier": 1.0, "offset": 0.0}
+    with pytest.raises(UrdfError, match="mimics 'gone'"):
+        parse_urdf(robot(body.replace('<mimic joint="m"/>', '<mimic joint="gone"/>')))
+    with pytest.raises(UrdfError, match="names no joint"):
+        parse_urdf(robot(body.replace('<mimic joint="m"/>', "<mimic/>")))
+
+
+@pytest.mark.parametrize(
+    ("body", "match"),
+    [
+        ("<link/>", "a <link> has no name"),
+        ('<link name="a"/><link name="a"/>', "two links are named 'a'"),
+        (
+            '<link name="a"/><link name="b"/><joint name="j" type="hinge"><parent link="a"/>'
+            '<child link="b"/></joint>',
+            "type 'hinge'",
+        ),
+        (
+            '<link name="a"/><joint name="j" type="fixed"><parent link="a"/><child link="z"/>'
+            "</joint>",
+            "child link 'z' is not in the robot",
+        ),
+        (
+            '<link name="a"/><link name="b"/><joint name="j" type="fixed"><parent link="a"/>'
+            "</joint>",
+            "has no <child link>",
+        ),
+        (
+            '<link name="a"/><link name="b"/><link name="c"/>'
+            '<joint name="j" type="fixed"><parent link="a"/><child link="c"/></joint>'
+            '<joint name="k" type="fixed"><parent link="b"/><child link="c"/></joint>',
+            "child of two joints",
+        ),
+        (
+            '<link name="a"/><link name="b"/>'
+            '<joint name="j" type="fixed"><parent link="a"/><child link="b"/></joint>'
+            '<joint name="j" type="fixed"><parent link="b"/><child link="a"/></joint>',
+            "two joints are named 'j'",
+        ),
+        ('<link name="a"><visual><geometry><mesh/></geometry></visual></link>', "has no filename"),
+    ],
+)
+def test_malformed_robots_say_what_is_wrong(body: str, match: str):
+    with pytest.raises(UrdfError, match=match):
+        parse_urdf(robot(body))
+
+
+def test_not_xml_or_not_a_robot_is_an_error():
+    with pytest.raises(UrdfError, match="not well-formed"):
+        parse_urdf(b'<robot name="r"><link name="a">')  # truncated
+    with pytest.raises(UrdfError, match="not well-formed"):
+        parse_urdf(b"")
+    with pytest.raises(UrdfError, match="its root element is <sdf>"):
+        parse_urdf(b'<sdf version="1.6"/>')
+
+
+def test_partial_robots_parse():
+    # one link, nothing else: a robot of its own, its root
+    lone = parse_urdf(robot('<link name="only"/>', name=""))
+    assert lone["root"] == "only" and lone["joints"] == [] and lone["name"] == "the URDF"
+    # a visual with no geometry, or an empty geometry, is left out; unknown tags are ignored
+    model = parse_urdf(
+        robot(
+            '<link name="a">'
+            '<visual><origin xyz="0 0 1"/></visual>'
+            "<visual><geometry/></visual>"
+            f"<collision>{BOX}</collision>"
+            '<inertial><mass value="2"/></inertial>'
+            "</link>"
+            '<gazebo reference="a"><material>Gazebo/Grey</material></gazebo>'
+            '<transmission name="t"/>'
+        )
+    )
+    link = model["links"][0]
+    assert link["visuals"] == [] and len(link["collisions"]) == 1
+    # an inertia left out is zeros
+    assert link["inertial"]["mass"] == 2.0 and link["inertial"]["inertia"]["ixx"] == 0.0
+    # an empty robot
+    empty = parse_urdf(robot(""))
+    assert empty["links"] == [] and empty["root"] is None
+
+
+def test_a_uniform_mesh_scale_is_three_numbers():
+    model = parse_urdf(
+        robot(
+            '<link name="a"><visual><geometry><mesh filename="a.stl" scale="0.01"/>'
+            "</geometry></visual></link>"
+        )
+    )
+    assert model["links"][0]["visuals"][0]["geometry"]["scale"] == [0.01, 0.01, 0.01]
+
+
+def test_the_resolvers_folder_is_picklable_for_xacros_child_process(tmp_path: Path):
+    import pickle
+
+    pkg = package(tmp_path / "ws" / "arm_description", "arm_description")
+    urdf = write(pkg / "urdf" / "arm.urdf", ARM)
+    folder = PackageResolver(urdf, environ={}).folder
+    again = pickle.loads(pickle.dumps(folder))
+    assert again("arm_description") == str(pkg.resolve())
+    assert again("nope") is None
