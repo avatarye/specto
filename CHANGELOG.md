@@ -15,6 +15,16 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Auto-update no longer lists a watched folder every second (SPEC-8, ADR 0027). Watched
+  links follow the system's change notifications (ReadDirectoryChangesW, inotify,
+  FSEvents) and apply only the paths they name. On a 100,000-file folder the watcher's
+  idle cost fell from about a fifth of a core to 0.2 %, and an arrival's collection lands
+  in about 2.6 s instead of 7 s. A full listing still runs every 30 s (10 s on a network
+  drive) as a safety net, after bursts and when Windows reports lost notices. Where
+  notifications cannot be trusted (a network file system on Linux or macOS, a source not
+  there yet) the watcher polls as before, and the status bar says "auto-update on
+  (polling: ...)". `SPECTO_WATCH=poll` forces polling. New event `link.watching`.
+  **New runtime dependency:** watchdog.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the

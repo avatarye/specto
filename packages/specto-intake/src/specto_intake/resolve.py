@@ -8,10 +8,12 @@ project folder, or the paths a file tree emitted), keeps the ones under the inta
 M2 scan pipeline, over an explicit file list as well as a folder walk). The project's
 own ``.specto/`` folder never enters a collection.
 
-``watch_intaker`` is the watcher the runtime polls for an intaker with ``watch: true``:
+``watch_intaker`` is the watcher the runtime runs for an intaker with ``watch: true``:
 one ``scandir`` pass over the intaker's sources (archives as single files, nothing
 decoded) giving ``{source index:relative path: size:mtime}``; a changed table means
-files arrived, left or were rewritten, and the runtime resolves the link again.
+files arrived, left or were rewritten, and the runtime resolves the link again. Where
+the system sends change notifications, the table is kept between listings by
+``watch_listing.IntakerListing`` from the paths they name (SPEC-8).
 
 ``resolve_read_contents`` does the same source matching for a ``read_contents`` link and
 parses each file (``specto_core.contents``): GeoJSON features for a map, JSON sidecars,
@@ -41,6 +43,7 @@ from .scene3d import attach_scenes
 from .screener import Screener, glob_to_regex
 from .sources import FoundFile, relative_to_source, resolve_root, walk_source
 from .spec import IntakeSpec
+from .watch_listing import intaker_listing
 
 SPECTO_DIR = ".specto"
 #: the view types whose intakers prepare 3D parts at resolve (the 3D view, and the
@@ -224,7 +227,8 @@ def watch_intaker(
 
 
 register_resolver("intaker", resolve_intaker)
-register_watcher("intaker", watch_intaker)
+# between listings, change notifications keep its table (SPEC-8)
+register_watcher("intaker", watch_intaker, listing=intaker_listing)
 # a Python link's collection for these views is prepared the same way (#176)
 register_preparer(SCENE_VIEWS, attach_scenes)
 

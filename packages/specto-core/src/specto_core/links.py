@@ -67,16 +67,18 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import queue
 import threading
 import time
 import weakref
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import fswatch
 from .contents import ContentEntry, ContentValue
 from .errors import NotFound
 from .jobs import JobInfo, JobManager
@@ -162,6 +164,50 @@ Watcher = Callable[..., dict[str, str]]
 WATCHERS: dict[str, Watcher] = {}
 
 
+class WatchListing(Protocol):
+    """A watcher's table kept up to date from change notifications (SPEC-8): which
+    folders to observe, and how the named paths change the table, without listing the
+    sources again."""
+
+    def roots(self) -> list[tuple[str, bool]]:
+        """``(folder, recursive)`` pairs to observe; raises ``NotifyUnavailable`` when a
+        source cannot be observed (missing: ``retry`` is set)."""
+        ...
+
+    def reset(self, table: dict[str, str]) -> None:
+        """A full listing replaced the table: rebuild any index over it."""
+        ...
+
+    def apply(self, table: dict[str, str], paths: list[str]) -> tuple[int, int, int] | None:
+        """Update ``table`` in place for the changed ``paths`` (absolute, native):
+        ``(added, removed, changed)`` entries, or None when only a full listing can
+        tell (a source root itself changed)."""
+        ...
+
+
+#: ``factory(link, value, *, root, env) -> WatchListing``: a watcher kind that can follow
+#: change notifications instead of listing every interval
+WATCH_LISTINGS: dict[str, Callable[..., WatchListing]] = {}
+#: ``SPECTO_WATCH=poll`` makes every watcher list its sources every interval, as before
+WATCH_ENV = "SPECTO_WATCH"
+#: a watcher on notifications lists everything again this often anyway (a notice the
+#: system dropped: a ReadDirectoryChangesW buffer overflow says nothing), and at least
+#: ``RELIST_FACTOR`` listing durations apart, so a slow listing stays a small share;
+#: a network drive more often (its server may not send every notice)
+RELIST_S = 30.0
+RELIST_REMOTE_S = 10.0
+RELIST_FACTOR = 50.0
+#: notices arriving within this of each other are applied together (up to the cap)
+COALESCE_S = 0.05
+COALESCE_MAX_S = 0.5
+#: this many changed paths at once is a burst: list everything instead, and once more
+#: when the burst has been quiet for ``SETTLE_S`` (an overflow inside it loses notices)
+BURST_PATHS = 1000
+SETTLE_S = 2.0
+#: how often a watcher on notifications checks that they are still coming
+LIVENESS_S = 1.0
+
+
 def register_resolver(
     kind: str, fn: Resolver, *, needs: tuple[str, ...] = (), inline: bool = False
 ) -> None:
@@ -176,8 +222,16 @@ def register_resolver(
         INLINE_KINDS.discard(kind)
 
 
-def register_watcher(kind: str, fn: Watcher) -> None:
+def register_watcher(
+    kind: str, fn: Watcher, *, listing: Callable[..., WatchListing] | None = None
+) -> None:
+    """``fn`` lists the sources; ``listing``, when given, lets the watcher follow change
+    notifications between listings (``WatchListing``)."""
     WATCHERS[kind] = fn
+    if listing is not None:
+        WATCH_LISTINGS[kind] = listing
+    else:
+        WATCH_LISTINGS.pop(kind, None)
 
 
 #: ``fn(items, *, progress) -> items``: what a collection for a view of this type needs
@@ -206,11 +260,19 @@ def stop_all_watches(*, join: bool = True) -> int:
 
 
 class LinkWatch:
-    """One watched link's poller: a daemon thread that lists the sources every
-    ``interval_s`` and posts ``(link id, added, removed, changed)`` on ``changes`` when
-    the listing differs from the last one. The first listing is the baseline. The
-    thread holds its owner (the runtime) only weakly and ends with it, so a dropped
-    engine never leaves a watcher behind; ``stop(join=True)`` ends it now."""
+    """One watched link's watcher: a daemon thread that posts ``(link id, added,
+    removed, changed)`` on ``changes`` when what the sources hold differs from the last
+    time. The first listing is the baseline.
+
+    With a ``listing`` (the kind's ``WatchListing`` factory) and change notifications
+    available for its folders (``specto_core.fswatch``), the thread waits for notices
+    and applies only the paths they name (``mode`` ``notify``); it lists everything
+    again only every ``RELIST_S`` or so, after a burst, or when a source root itself
+    changed. Otherwise it lists the sources every ``interval_s`` (``mode`` ``poll``) and
+    ``reason`` says why, in words for the status bar; a source that was missing is
+    tried again after each listing. The thread holds its owner (the runtime) only
+    weakly and ends with it, so a dropped engine never leaves a watcher behind;
+    ``stop(join=True)`` ends it now."""
 
     def __init__(
         self,
@@ -224,6 +286,7 @@ class LinkWatch:
         changes: queue.SimpleQueue,
         interval_s: float,
         owner: object | None = None,
+        listing: Callable[..., WatchListing] | None = None,
     ) -> None:
         self.link_id = link_id
         self.fn = fn
@@ -234,7 +297,23 @@ class LinkWatch:
         self.changes = changes
         self.interval_s = max(0.01, float(interval_s))
         self.table: dict[str, str] | None = None
+        #: full listings made (the baseline included), and notice batches applied
         self.polls = 0
+        self.notices = 0
+        self.mode = "poll"
+        self.reason = ""
+        self._listing_factory = listing
+        self._listing: WatchListing | None = None
+        self._notifier: fswatch.Notifier | None = None
+        self._retry = False
+        self._remote = False
+        self._pending: set[str] = set()
+        self._lost = False
+        self._pending_lock = threading.Lock()
+        self._wake = threading.Event()
+        self._list_s = 0.0
+        self._next_relist = 0.0
+        self._settle_at: float | None = None
         self._owner = weakref.ref(owner) if owner is not None else None
         self._stop = threading.Event()
         self._thread = threading.Thread(
@@ -250,6 +329,7 @@ class LinkWatch:
         """Ask the thread to end and (by default) wait for it; a listing in progress
         finishes first. Joining from the thread itself is skipped."""
         self._stop.set()
+        self._wake.set()
         t = self._thread
         if join and t.is_alive() and t is not threading.current_thread():
             t.join(timeout)
@@ -260,14 +340,21 @@ class LinkWatch:
 
     def check_now(self) -> bool:
         """One listing and comparison, on the caller's thread. True when it changed."""
+        t0 = time.monotonic()
         table = self.fn(self.link, self.value, root=self.root, env=self.env)
         self.polls += 1
+        self._list_s = time.monotonic() - t0
         before, self.table = self.table, table
+        if self._listing is not None:
+            self._listing.reset(table)
         if before is None:
             return False
         added = sum(1 for k in table if k not in before)
         removed = sum(1 for k in before if k not in table)
         changed = sum(1 for k, v in table.items() if k in before and before[k] != v)
+        return self._post(added, removed, changed)
+
+    def _post(self, added: int, removed: int, changed: int) -> bool:
         if not (added or removed or changed):
             return False
         self.changes.put((self.link_id, added, removed, changed))
@@ -276,13 +363,133 @@ class LinkWatch:
     def _orphaned(self) -> bool:
         return self._owner is not None and self._owner() is None
 
+    def _list(self) -> None:
+        with contextlib.suppress(Exception):  # a transient disk error: try again later
+            self.check_now()
+        floor = RELIST_REMOTE_S if self._remote else RELIST_S
+        self._next_relist = time.monotonic() + max(floor, RELIST_FACTOR * self._list_s)
+
     def _run(self) -> None:
-        # the baseline first, then one listing per interval until stopped or orphaned
-        while not self._stop.is_set() and not self._orphaned():
-            with contextlib.suppress(Exception):  # a transient disk error: try again later
-                self.check_now()
-            if self._stop.wait(self.interval_s):
+        # the baseline first, then notices (or one listing per interval) until stopped
+        # or orphaned
+        try:
+            self._start_notify()  # first, so nothing between the baseline and it is lost
+            self._list()
+            while not self._stop.is_set() and not self._orphaned():
+                if self._notifier is not None:
+                    self._notify_step()
+                    continue
+                if self._stop.wait(self.interval_s):
+                    break
+                self._list()
+                if self._retry and self._start_notify():
+                    self._list()  # what changed while notifications were starting
+        finally:
+            self._stop_notify()
+
+    # -- notifications -------------------------------------------------------------------
+    def _start_notify(self) -> bool:
+        """Start notifications for the listing's folders; False (and ``reason``) when
+        the watcher polls instead."""
+        self._retry = False
+        if self._listing_factory is None:
+            self.mode, self.reason = "poll", ""
+            return False
+        if os.environ.get(WATCH_ENV, "").strip().lower() == "poll":
+            self.mode, self.reason = "poll", f"polling: {WATCH_ENV}=poll"
+            return False
+        try:
+            listing = self._listing_factory(self.link, self.value, root=self.root, env=self.env)
+            roots = listing.roots()
+            notifier = fswatch.Notifier(roots, self._on_paths, self._on_lost).start()
+        except fswatch.NotifyUnavailable as e:
+            self.mode, self.reason = "poll", f"polling: {e}"
+            self._retry = e.retry
+            return False
+        except Exception as e:  # a listing that could not be made: poll as before
+            self.mode, self.reason = "poll", f"polling: {e}"
+            return False
+        self._remote = any(fswatch.is_remote(folder) for folder, _ in roots)
+        self._listing, self._notifier = listing, notifier
+        if self.table is not None:
+            listing.reset(self.table)
+        self.mode = "notify"
+        self.reason = "network drive, also relisted now and then" if self._remote else ""
+        return True
+
+    def _stop_notify(self) -> None:
+        n, self._notifier = self._notifier, None
+        self._listing = None
+        if n is not None:
+            n.stop()
+
+    def _on_paths(self, paths: list[str]) -> None:
+        """watchdog's thread: remember the paths and wake the watcher."""
+        with self._pending_lock:
+            self._pending.update(paths)
+        self._wake.set()
+
+    def _on_lost(self) -> None:
+        """watchdog's thread: notices were lost; the watcher lists everything."""
+        with self._pending_lock:
+            self._lost = True
+        self._wake.set()
+
+    def _notify_step(self) -> None:
+        now = time.monotonic()
+        due = min(self._next_relist, self._settle_at or self._next_relist)
+        woke = self._wake.wait(max(0.0, min(LIVENESS_S, due - now)))
+        if self._stop.is_set():
+            return
+        assert self._notifier is not None
+        if not self._notifier.alive:
+            # a share that refuses notices, a source folder deleted: poll from here on,
+            # trying notifications again after each listing
+            self._stop_notify()
+            self.mode, self.reason = "poll", "polling: change notifications stopped"
+            self._list()
+            # a source folder that went away is followed again once it is back; one
+            # still there whose notices stopped (a share refusing them) stays polled
+            self._retry = any(v.startswith("missing:") for v in (self.table or {}).values())
+            return
+        if woke:
+            self._take_notices()
+        now = time.monotonic()
+        if self._settle_at is not None and now >= self._settle_at:
+            self._settle_at = None
+            self._list()
+        elif now >= self._next_relist:
+            self._list()
+
+    def _take_notices(self) -> None:
+        # let a burst of notices gather: until quiet for COALESCE_S, at most COALESCE_MAX_S
+        start = time.monotonic()
+        while True:
+            self._wake.clear()
+            if self._stop.wait(COALESCE_S):
+                return
+            if not self._wake.is_set() or time.monotonic() - start >= COALESCE_MAX_S:
                 break
+        with self._pending_lock:
+            paths, self._pending = self._pending, set()
+            lost, self._lost = self._lost, False
+        if not paths and not lost:
+            return
+        if self._settle_at is not None:
+            self._settle_at = time.monotonic() + SETTLE_S
+        if lost or len(paths) >= BURST_PATHS or self.table is None or self._listing is None:
+            self._settle_at = time.monotonic() + SETTLE_S
+            self._list()
+            return
+        try:
+            counts = self._listing.apply(self.table, sorted(paths))
+        except Exception:
+            counts = None
+        self.notices += 1
+        if counts is None:
+            self._list()
+        else:
+            self._post(*counts)
 
 
 def _field_of(item: Item, name: str) -> str | None:
@@ -411,6 +618,8 @@ class LinkRuntime:
         #: link id -> (time of the last change notice, added, removed, changed) not yet
         #: resolved: the debounce window
         self._arrivals: dict[str, tuple[float, int, int, int]] = {}
+        #: link id -> (mode, reason) last said by ``link.watching`` (SPEC-8)
+        self._watch_said: dict[str, tuple[str, str]] = {}
         #: latest value each output port emitted; the project source is always there
         self.outputs: dict[tuple[str, str], Any] = {PROJECT_OUT: FilesValue(root=self.root)}
         #: every file of the project folder as the project intaker last found them (None
@@ -466,7 +675,14 @@ class LinkRuntime:
         w = self._watches.get(link_id)
         if w is None:
             return None
-        return {"running": w.running, "polls": w.polls, "interval_s": w.interval_s}
+        return {
+            "running": w.running,
+            "polls": w.polls,
+            "interval_s": w.interval_s,
+            "mode": w.mode,
+            "reason": w.reason,
+            "notices": w.notices,
+        }
 
     def inputs_of(self, view_id: str) -> dict[str, Any]:
         return {p: v for (vid, p), v in self.inputs.items() if vid == view_id}
@@ -1041,6 +1257,7 @@ class LinkRuntime:
                 changes=self._changes,
                 interval_s=self.watch_interval_s,
                 owner=self,
+                listing=WATCH_LISTINGS.get(link["kind"]),
             ).start()
 
     def _stop_watch(self, link_id: str, *, join: bool = False) -> None:
@@ -1048,6 +1265,39 @@ class LinkRuntime:
         if w is not None:
             w.stop(join=join)
         self._arrivals.pop(link_id, None)
+        self._watch_said.pop(link_id, None)
+
+    def _say_watch_modes(self) -> None:
+        """``link.watching {link, target, mode, reason}`` when a watcher settles on how
+        it follows its sources, and again when that changes (notifications stopped, a
+        missing source came back): the status bar says when a view is polled."""
+        for lid, w in list(self._watches.items()):
+            if w.polls == 0:
+                continue  # not started yet: the mode is decided before the baseline
+            said = (w.mode, w.reason)
+            if self._watch_said.get(lid) == said:
+                continue
+            self._watch_said[lid] = said
+            link = self.live.data["links"].get(lid)
+            if link is None:
+                continue
+            self.events.emit(
+                "link.watching",
+                {"link": lid, "target": dict(link["target"]), "mode": said[0], "reason": said[1]},
+            )
+
+    def watch_note(self, view_id: str) -> str:
+        """What the status bar adds to "auto-update on" for a view (SPEC-8): why a
+        watcher feeding it polls, or how it follows a network drive; '' when its
+        watchers all follow change notifications."""
+        notes = []
+        for lid, w in self._watches.items():
+            link = self.live.data["links"].get(lid)
+            if link is None or link["target"]["view"] != view_id or w.polls == 0:
+                continue
+            if w.reason and w.reason not in notes:
+                notes.append(w.reason)
+        return "; ".join(notes)
 
     def _stop_watches(self, *, join: bool = False) -> None:
         for lid in list(self._watches):
@@ -1076,6 +1326,7 @@ class LinkRuntime:
                 continue  # a notice from a watcher already stopped
             _, a, r, c = self._arrivals.get(lid, (now, 0, 0, 0))
             self._arrivals[lid] = (now, a + added, r + removed, c + changed)
+        self._say_watch_modes()
         for lid, (since, added, removed, changed) in list(self._arrivals.items()):
             if now - since < self.watch_debounce_s:
                 continue
@@ -1240,6 +1491,7 @@ __all__ = [
     "Resolver",
     "Selection",
     "TimeValue",
+    "WatchListing",
     "Watcher",
     "link_env",
     "register_preparer",

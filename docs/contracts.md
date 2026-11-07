@@ -296,12 +296,23 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   grouping, sort over the files arriving on the input; `.specto/` never enters a
   collection), its watcher (`watch_intaker`), `read_contents` and the 3D scene buffers
   (`scene3d.attach_scenes`, for intakers feeding a `3d` view).
-- Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread runs the
-  kind's watcher every `watch_interval_s`; a changed listing posts to the runtime,
-  `poll()` emits the event `link.arrivals {link, added, removed}` and re-resolves the
-  link once the folder has been quiet for `watch_debounce_s`; the new collection
-  generation swaps in. The resolve re-runs the whole intaker (ADR 0016 note). `engine.close()`
-  stops and joins the watchers.
+- Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread follows the
+  kind's sources; a change posts to the runtime, `poll()` emits the event
+  `link.arrivals {link, added, removed, changed}` and re-resolves the link once the
+  folder has been quiet for `watch_debounce_s`; the new collection generation swaps in.
+  The resolve re-runs the whole intaker (ADR 0016 note). `engine.close()` stops and joins
+  the watchers. ADR 0027 (SPEC-8): a kind that registers a `WatchListing` beside its
+  watcher (`register_watcher(kind, fn, listing=...)`; the intaker's is
+  `specto_intake.watch_listing.IntakerListing`) is followed through change notifications
+  (`specto_core.fswatch`, watchdog): the watcher lists everything once, then applies only
+  the paths the notices name, and lists everything again every `RELIST_S` (30 s; 10 s on
+  a network drive; at least 50 listing durations apart), after a burst or a lost-notice
+  report, or when a source root itself changed. Where notifications cannot start or stop
+  coming, it lists every `watch_interval_s` as before. `links.watch_status(id)` reports
+  `{running, polls, interval_s, mode: notify|poll, reason, notices}`; the event
+  `link.watching {link, target, mode, reason}` fires when a watcher settles on its mode
+  and when it changes, and `links.watch_note(view)` is the status bar's note after
+  "auto-update on". `SPECTO_WATCH=poll` makes every watcher poll.
 - Auto-update and refresh (#102): `params.watch` is off by default; the file tree's intaker
   is on unless it says false (#115: new canvases write it, a submit or load that leaves it
   out means on, and a canvas saved before #115 turns it on once on open, recorded as
