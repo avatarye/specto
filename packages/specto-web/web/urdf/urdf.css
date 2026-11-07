@@ -39,7 +39,8 @@ button.pill {
 button.pill:hover { background: var(--color-bg); }
 button.pill svg { width: 12px; height: 12px; }
 .pills { display: flex; flex-wrap: wrap; gap: 4px; }
-.seg-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; white-space: nowrap; color: var(--color-text-muted); font-size: var(--metric-font-px-small); }
+.seg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; margin-top: 6px; color: var(--color-text-muted); font-size: var(--metric-font-px-small); }
+.seg-row > span { white-space: nowrap; }
 .seg button.quiet { font-size: var(--metric-font-px-small); padding: 1px 8px; }
 .env-row { margin: 6px 0; }
 .env-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
@@ -52,6 +53,7 @@ button.pill svg { width: 12px; height: 12px; }
 
 /* ---- the ROBOT panel: search, the tree, JOINTS and PROPERTIES ------------------------- */
 #robot .panel-body { gap: 0; overflow: hidden; }
+#view .panel-body { overflow-x: hidden; }
 .search { flex: none; padding: 4px 6px; }
 .search input {
   width: 100%; box-sizing: border-box; padding: 2px 6px;
