@@ -161,7 +161,9 @@ _OBJ_VERTEX = re.compile(rb"^[ \t]*v[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)", re.MULTI
 _OBJ_MTLLIB = re.compile(rb"^[ \t]*mtllib[ \t]+([^\r\n]+?)[ \t]*\r?$", re.MULTILINE)
 _MTL_MAP = re.compile(r"^\s*(map_ka|map_kd|map_ks|map_d|map_bump)\s+(.+?)\s*$", re.I | re.M)
 #: a texture map's options before its file name, with how many values each takes (the MTL
-#: format's -blendu on, -o u v w, -mm base gain, ...)
+#: format's -blendu on, -o u v w, -mm base gain, ...). The 3d page strips the same options
+#: before Babylon's MTL loader builds a texture's URL (``MAP_OPTIONS`` in
+#: specto-web/web/3d/main.js): change both together.
 _MAP_OPTIONS = {
     "-blendu": 1, "-blendv": 1, "-bm": 1, "-boost": 1, "-cc": 1, "-clamp": 1, "-imfchan": 1,
     "-mm": 2, "-o": 3, "-s": 3, "-t": 3, "-texres": 1, "-type": 1,
@@ -297,8 +299,6 @@ def map_file_name(value: str) -> str:
         i += 1
         taken = 0
         while taken < n and i < len(words) and (taken == 0 or _is_number(words[i])):
-            if n == 3 and taken > 0 and not _is_number(words[i]):
-                break
             i += 1
             taken += 1
     return " ".join(words[i:])

@@ -384,6 +384,27 @@ def _alive(pid: int) -> bool:
     return True
 
 
+def test_a_dead_runs_temporaries_are_swept_from_the_cache(tmp_path: Path):
+    """A crashed process leaves its temporaries; a conversion sweeps those older than an
+    hour, never a live one, a record or a converted mesh."""
+    cache = tmp_path / "cache" / "scene3d"
+    cache.mkdir(parents=True)
+    stale = [".k.1.2.convert.glb", ".k.1.2.convert.glb.log", ".x.json.1.2.tmp", "old.log"]
+    keep = [".k.3.4.convert.glb", "k.dae.json", "k.dae.glb"]
+    old = time.time() - 2 * dae.STALE_AFTER_S
+    for name in stale + keep:
+        (cache / name).write_bytes(b"x")
+    for name in stale + keep[1:]:
+        os.utime(cache / name, (old, old))
+    assert dae.sweep_stale(cache) == len(stale)
+    assert sorted(p.name for p in cache.iterdir()) == sorted(keep)
+    # a conversion sweeps on its way
+    (cache / ".dead.9.9.convert.glb").write_bytes(b"x")
+    os.utime(cache / ".dead.9.9.convert.glb", (old, old))
+    prepare_scene(write_dae(tmp_path / "robot.dae"), tmp_path / "cache")
+    assert not (cache / ".dead.9.9.convert.glb").exists()
+
+
 def test_only_the_tail_of_the_childs_output_is_read_and_bad_bytes_pass(tmp_path: Path):
     log = tmp_path / "child.log"
     log.write_bytes(b"x" * 50_000 + b"\n\xff\xfe broken\n" + b'{"error": "robot.dae: bad"}\n')

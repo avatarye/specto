@@ -57,6 +57,7 @@
   const SETTLE_MAX_MS = 60000; // a splat that never reports settled stops costing frames here
   const PLAIN_MESH = "#9ea4ab";  // a mesh whose file has no material (STL; OBJ without MTL)
   const UNITLESS = [".stl", ".obj"];
+  let loaderWarning = "";      // a loader patch that could not install: said in health
   let meshScale = 1;           // metres per STL/OBJ unit, from the host (mesh_unit)
 
   let engine = null, scene = null, camera = null, root = null, lights = [];
@@ -121,7 +122,10 @@
     // an MTL texture map's options (-s 1 1 1, -clamp on, ...) are not part of its file
     // name; Babylon's MTL loader strips only map_bump's -bm (resolve checks the same names)
     const mtl = BABYLON.MTLFileLoader;
-    if (mtl && mtl._GetTexture && !mtl._spectoOptions) {
+    if (!mtl || typeof mtl._GetTexture !== "function") {
+      loaderWarning = "OBJ texture map options are not stripped (Babylon's MTL loader has no _GetTexture)";
+      Specto.log("warn", loaderWarning);
+    } else if (!mtl._spectoOptions) {
       const getTexture = mtl._GetTexture;
       mtl._GetTexture = function (rootUrl, value) {
         const args = Array.prototype.slice.call(arguments);
@@ -530,7 +534,7 @@
       setError(msg);
       Specto.setHealth("error", msg);
     } else {
-      Specto.setHealth("ok", order.length + " items");
+      Specto.setHealth("ok", order.length + " items" + (loaderWarning ? " · " + loaderWarning : ""));
     }
     renderList();
     updateCount();
@@ -627,7 +631,8 @@
     return holder;
   }
 
-  // a texture map's options and how many values each takes (the MTL format's)
+  // a texture map's options and how many values each takes (the MTL format's); resolve
+  // checks the same names (_MAP_OPTIONS in specto_readers/scene3d.py): change both together
   const MAP_OPTIONS = { "-blendu": 1, "-blendv": 1, "-bm": 1, "-boost": 1, "-cc": 1, "-clamp": 1, "-imfchan": 1, "-mm": 2, "-o": 3, "-s": 3, "-t": 3, "-texres": 1, "-type": 1 };
   function mapFileName(value) {
     if (typeof value !== "string") return value;

@@ -39,6 +39,7 @@ import struct
 import subprocess
 import sys
 import threading
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -298,7 +299,8 @@ def _convert_bounded(src: Path, out: Path, stamp: dict[str, int]) -> None:
                 ) from e
         lines = _tail(log)
     finally:
-        log.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            log.unlink(missing_ok=True)
     answer: dict[str, Any] = {}
     for line in reversed(lines):
         try:
@@ -330,6 +332,31 @@ def convert(src: Path | str, dst: Path | str) -> dict[str, Any]:
     return rec
 
 
+#: temporaries older than this in the cache are a crashed run's: swept before converting
+STALE_AFTER_S = 3600.0
+
+
+def sweep_stale(cache: Path, now: float | None = None) -> int:
+    """Remove a dead run's leftovers from the cache folder: ``.*.convert*``, ``.*.tmp`` and
+    ``*.log`` files older than ``STALE_AFTER_S``; returns how many went."""
+    now = time.time() if now is None else now
+    gone = 0
+    try:
+        entries = list(cache.iterdir())
+    except OSError:
+        return 0
+    for p in entries:
+        name = p.name
+        temp = name.startswith(".") and (".convert" in name or name.endswith(".tmp"))
+        if not (temp or name.endswith(".log")):
+            continue
+        with contextlib.suppress(OSError):
+            if now - p.stat().st_mtime > STALE_AFTER_S:
+                p.unlink()
+                gone += 1
+    return gone
+
+
 def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
     """The 3D view's scene entry for a DAE: ``{kind: mesh, role: .dae, files: {glb},
     count, bounds, up: "y", version}``, converting when no matching GLB exists (module
@@ -344,6 +371,7 @@ def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
         glb = side
         if rec is None:
             cache.mkdir(parents=True, exist_ok=True)
+            sweep_stale(cache)
             fresh = _unique(cache, key, ".convert.glb")
             try:
                 _convert_bounded(src, fresh, stamp)
@@ -378,6 +406,7 @@ __all__ = [
     "CONVERTER_VERSION",
     "CONVERT_TIMEOUT_S",
     "DAE_MAX_BYTES",
+    "STALE_AFTER_S",
     "DaeAsset",
     "DaeError",
     "convert",
@@ -388,6 +417,7 @@ __all__ = [
     "read_asset",
     "scene_info",
     "source_stamp",
+    "sweep_stale",
     "to_gltf_frame",
     "version_of",
     "with_record",

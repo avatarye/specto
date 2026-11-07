@@ -23,8 +23,9 @@ const CHROME = ["icons.js", "sidepanel.js", "footer.js", "wheel.js", "viewnav.js
 
 /** Boot main.js in a sandbox: returns the handlers it registered on Specto, the
  * recording Babylon, the fetches it started (deferreds) and what it reported. */
-function bootPage() {
+function bootPage(tweak) {
   const { babylon, scene, created, imports, frame, textures, loop } = makeBabylon();
+  if (tweak) tweak(babylon);   // a test changes the fake Babylon before the page boots
   const handlers = {};
   const observers = [];   // the page's ResizeObservers
   const fetches = [];
@@ -325,6 +326,34 @@ test("robot meshes: an STL keeps its coordinates and draws grey; a converted DAE
   assert.equal(holder("link").scaling.x, 0.001);
   assert.equal(holder("link").scaling.z, 0.001);
   assert.notEqual(holder("arm").scaling.x, 0.001, "a DAE keeps its own scale");
+});
+
+test("an MTL texture map's options are stripped before Babylon builds its URL (SPEC-42)", () => {
+  const page = bootPage();
+  const get = page.babylon.MTLFileLoader._GetTexture;
+  assert.equal(get("specto://items/l2/p/obj/@root/m/", "-s 1 1 1 -o 0 0 -clamp on ../tex/skin.png", {}), "specto://items/l2/p/obj/@root/m/../tex/skin.png");
+  assert.equal(get("r/", "plain.png", {}), "r/plain.png");
+  assert.equal(get("r/", "-bm 0.5 bump.png", {}), "r/bump.png");
+});
+
+test("a Babylon whose MTL loader has no _GetTexture is said in health, not skipped silently (SPEC-42)", async () => {
+  const page = bootPage((b) => { delete b.MTLFileLoader; });
+  assert.ok(page.logged.some(([level, msg]) => level === "warn" && /_GetTexture/.test(msg)));
+  page.notify("scene", scenePayload([glb("y")]));
+  await settle();
+  page.imports[0].resolve();
+  await settle();
+  const [status, msg] = page.health[page.health.length - 1];
+  assert.equal(status, "ok");
+  assert.match(msg, /^1 items · OBJ texture map options are not stripped/);
+});
+
+test("the vendored MTLFileLoader still has the _GetTexture the page wraps (SPEC-42)", (t) => {
+  const file = path.join(WEB, "vendor", "babylon", "babylonjs.loaders.min.js");
+  let text;
+  try { text = readFileSync(file, "utf-8"); } catch { t.skip("Babylon is not vendored (packages/specto-web/build.py)"); return; }
+  assert.match(text, /static _GetTexture\(/, "Babylon's MTL loader no longer has _GetTexture: the page's option stripping needs a new hook");
+  assert.match(text, /MTLFileLoader:[A-Za-z_$]+/);
 });
 
 test("a converted DAE whose version changed loads again: same item, new URL (SPEC-42)", async () => {

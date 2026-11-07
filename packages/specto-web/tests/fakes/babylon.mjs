@@ -202,8 +202,10 @@ export function makeBabylon() {
     PointerEventTypes: { POINTERDOWN: 1, POINTERUP: 2, POINTERDOUBLETAP: 3 },
     Tools: { ScriptBaseUrl: "" },
     MeshBuilder: { CreateSphere(name) { return new Mesh(name); } },
-    // the loaders' static switches the page sets (SPEC-42)
+    // the loaders' static switches and hooks the page sets (SPEC-42); _GetTexture answers
+    // the texture URL it was handed
     STLFileLoader: { DO_NOT_ALTER_FILE_COORDINATES: false },
+    MTLFileLoader: { _GetTexture(rootUrl, value) { return rootUrl + value; } },
     Engine: class {
       constructor() {}
       runRenderLoop(fn) { loop.fn = fn; }
