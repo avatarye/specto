@@ -205,7 +205,7 @@ A view type (`urdf`, viewer role, never the root view) showing one robot descrip
 _Avoid_: robot view, URDF viewer (in prose), 3d view mode
 
 **Package resolver**:
-How the URDF view finds the files a URDF names (`package://<name>/...`, `file://`, relative paths): `params.package_paths` first, then the nearest `package.xml` naming the package (up from the URDF, then the project's folders), then `ROS_PACKAGE_PATH` and `AMENT_PREFIX_PATH`, and a relative path next to the URDF. It never guesses by stripping the `package://<name>/` prefix and never fetches over the network; what it cannot find is listed with its cause (ADR 0029).
+How the URDF view finds the files a URDF names (`package://<name>/...`, `file://`, relative paths): `params.package_paths` first, then the nearest `package.xml` naming the package (up from the URDF, then the project's folders), then `ROS_PACKAGE_PATH` and `AMENT_PREFIX_PATH`, and a relative path next to the URDF. It never guesses by stripping the `package://<name>/` prefix, never reaches out of a package folder and never fetches over the network; what it cannot find is listed with its cause, and only mesh and image files it finds are served (ADR 0029).
 _Avoid_: filename handler, mesh search, ROS lookup
 
 **Scratch pad**:

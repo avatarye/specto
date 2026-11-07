@@ -223,7 +223,7 @@ Two-way links only on `time` and `selection`. Per view type (`VIEW_PORTS`):
 | `preview` | `data`, `selection` | `selection` | |
 | `scratch` | `selection` | `items: collection`, `selection` | |
 | `text` | `data` | | |
-| `urdf` | `data`, `joints: collection`, `time`, `camera`, `selection` | `camera`, `selection`, `content` | `data, selection -> selection, content`, `camera -> camera` |
+| `urdf` | `data`, `camera`, `selection` (`joints` and `time` come with SPEC-43.3) | `camera`, `selection`, `content` | `data, selection -> selection, content`, `camera -> camera` |
 
 The project source `project` has one output, `all_files: files` (the whole folder). The
 intaker from it into a file tree is never walked (#231, ADR 0022): the tree receives a
@@ -592,7 +592,10 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   package resolver, `missing_notes` for health; `PackageResolver.folder(name)` is the
   picklable `$(find)` hook for xacro), serves the robot's files as extra roles of its
   item (`.m0`, `.m1`, ...; `RobotMeshes`, first in the runtime's item resolvers, so
-  `specto://items/<link>/<key>/m<n>/<file name>`), and speaks ADR 0029's messages:
+  `specto://items/<link>/<key>/m<n>/<file name>`): only regular files of the mesh and
+  image types up to 512 MB, and next to a mesh only an OBJ's `.mtl` or a glTF's `.bin`
+  and images (`CompositeItems.side_allowed`, which `locate_item` asks for a file next to
+  a part; a resolver without `side_allowed` allows any). It speaks ADR 0029's messages:
   `model {generation, model, environments}`, `pose {joints, source, track?}`, `params`,
   `step`, `render` and the `camera` and `selection` ports out; `select`, `joints` (the
   full map: it replaces `params.joints` in one user submit, clamped), `loaded {ms,
