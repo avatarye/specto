@@ -77,11 +77,7 @@ def qt_loaded(progress) -> bool:
     return any(m.startswith("PySide6") or m.startswith("PyQt") for m in sys.modules)
 
 
-class FolderFinder:
-    """A picklable package resolver for the xacro pool tests: name -> folder."""
+def has_module(name: str, progress) -> bool:
+    import sys
 
-    def __init__(self, folders: dict[str, str]) -> None:
-        self.folders = folders
-
-    def __call__(self, name: str) -> str | None:
-        return self.folders.get(name)
+    return name in sys.modules

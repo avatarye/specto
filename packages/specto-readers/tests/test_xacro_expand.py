@@ -1,5 +1,6 @@
-"""xacro expansion (SPEC-43.3): only trusted content expands (ADR 0006), Specto's package
-resolver stands in for ``$(find pkg)``, and ``params.xacro_args`` reach ``$(arg ...)``."""
+"""xacro expansion (SPEC-43.3): only trusted content expands (ADR 0006), in a process of
+its own; Specto's package resolver stands in for ``$(find pkg)``, and
+``params.xacro_args`` reach ``$(arg ...)``."""
 
 from __future__ import annotations
 
@@ -9,6 +10,8 @@ from pathlib import Path
 import pytest
 
 from specto_readers.xacro_expand import XacroError, XacroNeedsApproval, expand_xacro
+
+XNS = 'xmlns:xacro="http://www.ros.org/wiki/xacro"'
 
 ROBOT = """<?xml version="1.0"?>
 <robot name="arm" xmlns:xacro="http://www.ros.org/wiki/xacro">
@@ -43,7 +46,7 @@ class Approvals:
         return sha256 in self.hashes
 
 
-def _no_packages(name: str) -> Path | None:
+def _no_packages(name: str) -> str | None:
     return None
 
 
@@ -51,6 +54,10 @@ def _write(path: Path, text: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def _robot(body: str) -> str:
+    return f'<robot name="a" {XNS}>{body}</robot>'
 
 
 def test_a_trusted_xacro_expands_to_urdf(tmp_path: Path):
@@ -78,28 +85,29 @@ def test_an_untrusted_xacro_needs_approve_and_is_never_evaluated(tmp_path: Path)
         expand_xacro(root, find_package=_no_packages, trusted=Approvals())
     assert e.value.path == str(root.resolve())
     assert e.value.sha256 == _sha(root)
+    assert not e.value.include
 
 
 def test_find_resolves_through_specto_s_package_resolver(tmp_path: Path):
     pkg = tmp_path / "pkgs" / "arm_description"
     inc = _write(
         pkg / "urdf" / "gripper.xacro",
-        '<robot xmlns:xacro="http://www.ros.org/wiki/xacro">'
-        '<link name="gripper"><visual><geometry>'
+        f'<robot {XNS}><link name="gripper"><visual><geometry>'
         '<mesh filename="$(find arm_description)/meshes/gripper.stl"/>'
         "</geometry></visual></link></robot>",
     )
     root = _write(
         tmp_path / "robot" / "arm.xacro",
-        '<robot name="arm" xmlns:xacro="http://www.ros.org/wiki/xacro">'
-        '<xacro:include filename="$(find arm_description)/urdf/gripper.xacro"/>'
-        '<link name="base"/></robot>',
+        _robot(
+            '<xacro:include filename="$(find arm_description)/urdf/gripper.xacro"/>'
+            '<link name="base"/>'
+        ),
     )
     asked: list[str] = []
 
-    def find(name: str) -> Path | None:
+    def find(name: str) -> str | None:
         asked.append(name)
-        return pkg if name == "arm_description" else None
+        return str(pkg) if name == "arm_description" else None
 
     out = expand_xacro(root, find_package=find, trusted=Approvals(root, inc))
     assert '<link name="gripper">' in out.urdf
@@ -108,23 +116,8 @@ def test_find_resolves_through_specto_s_package_resolver(tmp_path: Path):
     assert set(out.files) == {str(root.resolve()), str(inc.resolve())}
 
 
-def test_a_resolver_may_say_how_it_found_the_package(tmp_path: Path):
-    pkg = tmp_path / "desc"
-    root = _write(
-        tmp_path / "a.xacro",
-        '<robot name="a" xmlns:xacro="http://www.ros.org/wiki/xacro">'
-        '<link name="$(find desc)"/></robot>',
-    )
-    out = expand_xacro(root, find_package=lambda n: (pkg, "package_paths"), trusted=Approvals(root))
-    assert f'<link name="{pkg}"/>' in out.urdf
-
-
 def test_an_unknown_package_names_the_fix(tmp_path: Path):
-    root = _write(
-        tmp_path / "a.xacro",
-        '<robot name="a" xmlns:xacro="http://www.ros.org/wiki/xacro">'
-        '<link name="$(find nowhere_pkg)"/></robot>',
-    )
+    root = _write(tmp_path / "a.xacro", _robot('<link name="$(find nowhere_pkg)"/>'))
     with pytest.raises(XacroError, match="package `nowhere_pkg` not found") as e:
         expand_xacro(root, find_package=_no_packages, trusted=Approvals(root))
     assert "package_paths" in str(e.value)
@@ -132,39 +125,101 @@ def test_an_unknown_package_names_the_fix(tmp_path: Path):
 
 def test_a_changed_include_needs_approve_again(tmp_path: Path):
     inc = _write(tmp_path / "part.xacro", '<robot><link name="part"/></robot>')
-    root = _write(
-        tmp_path / "a.xacro",
-        '<robot name="a" xmlns:xacro="http://www.ros.org/wiki/xacro">'
-        '<xacro:include filename="part.xacro"/></robot>',
-    )
+    root = _write(tmp_path / "a.xacro", _robot('<xacro:include filename="part.xacro"/>'))
     approvals = Approvals(root, inc)
-    assert (
-        '<link name="part"/>'
-        in expand_xacro(root, find_package=_no_packages, trusted=approvals).urdf
-    )
+    out = expand_xacro(root, find_package=_no_packages, trusted=approvals)
+    assert '<link name="part"/>' in out.urdf
     _write(inc, '<robot><link name="changed"/></robot>')
-    with pytest.raises(XacroNeedsApproval) as e:
+    with pytest.raises(XacroNeedsApproval, match=r"include part.xacro is not approved") as e:
         expand_xacro(root, find_package=_no_packages, trusted=approvals)
-    assert e.value.path == str(inc.resolve())
-    assert "part.xacro" in str(e.value)
+    assert e.value.path == str(inc.resolve()) and e.value.include
 
 
-def test_the_approve_gesture_accepts_the_includes_and_reports_their_hashes(tmp_path: Path):
+def test_the_approve_gesture_on_that_root_accepts_what_it_reads(tmp_path: Path):
     inc = _write(tmp_path / "sub" / "part.xacro", '<robot><link name="part"/></robot>')
-    root = _write(
-        tmp_path / "a.xacro",
-        '<robot name="a" xmlns:xacro="http://www.ros.org/wiki/xacro">'
-        '<xacro:include filename="sub/part.xacro"/></robot>',
-    )
-    # the user approved the file they opened; its includes come with that click
+    root = _write(tmp_path / "a.xacro", _robot('<xacro:include filename="sub/part.xacro"/>'))
+    # the user approved the file they opened; what it includes comes with that click
     out = expand_xacro(
-        root, find_package=_no_packages, trusted=Approvals(root), accept_includes=True
+        root, find_package=_no_packages, trusted=Approvals(root), approved_root_sha=_sha(root)
     )
     assert '<link name="part"/>' in out.urdf
     assert out.files[str(inc.resolve())] == _sha(inc)
-    # the root itself is never accepted that way
+    # an approval of another root's hash accepts nothing here
     with pytest.raises(XacroNeedsApproval):
-        expand_xacro(root, find_package=_no_packages, trusted=Approvals(), accept_includes=True)
+        expand_xacro(
+            root, find_package=_no_packages, trusted=Approvals(root), approved_root_sha="0" * 64
+        )
+    # and the root itself is never accepted that way
+    with pytest.raises(XacroNeedsApproval):
+        expand_xacro(
+            root, find_package=_no_packages, trusted=Approvals(), approved_root_sha=_sha(root)
+        )
+
+
+def test_yaml_is_gated_like_an_include(tmp_path: Path):
+    import yaml
+
+    data = _write(tmp_path / "limits.yaml", "elbow: !degrees 90\n")
+    root = _write(
+        tmp_path / "a.xacro",
+        _robot(
+            '<xacro:property name="lim" value="${xacro.load_yaml(\'limits.yaml\')}"/>'
+            '<link name="l${lim.elbow}"/>'
+        ),
+    )
+    with pytest.raises(XacroNeedsApproval, match=r"limits.yaml is not approved"):
+        expand_xacro(root, find_package=_no_packages, trusted=Approvals(root))
+    out = expand_xacro(root, find_package=_no_packages, trusted=Approvals(root, data))
+    assert '<link name="l1.5707963' in out.urdf
+    assert out.files[str(data.resolve())] == _sha(data)
+    # xacro's unit tags do not stay on the shared loader
+    assert "!degrees" not in yaml.SafeLoader.yaml_constructors
+
+
+def test_includes_nest_and_missing_ones_fail_unless_optional(tmp_path: Path):
+    deep = _write(tmp_path / "b" / "deep.xacro", '<robot><link name="deep"/></robot>')
+    mid = _write(
+        tmp_path / "b" / "mid.xacro",
+        f'<robot {XNS}><xacro:include filename="deep.xacro"/><link name="mid"/></robot>',
+    )
+    root = _write(tmp_path / "a.xacro", _robot('<xacro:include filename="b/mid.xacro"/>'))
+    out = expand_xacro(root, find_package=_no_packages, trusted=Approvals(root, mid, deep))
+    assert '<link name="deep"/>' in out.urdf and '<link name="mid"/>' in out.urdf
+    assert set(out.files) == {str(p.resolve()) for p in (root, mid, deep)}
+
+    gone = _write(tmp_path / "gone.xacro", _robot('<xacro:include filename="nothere.xacro"/>'))
+    with pytest.raises(XacroError, match=r"nothere.xacro"):
+        expand_xacro(gone, find_package=_no_packages, trusted=Approvals(gone))
+    opt = _write(
+        tmp_path / "opt.xacro",
+        _robot('<xacro:include filename="nothere.xacro" optional="true"/><link name="o"/>'),
+    )
+    out = expand_xacro(opt, find_package=_no_packages, trusted=Approvals(opt))
+    assert '<link name="o"/>' in out.urdf
+
+
+def test_roots_confine_reads_to_the_project_and_found_packages(tmp_path: Path):
+    project = tmp_path / "project"
+    outside = _write(tmp_path / "elsewhere" / "x.xacro", '<robot><link name="x"/></robot>')
+    pkg = tmp_path / "ros" / "desc"
+    part = _write(pkg / "part.xacro", '<robot><link name="part"/></robot>')
+    sneaky = _write(project / "a.xacro", _robot('<xacro:include filename="../elsewhere/x.xacro"/>'))
+    trusted = Approvals(sneaky, outside, part)
+    with pytest.raises(XacroError, match=r"x.xacro is outside the project"):
+        expand_xacro(sneaky, find_package=_no_packages, trusted=trusted, roots=[project])
+    # without roots the trust gate alone decides
+    out = expand_xacro(sneaky, find_package=_no_packages, trusted=trusted)
+    assert '<link name="x"/>' in out.urdf
+    viafind = _write(
+        project / "b.xacro", _robot('<xacro:include filename="$(find desc)/part.xacro"/>')
+    )
+    out = expand_xacro(
+        viafind,
+        find_package={"desc": str(pkg)}.get,
+        trusted=Approvals(viafind, part),
+        roots=[project],
+    )
+    assert '<link name="part"/>' in out.urdf
 
 
 def test_progress_says_expanding_xacro(tmp_path: Path):
@@ -180,30 +235,34 @@ def test_progress_says_expanding_xacro(tmp_path: Path):
 
 
 def test_a_xacro_error_comes_back_as_one_message(tmp_path: Path):
-    root = _write(
-        tmp_path / "a.xacro",
-        '<robot name="a" xmlns:xacro="http://www.ros.org/wiki/xacro">'
-        '<link name="${undefined_property}"/></robot>',
-    )
+    root = _write(tmp_path / "a.xacro", _robot('<link name="${undefined_property}"/>'))
     with pytest.raises(XacroError, match="undefined_property"):
         expand_xacro(root, find_package=_no_packages, trusted=Approvals(root))
 
 
 def test_xacro_is_left_as_it_was(tmp_path: Path):
     import xacro
+    import yaml
     from xacro import substitution_args
 
-    before = (substitution_args._eval_find, substitution_args._eval_dict["find"], xacro.parse)
+    def state():
+        return (
+            substitution_args._eval_find,
+            substitution_args._eval_dict["find"],
+            "open" in vars(xacro),
+            dict(yaml.SafeLoader.yaml_constructors),
+        )
+
+    before = state()
     root = _write(tmp_path / "a.xacro", ROBOT)
     expand_xacro(root, find_package=_no_packages, trusted=Approvals(root))
     with pytest.raises(XacroNeedsApproval):
         expand_xacro(root, find_package=_no_packages, trusted=Approvals())
-    after = (substitution_args._eval_find, substitution_args._eval_dict["find"], xacro.parse)
-    assert before == after
+    assert state() == before
 
 
-def test_expansion_runs_on_the_pool_and_reports_needs_approval_as_data(tmp_path: Path):
-    from readers_helpers import FolderFinder
+def test_expansion_runs_in_its_own_process_never_in_a_pool_worker(tmp_path: Path):
+    from readers_helpers import has_module
 
     from specto_core.python_links import TrustStore
     from specto_readers import PoolJobManager
@@ -213,25 +272,37 @@ def test_expansion_runs_on_the_pool_and_reports_needs_approval_as_data(tmp_path:
     _write(pkg / "part.xacro", '<robot><link name="part"/></robot>')
     root = _write(
         tmp_path / "a.xacro",
-        '<robot name="a" xmlns:xacro="http://www.ros.org/wiki/xacro">'
-        '<xacro:include filename="$(find desc)/part.xacro"/>'
-        '<link name="$(arg base)"/></robot>',
+        _robot('<xacro:include filename="$(find desc)/part.xacro"/><link name="$(arg base)"/>'),
     )
     store = TrustStore(tmp_path / "trusted.json")
-    finder = FolderFinder({"desc": str(pkg)})
+    find = {"desc": str(pkg)}.get
     with PoolJobManager(workers=1) as pool:
-        job = submit_xacro(pool, root, finder, store.approved, args={"base": "base_link"})
+        job = submit_xacro(pool, root, find, store.approved, args={"base": "base_link"})
         assert pool.wait([job], 60.0), job.error
         assert job.kind == "xacro"
         assert job.result["needs_approval"]["path"] == str(root.resolve())
         assert "urdf" not in job.result
-        # the user's Approve: the root's hash goes into the store, its includes come along
+        # the user's Approve: the root's hash goes into the store, what it reads comes along
         store.approve(_sha(root), path=str(root))
         job = submit_xacro(
-            pool, root, finder, store.approved, args={"base": "base_link"}, accept_includes=True
+            pool,
+            root,
+            find,
+            store.approved,
+            args={"base": "base_link"},
+            approved_root_sha=_sha(root),
+            roots=[tmp_path],
         )
         assert pool.wait([job], 60.0), job.error
-    assert job.message == "xacro expanded"
-    assert '<link name="part"/>' in job.result["urdf"]
-    assert '<link name="base_link"/>' in job.result["urdf"]
-    assert str((pkg / "part.xacro").resolve()) in job.result["files"]
+        assert job.message == "xacro expanded"
+        assert '<link name="part"/>' in job.result["urdf"]
+        assert '<link name="base_link"/>' in job.result["urdf"]
+        assert str((pkg / "part.xacro").resolve()) in job.result["files"]
+        # the worker never imported xacro: the expansion ran in a child of its own
+        probe = pool.submit("t", has_module, "xacro")
+        assert pool.wait([probe], 60.0) and probe.result is False
+        bad = _write(tmp_path / "bad.xacro", _robot('<link name="${nope}"/>'))
+        store.approve(_sha(bad), path=str(bad))
+        job = submit_xacro(pool, bad, find, store.approved)
+        assert pool.wait([job], 60.0)
+        assert job.state == "failed" and "nope" in (job.error or "")
