@@ -152,11 +152,10 @@ def disabled() -> set[str]:
 
 def faked() -> set[str]:
     """The capabilities named in ``SPECTO_FAKE_CAPABILITIES`` (comma-separated, test-only)
-    and not in ``SPECTO_DISABLE_CAPABILITIES`` (disabled wins): present for every choice
-    (the renderer, the quotas, the notes) without detecting them, while the usd view runs
-    the stub USD source in their place, so a scripted flow plays a machine with ovrtx and
-    never starts a renderer (SPEC-36)."""
-    return _env_names(FAKE_ENV) - _env_names(DISABLE_ENV)
+    and not disabled: present without detection, so a scripted flow plays a machine with
+    them (the renderer, the quotas, the notes) while the usd view runs the stub USD source
+    in their place (SPEC-36). Disabled wins over faked."""
+    return _env_names(FAKE_ENV) - disabled()
 
 
 def machine_capabilities() -> dict[str, MachineCapability]:
@@ -184,6 +183,21 @@ def rtx_first(platform: str | None = None) -> bool:
     return (sys.platform if platform is None else platform) != "darwin"
 
 
+#: the machine capability each usd renderer needs
+USD_RENDERER_CAPABILITY = {"rtx": "ovrtx", "storm": "storm"}
+
+
+def usd_candidates(params: Mapping[str, Any], platform: str | None = None) -> list[str]:
+    """The renderers a usd view with ``params`` tries, in order: the one
+    ``params.renderer`` names, or for ``auto`` rtx then storm on Windows and Linux
+    (:func:`rtx_first`) and storm alone on macOS. :func:`usd_renderer` takes the first whose
+    capability is present, else the last."""
+    asked = params.get("renderer") or "auto"
+    if asked != "auto":
+        return [str(asked)]
+    return ["rtx", "storm"] if rtx_first(platform) else ["storm"]
+
+
 def usd_renderer(
     params: Mapping[str, Any],
     caps: Mapping[str, MachineCapability],
@@ -194,10 +208,9 @@ def usd_renderer(
     capability is present, else storm; on macOS always storm. Storm without its
     capability means the host falls back to the stub source. An explicit rtx stays rtx
     on a machine without it; the view's health says why it cannot start."""
-    asked = params.get("renderer") or "auto"
-    if asked != "auto":
-        return str(asked)
-    ovrtx = caps.get("ovrtx")
-    if rtx_first(platform) and ovrtx is not None and ovrtx.present:
-        return "rtx"
-    return "storm"
+    candidates = usd_candidates(params, platform)
+    for renderer in candidates[:-1]:
+        cap = caps.get(USD_RENDERER_CAPABILITY[renderer])
+        if cap is not None and cap.present:
+            return renderer
+    return candidates[-1]

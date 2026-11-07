@@ -87,6 +87,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -100,7 +101,7 @@ from specto_core.contents import ContentEntry, ContentValue
 from specto_core.errors import SpectoError
 from specto_core.kinds import Item, ViewManifest
 from specto_core.links import CameraValue, Collection, Selection, TimeValue
-from specto_core.machine import disabled, faked, openusd_prefix, rtx_first, usd_renderer
+from specto_core.machine import disabled, faked, openusd_prefix, usd_candidates, usd_renderer
 from specto_core.timebase import OWN_TIMELINE
 
 from ..theme import COLORS
@@ -248,8 +249,20 @@ USD_MANIFEST = ViewManifest(type="usd", label="USD", host="frame")  # core's is 
 #: ``caps()``: this machine's capabilities (``engine.capabilities``), asked for only when
 #: a choice needs them
 Capabilities = Callable[[], Mapping[str, Any]]
-#: ``(view entry, caps, width, height) -> argv``: see :func:`source_command`
-SourceCommand = Callable[[dict[str, Any], Capabilities, int, int], list[str]]
+
+
+@dataclass(frozen=True)
+class SourceChoice:
+    """The frame-source process :func:`source_command` chose: its command line, and why
+    it is the stub when no renderer is found here (a sentence; "" = it is not, or the
+    stub was asked for)."""
+
+    argv: list[str]
+    fallback_reason: str = ""
+
+
+#: ``(view entry, caps, width, height) -> SourceChoice``: see :func:`source_command`
+SourceCommand = Callable[[dict[str, Any], Capabilities, int, int], SourceChoice]
 #: ``on_camera(set_camera params, cut)``: one coalesced camera change for the source;
 #: ``cut`` is a jump (frame all, World origin, a new stage) that resets render history
 OnCamera = Callable[[dict[str, Any], bool], None]
@@ -292,53 +305,45 @@ RENDERERS: dict[str, tuple[str, Callable[[int, int], list[str]]]] = {
 }
 
 
-def source_command(view: dict[str, Any], caps: Capabilities, width: int, height: int) -> list[str]:
-    """The command line of the frame-source process for ``view`` (its document entry),
-    with a first frame of ``width x height``: the one place the renderer is chosen.
-    ``specto-usd-source`` with rtx (#137) when ``params.renderer`` asks for it, or is
-    ``auto`` on Windows or Linux and ``caps()`` has ``ovrtx`` (``usd_renderer``); with
-    Storm (#143) otherwise, where ``caps()`` has ``storm`` (the OpenUSD imaging build; on
-    macOS ``auto`` is always Storm); the stub USD source where it has neither.
-    ``caps`` is not called for an explicit rtx (detecting ovrtx starts a child Python).
-    A renderer whose capability is faked (``SPECTO_FAKE_CAPABILITIES``, scripted flows)
-    is played by the stub, ``--renderer`` naming the one it stands in for (its start
-    phase; its panel still says Stub). Every source speaks the stub USD source's
-    protocol."""
+def source_command(
+    view: dict[str, Any], caps: Capabilities, width: int, height: int
+) -> SourceChoice:
+    """The frame-source process for ``view`` (its document entry), with a first frame of
+    ``width x height``: the one place the renderer is chosen, and the reason when that is
+    the stub. ``specto-usd-source`` with rtx (#137) when ``params.renderer`` asks for it,
+    or is ``auto`` on Windows or Linux and ``caps()`` has ``ovrtx`` (``usd_renderer``);
+    with Storm (#143) otherwise, where ``caps()`` has ``storm`` (the OpenUSD imaging
+    build; on macOS ``auto`` is always Storm); the stub USD source where it has neither,
+    its ``fallback_reason`` naming what each renderer tried lacks (SPEC-26). ``caps`` is
+    not called for an explicit rtx (detecting ovrtx starts a child Python; it never falls
+    back, its health says why it cannot start). A renderer whose capability is faked
+    (``SPECTO_FAKE_CAPABILITIES``, scripted flows) is played by the stub, ``--renderer``
+    naming the one it stands in for (its start phase; its panel still says Stub). Every
+    source speaks the stub USD source's protocol."""
     params = view.get("params") or {}
     asked = params.get("renderer") or "auto"
     found: Mapping[str, Any] = {} if asked == "rtx" else caps()
     renderer = usd_renderer(params, found)
     if renderer == "storm" and not getattr(found.get("storm"), "present", False):
-        return stub_launcher(width, height)  # no Storm build here either
+        # no Storm build here either
+        return SourceChoice(stub_launcher(width, height), fallback_reason(params, found))
     capability, launcher = RENDERERS[renderer]
     if capability in faked():
-        return [*stub_launcher(width, height), "--renderer", renderer]
-    return launcher(width, height)
+        return SourceChoice([*stub_launcher(width, height), "--renderer", renderer])
+    return SourceChoice(launcher(width, height))
 
 
-def stub_reason(view: dict[str, Any], caps: Capabilities) -> str:
-    """Why :func:`source_command` falls back to the stub USD source for ``view``: what is
-    missing on this machine, from the capability detection (SPEC-26). Empty when a real
-    renderer runs, when the view asks for rtx (it never falls back; its health says why it
-    cannot start), and when the fallback was asked for: a capability disabled
-    (``SPECTO_DISABLE_CAPABILITIES``) or faked by a test or scripted flow."""
-    params = view.get("params") or {}
-    asked = params.get("renderer") or "auto"
-    if asked == "rtx":
+def fallback_reason(params: Mapping[str, Any], found: Mapping[str, Any]) -> str:
+    """Why the stub plays: what each renderer the view tried (``usd_candidates``) lacks,
+    from the machine capability detection; "" when a test or flow asked for it (a
+    capability disabled or faked)."""
+    tried = usd_candidates(params)
+    if (disabled() | faked()) & {RENDERERS[r][0] for r in tried}:
         return ""
-    found = caps()
-    if usd_renderer(params, found) != "storm":
-        return ""
-    storm = found.get("storm")
-    if getattr(storm, "present", False):
-        return ""
-    names = ["storm"]
-    if asked == "auto" and rtx_first():
-        names.insert(0, "ovrtx")
-    if (disabled() | faked()) & set(names):
-        return ""
-    labels = {"ovrtx": "RTX", "storm": "Storm"}
-    missing = [f"{labels[n]}: {getattr(found.get(n), 'reason', '') or 'not found'}" for n in names]
+    missing = [
+        f"{RENDERER_LABELS[r]}: {getattr(found.get(RENDERERS[r][0]), 'reason', '') or 'not found'}"
+        for r in tried
+    ]
     return "no USD renderer, showing the test pattern; " + "; ".join(missing)
 
 
@@ -1149,16 +1154,12 @@ class UsdHost(Stepping, QuickViewHost):
         self._set_failure(None)
         self._begin_cover(COVER_PHASES["starting"])
         try:
-
-            def caps() -> Mapping[str, Any]:
-                return self.ctx.engine.capabilities
-
-            argv = self.source_command(self.view, caps, *self.size)
-            self._renderer_kind = argv[argv.index("--renderer") + 1] if "--renderer" in argv else ""
-            # a stand-in command (tests) is not this machine's choice: nothing to explain
-            self.fallback = (
-                stub_reason(self.view, caps) if self.source_command is source_command else ""
+            choice = self.source_command(
+                self.view, lambda: self.ctx.engine.capabilities, *self.size
             )
+            argv = choice.argv
+            self._renderer_kind = argv[argv.index("--renderer") + 1] if "--renderer" in argv else ""
+            self.fallback = choice.fallback_reason
             if self.fallback and not self._fallback_told:
                 self._fallback_told = True
                 self.ctx.inform(f"{self.view_id}: {self.fallback}")
@@ -1577,12 +1578,10 @@ class UsdHost(Stepping, QuickViewHost):
             if self.cover is not None:
                 self._cover_phase(cover_words(state, message))
 
-    def set_health(self, status: str, message: str = "") -> None:
-        """Health with the fallback's hint (SPEC-26) while the stub's test pattern shows:
-        the status stays what it is, the status line and ``snap`` say what is missing."""
-        hint = self.fallback if status in ("ok", "loading") else ""
-        self.ctx.set_health(self.view_id, status, message, hint)
-        self.healthChanged.emit(status, message)
+    def health_hint(self) -> str:
+        """While the stub plays because no renderer is found here, why (SPEC-26): every
+        health this view gets carries it, its own and the registry's alike."""
+        return self.fallback
 
     def _ok_message(self) -> str:
         """Health's message while the stage renders: its file, then the last error the
@@ -2420,7 +2419,7 @@ class UsdHost(Stepping, QuickViewHost):
             "path": self.path,
             "renderer": str(self.stage.get("renderer", "")),
             "renderer_note": str(self.stage.get("renderer_note", "")),
-            "fallback": self.fallback,
+            "fallback_reason": self.fallback,
             "renderer_warnings": list(self.stage.get("warnings") or []),
             "up_axis": self.stage.get("up_axis"),
             "bounds": self.stage.get("bounds"),

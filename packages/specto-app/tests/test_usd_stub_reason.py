@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from app_doc_helpers import pin
 
-from specto_app.views.usd_view import USD_MANIFEST, UsdHost, stub_reason
+from specto_app.views.usd_view import USD_MANIFEST, UsdHost, source_command
 from specto_core import Engine
 from specto_core.jobs import InlineJobManager
 from specto_core.kinds import Item
@@ -34,6 +34,11 @@ def caps(ovrtx: bool = False, storm: bool = False) -> dict[str, MachineCapabilit
 
 def view(renderer: str = "auto") -> dict:
     return {"type": "usd", "params": {"renderer": renderer}}
+
+
+def stub_reason(view: dict, found) -> str:
+    """The reason the one renderer decision gives with its choice."""
+    return source_command(view, found, 64, 48).fallback_reason
 
 
 @pytest.fixture
@@ -103,7 +108,7 @@ def test_a_view_without_a_renderer_says_why_in_its_health_and_once_in_a_notice(
         health = host.ctx.health_of("kobi")
         assert health["message"] == "valley.usda"  # health stays ok, the file named
         assert NO_OVRTX in health["hint"] and NO_STORM in health["hint"]
-        assert host.snapshot()["fallback"] == health["hint"]
+        assert host.snapshot()["fallback_reason"] == health["hint"]
         assert len(informed) == 1 and NO_OVRTX in informed[0]
         host.step_item(1)  # another stage, same source: the hint stays, no second notice
         spin(until=lambda: host.ctx.health_of("kobi")["message"] == "ridge.usda")
@@ -125,6 +130,44 @@ def test_a_view_whose_renderer_is_faked_says_nothing(
     try:
         spin(until=lambda: host.ctx.health_of("kobi")["status"] == "ok")
         assert host.ctx.health_of("kobi")["hint"] == "" and not informed
-        assert host.snapshot()["fallback"] == ""
+        assert host.snapshot()["fallback_reason"] == ""
     finally:
         host.dispose()
+
+
+def test_the_hint_survives_the_registrys_health_updates(
+    detected, tmp_path: Path, monkeypatch, qapp, spin
+):
+    """The hint is the host's own standing state (``health_hint``): health the registry
+    writes for the view (a link's events, a pause and its resume) carries it too."""
+    from specto_app.hosts import HostRegistry, clear_pending
+
+    monkeypatch.setenv("SPECTO_CACHE_DIR", str(tmp_path / "cache"))
+    engine = Engine(project=None, jobs=InlineJobManager())
+    engine._capabilities = caps()
+    informed: list[str] = []
+    host = host_on(engine, tmp_path, informed)
+    try:
+        spin(until=lambda: host.ctx.health_of("kobi")["status"] == "ok")
+        ctx = host.ctx
+        assert NO_OVRTX in ctx.health_of("kobi")["hint"]
+        # a link's event (the registry's own write, no hint of its own)
+        ctx.set_health("kobi", "loading", "resolving project files")
+        assert NO_OVRTX in ctx.health_of("kobi")["hint"]
+        ctx.set_health("kobi", "ok", "")
+        assert NO_OVRTX in ctx.health_of("kobi")["hint"]
+        # a pause and its resume, through a registry that knows the host
+        clear_pending()
+        registry = HostRegistry(ctx, load_entry_points=False)
+        registry.hosts["kobi"] = host
+        assert registry.pause("kobi")
+        assert ctx.health_of("kobi")["status"] == "paused"
+        assert NO_OVRTX in ctx.health_of("kobi")["hint"]
+        assert registry.resume("kobi")
+        assert ctx.health_of("kobi")["status"] == "ok"
+        assert NO_OVRTX in ctx.health_of("kobi")["hint"]
+        registry.hosts.pop("kobi")
+        registry.dispose_all()
+    finally:
+        host.dispose()
+    assert "kobi" not in host.ctx.hint_providers

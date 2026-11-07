@@ -549,7 +549,7 @@ Work that may take longer than a moment (scan, decode, thumbnails, recipe apply)
 _Avoid_: task, process, background operation
 
 **Health**:
-A view's current condition (`ok`, `loading`, `paused`, `error`) with a message, visible to the user and the agent.
+A view's current condition (`ok`, `loading`, `paused`, `error`) with a message, visible to the user and the agent, and an optional **hint**: a line that says what to do or why, such as the empty-state "Pick files in the file tree" or a usd view's missing renderer (SPEC-26). A view's standing hint rides on every health written for it.
 _Avoid_: status, state
 
 **Quota**:
@@ -595,7 +595,7 @@ How untrusted content opens: layout and data load, code does not, and the canvas
 _Avoid_: safe mode, sandbox
 
 **Capability**:
-One named grant a web view holds (read a collection, publish a channel, call a command, load map tiles); anything not granted is refused.
+One named grant a web view holds (read a collection, publish a channel, call a command, load map tiles); anything not granted is refused. Not to be confused with a **machine capability** (`specto_core.machine`: what this machine can run, such as ovrtx or the OpenUSD imaging build).
 _Avoid_: permission, scope, entitlement
 
 ## Relationships

@@ -15,7 +15,13 @@ import pytest
 from app_doc_helpers import pin
 
 from specto_app.frames.ring import RingReader
-from specto_app.views.usd_view import USD_MANIFEST, UsdHost, cover_words, stub_launcher
+from specto_app.views.usd_view import (
+    USD_MANIFEST,
+    SourceChoice,
+    UsdHost,
+    cover_words,
+    stub_launcher,
+)
 from specto_core import Engine
 from specto_core.jobs import InlineJobManager
 from specto_core.kinds import Item
@@ -45,16 +51,18 @@ def stages(folder: Path, *names: str) -> Collection:
     return Collection(items=items)
 
 
-def slow_rtx_stub(view: dict, caps, width: int, height: int) -> list[str]:
+def slow_rtx_stub(view: dict, caps, width: int, height: int) -> SourceChoice:
     """The stub standing in for rtx (its start phase is compiling shaders), its load
     phases 150 ms apart so each one can be seen."""
-    return [*stub_launcher(width, height), "--phase-ms", "150", "--renderer", "rtx"]
+    return SourceChoice([*stub_launcher(width, height), "--phase-ms", "150", "--renderer", "rtx"])
 
 
-def settled_stub(view: dict, caps, width: int, height: int) -> list[str]:
+def settled_stub(view: dict, caps, width: int, height: int) -> SourceChoice:
     """The stub as Storm draws (#166): two frames after a load, then nothing until the
     next change, as a renderer that has settled."""
-    return [*stub_launcher(width, height), "--renderer", "storm", "--settle-frames", "2"]
+    return SourceChoice(
+        [*stub_launcher(width, height), "--renderer", "storm", "--settle-frames", "2"]
+    )
 
 
 class Viewport:

@@ -80,6 +80,10 @@ class HostContext:
         #: hint}}``; ``hint`` is the empty-state line the slot shows in the view's area
         #: ("Pick files in the file tree"), set by the registry, blank otherwise
         self.health: dict[str, dict[str, str]] = {}
+        #: each live host's own standing hint (``QuickViewHost.health_hint``): a health
+        #: written without a hint of its own carries it, whoever writes it (the host, the
+        #: registry's link events, a pause and resume), so it never drops (SPEC-26)
+        self.hint_providers: dict[str, Callable[[], str]] = {}
         self.health_listeners: list[Callable[[str], None]] = []
         #: the views the user has selected on the canvas, newest first (the shell sets
         #: this; headless: none): a file opened from the file tree reuses a selected preview
@@ -173,6 +177,8 @@ class HostContext:
 
     # -- health ------------------------------------------------------------------------
     def set_health(self, view_id: str, status: str, message: str = "", hint: str = "") -> None:
+        if not hint and view_id in self.hint_providers:
+            hint = self.hint_providers[view_id]()
         self.health[view_id] = {"status": status, "message": message, "hint": hint}
         for cb in list(self.health_listeners):
             cb(view_id)
@@ -251,6 +257,7 @@ class QuickViewHost(QObject):
         self.item: QQuickItem | None = None
         self._disposed = False
         self._host_paused = False
+        ctx.hint_providers[view_id] = self.health_hint
 
     # -- contract -----------------------------------------------------------------------
     def receive(self, port: str, value: Any) -> None:
@@ -263,6 +270,13 @@ class QuickViewHost(QObject):
     def snapshot(self) -> dict[str, Any]:
         """Structured state for ``snap``. Default: the view's health."""
         return {"health": self.ctx.health_of(self.view_id)}
+
+    def health_hint(self) -> str:
+        """The view's standing hint, carried by every health written for it without one
+        of its own (the status line and ``snap`` show it); "" for none. A host whose
+        condition outlives its health updates says it here (the usd view's renderer
+        fallback, SPEC-26)."""
+        return ""
 
     # -- pause / resume / snapshot image (contracts sections 11, 12) ----------------------
     def pause(self) -> None:
@@ -378,6 +392,8 @@ class QuickViewHost(QObject):
         if self._disposed:
             return
         self._disposed = True
+        if self.ctx.hint_providers.get(self.view_id) == self.health_hint:
+            del self.ctx.hint_providers[self.view_id]
         if self.item is not None:
             self.item.setParentItem(None)
             self.item.deleteLater()

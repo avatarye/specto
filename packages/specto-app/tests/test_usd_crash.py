@@ -13,7 +13,13 @@ from pathlib import Path
 import pytest
 from app_doc_helpers import pin
 
-from specto_app.views.usd_view import USD_MANIFEST, UsdHost, exit_reason, stub_launcher
+from specto_app.views.usd_view import (
+    USD_MANIFEST,
+    SourceChoice,
+    UsdHost,
+    exit_reason,
+    stub_launcher,
+)
 from specto_core import Engine
 from specto_core.jobs import InlineJobManager
 from specto_core.kinds import Item
@@ -70,11 +76,11 @@ class Launches:
     def __init__(self) -> None:
         self.renderers: list[str] = []
 
-    def __call__(self, view: dict, caps, width: int, height: int) -> list[str]:
+    def __call__(self, view: dict, caps, width: int, height: int) -> SourceChoice:
         self.renderers.append((view.get("params") or {}).get("renderer") or "auto")
         argv = stub_launcher(width, height)
-        return [*argv[:3], "--renderer", "rtx" if self.renderers[-1] != "storm" else "storm",
-                *argv[3:]]  # fmt: skip
+        kind = "rtx" if self.renderers[-1] != "storm" else "storm"
+        return SourceChoice([*argv[:3], "--renderer", kind, *argv[3:]])
 
 
 @pytest.fixture

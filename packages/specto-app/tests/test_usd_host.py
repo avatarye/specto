@@ -346,22 +346,22 @@ def test_the_source_command_picks_the_renderer_process_for_a_view(monkeypatch):
     def renderer(argv: list[str]) -> str:
         return argv[argv.index("--renderer") + 1]
 
-    assert renderer(source_command(view("auto"), caps(ovrtx=True), 64, 48)) == "rtx"
-    assert renderer(source_command(view("rtx"), caps(ovrtx=True), 64, 48)) == "rtx"
+    assert renderer(source_command(view("auto"), caps(ovrtx=True), 64, 48).argv) == "rtx"
+    assert renderer(source_command(view("rtx"), caps(ovrtx=True), 64, 48).argv) == "rtx"
     monkeypatch.setattr(sys, "platform", "darwin")
-    assert renderer(source_command(view("auto"), caps(ovrtx=True), 64, 48)) == "storm"
-    assert renderer(source_command(view("rtx"), caps(ovrtx=True), 64, 48)) == "rtx"
+    assert renderer(source_command(view("auto"), caps(ovrtx=True), 64, 48).argv) == "storm"
+    assert renderer(source_command(view("rtx"), caps(ovrtx=True), 64, 48).argv) == "rtx"
     monkeypatch.setattr(sys, "platform", "linux")
-    argv = source_command(view("auto"), caps(ovrtx=True, storm=False), 64, 48)
+    argv = source_command(view("auto"), caps(ovrtx=True, storm=False), 64, 48).argv
     assert module(argv) == "specto_app.usd.source" and renderer(argv) == "rtx"
     assert argv[argv.index("--width") + 1] == "64" and argv[argv.index("--height") + 1] == "48"
     assert "--fresh-renderer" in argv  # no second stage in a running ovrtx renderer (#155)
-    assert renderer(source_command(view("rtx"), never, 64, 48)) == "rtx"
+    assert renderer(source_command(view("rtx"), never, 64, 48).argv) == "rtx"
     for asked in ("auto", "storm"):
-        argv = source_command(view(asked), caps(ovrtx=False), 64, 48)
+        argv = source_command(view(asked), caps(ovrtx=False), 64, 48).argv
         assert module(argv) == "specto_app.usd.source" and renderer(argv) == "storm"
         assert argv[argv.index("--width") + 1] == "64" and "--openusd" in argv
-        argv = source_command(view(asked), caps(ovrtx=False, storm=False), 64, 48)
+        argv = source_command(view(asked), caps(ovrtx=False, storm=False), 64, 48).argv
         assert module(argv) == "specto_app.frames.stub_usd_source"
 
 
@@ -392,13 +392,13 @@ def test_a_faked_capability_runs_the_stub_source_not_its_renderer(monkeypatch):
     monkeypatch.setenv("SPECTO_DISABLE_CAPABILITIES", "")  # conftest disables both
     monkeypatch.setenv("SPECTO_FAKE_CAPABILITIES", "ovrtx")
     for asked in ("auto", "rtx"):
-        argv = source_command(view(asked), caps(True, False), 64, 48)
+        argv = source_command(view(asked), caps(True, False), 64, 48).argv
         assert module(argv) == stub and stands_in_for(argv) == "rtx"
     monkeypatch.setenv("SPECTO_FAKE_CAPABILITIES", "storm")
-    argv = source_command(view("storm"), caps(False, True), 64, 48)
+    argv = source_command(view("storm"), caps(False, True), 64, 48).argv
     assert module(argv) == stub and stands_in_for(argv) == "storm"
     monkeypatch.setenv("SPECTO_DISABLE_CAPABILITIES", "storm")  # disabled wins
-    assert module(source_command(view("storm"), caps(False, True), 64, 48)) != stub
+    assert module(source_command(view("storm"), caps(False, True), 64, 48).argv) != stub
     monkeypatch.setenv("SPECTO_DISABLE_CAPABILITIES", "")
     monkeypatch.delenv("SPECTO_FAKE_CAPABILITIES")
-    assert module(source_command(view("auto"), caps(True, False), 64, 48)) != stub
+    assert module(source_command(view("auto"), caps(True, False), 64, 48).argv) != stub

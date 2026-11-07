@@ -43,6 +43,9 @@ class UsdSnapMeta(BaseModel):
     ground: bool = False
     sky_fetch: dict[str, Any] = {}
     hdri_fetch: dict[str, Any] = {}
+    #: why the stub USD source plays (SPEC-26): what the renderers tried lack, a sentence;
+    #: "" when a renderer runs or the stub was asked for
+    fallback_reason: str = ""
 
 
 def usd_snap_meta(
@@ -54,6 +57,7 @@ def usd_snap_meta(
     frame_size: tuple[int, int] | None = None,
     camera: CameraValue | Mapping[str, Any] | None = None,
     environment: Mapping[str, Any] | None = None,
+    fallback_reason: str = "",
 ) -> dict[str, Any]:
     """``UsdSnapMeta`` as JSON for a usd view with ``params`` on a machine with ``caps``;
     the keyword arguments are what the host and its source know (None: not yet;
@@ -72,6 +76,7 @@ def usd_snap_meta(
         camera=CameraValue.model_validate(camera) if camera is not None else None,
         look_through=params.get("look_through"),
         camera_speed=float(params.get("camera_speed", 1.0)),
+        fallback_reason=fallback_reason,
         **{k: v for k, v in env.items() if k in UsdSnapMeta.model_fields},
     )
     return meta.model_dump(mode="json")

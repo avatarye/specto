@@ -56,7 +56,7 @@ the release and move on their own schedule.
 - A usd view on a machine with neither USD renderer now says so (SPEC-26). Without the
   `rtx` and `storm` extras (a plain `uv run` re-syncs them away) the view showed the stub
   source's test pattern with health `ok`, and the only clue was "Renderer: Stub". Health
-  stays `ok`, but the status line and `snap`'s `fallback` now name what is missing (ovrtx
+  stays `ok`, but the status line and `snap`'s `fallback_reason` now name what is missing (ovrtx
   not installed, no OpenUSD imaging build) with the fix, and one notice says it. A
   fallback a test or scripted flow asks for (a disabled or faked capability) stays silent.
 - Paused galleries, images and videos give back their GPU memory (SPEC-3, ADR 0030). A

@@ -422,9 +422,11 @@ before. Thumbnails and posters never open an audio device.
   without detecting them, `SPECTO_FAKE_CAPABILITIES` present (the usd view then runs the
   stub USD source in the faked renderer's place); a name in both is disabled. A usd view
   that falls back to the stub because this machine has neither renderer
-  (`usd_view.stub_reason`, SPEC-26) keeps health `ok`, but its health hint (the status
-  line) and `snap`'s `fallback` name what is missing, and one notice says so. A disabled
-  or faked capability is a fallback someone asked for: it says nothing. Data kinds: `image2d image_seq video_ref pointcloud mesh splat usd_stage_ref
+  (`usd_view.source_command`'s `fallback_reason`, SPEC-26) keeps health `ok`, but its
+  health hint (the status line; the host's `health_hint`, carried by every health
+  written for it) and `snap`'s `fallback_reason` name what is missing, and one notice
+  says so. A disabled or faked capability is a fallback someone asked for: it says
+  nothing. Data kinds: `image2d image_seq video_ref pointcloud mesh splat usd_stage_ref
   geojson json text markdown table message_stream pose_track joint_track`. `joint_track`
   (`specto_readers.joint_track`): a CSV or Parquet table, one time column plus one column
   per joint, located as a track only when its header (or schema) has a numeric time
@@ -569,7 +571,8 @@ class GalleryHost(QuickViewHost):  # one per live view
     def on_patch(self, patch, meta) -> None: ...  # ops under /views/<id> (label, layout, params)
     def snapshot(self) -> dict: ...  # structured state for snap
 
-    # optional: pause(), resume(), on_release(), on_restore(), snapshot_image(), dispose()
+    # optional: pause(), resume(), on_release(), on_restore(), snapshot_image(),
+    # health_hint(), dispose()
     release_when_paused = True  # optional: paused release_delay_s (3 s), the item leaves the scene
 
 
@@ -750,9 +753,11 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   id, `view:<id>`, `@<label>` or `canvas`; `meta.host` = `host.snapshot()` (a usd view's
   carries `specto_app.views.usd_meta.UsdSnapMeta`: `path, renderer, renderer_asked, mode,
   frame_size, camera, look_through, camera_speed, environment, environment_note, sky,
-  hdri, sky_controls, ground, sky_fetch, hdri_fetch`; the environment fields, SPEC-31:
+  hdri, sky_controls, ground, sky_fetch, hdri_fetch, fallback_reason`; the environment
+  fields, SPEC-31:
   what lights the stage, why it is not the choice, the sky's controls in effect and the
-  runtime fetches' `{cached, fetching, queued, done, total, error}`), `meta.links` the links in and out
+  runtime fetches' `{cached, fetching, queued, done, total, error}`; `fallback_reason`,
+  SPEC-26: why the stub USD source plays, "" when it does not), `meta.links` the links in and out
   with their resolve state, `meta.rect` the on-screen rect;
   `layout` one line per view and link) and `shell.locate {name}` (the window rect of a
   shell item by `objectName`: `slot:kobi`, `header:kobi`, `close:kobi`,
