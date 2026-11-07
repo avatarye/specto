@@ -89,7 +89,7 @@ class Emitter:
             if target.get("type", "object") == "object" and "properties" in target:
                 self.interface(pascal(name), target, defs)
                 return pascal(name)
-            return self.ts(target, defs, hint=name)
+            return self.ts(target, defs, hint=pascal(name))  # an identifier too (SPEC-49)
         if "enum" in schema:
             return " | ".join(quote(v) for v in schema["enum"])
         if "const" in schema:

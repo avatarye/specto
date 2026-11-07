@@ -15,6 +15,10 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The generated TypeScript declarations (`packages/specto-web/types/specto-api.d.ts`)
+  name every interface with a valid identifier (SPEC-49): the 3d view's state is
+  `_3dState`, and a `$defs` name that reaches an interface is mangled the same way, so
+  `tsc` accepts the file (it stopped at `interface 3dState`).
 - The offscreen `search` flow no longer fails now and then (SPEC-41). The test driver
   answers a `locate` after the window's next frame, so it reads the item tree that frame
   draws: a list applies its model's row changes at its polish, and until then a removed
