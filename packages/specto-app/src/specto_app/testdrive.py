@@ -385,10 +385,10 @@ class TestDriver(QObject):
     def _locate(self, name: str) -> dict[str, Any] | None:
         if self.app is not None and self.app.window is not None:
             return self.app.host.shell.locate(name)
-        from .app import find_item, locate_item
+        from .app import find_settled, locate_item
 
         win = self.window()
-        item = find_item(win.contentItem(), name)
+        item = find_settled(win, name)
         return None if item is None else locate_item(win, item)
 
     # -- operations ----------------------------------------------------------------------
