@@ -15,6 +15,7 @@ from specto_readers.urdf import (
     UrdfError,
     build_robot,
     missing_notes,
+    package_name_of,
     parse_urdf,
 )
 
@@ -330,7 +331,7 @@ def test_missing_meshes_are_listed_with_their_causes(tmp_path: Path):
             "link": "a",
             "kind": "visual",
             "uri": "package://arm_description/meshes/gone.stl",
-            "cause": "`meshes/gone.stl` is not in package `arm_description`",
+            "cause": "not in package `arm_description` (found by package.xml)",
         },
         {
             "link": "a",
@@ -354,7 +355,7 @@ def test_missing_meshes_are_listed_with_their_causes(tmp_path: Path):
             "link": "b",
             "kind": "visual",
             "uri": "meshes/part.ply",
-            "cause": "mesh format .ply is not supported (STL, OBJ, DAE, glTF)",
+            "cause": "mesh format .ply is not supported (STL, OBJ, glTF)",
         },
         {
             "link": "b",
@@ -374,29 +375,42 @@ def test_missing_meshes_are_listed_with_their_causes(tmp_path: Path):
     }
     assert robot["files"] == {}
 
-    # one health note per cause, most meshes first
+    # one health note per cause (never per file), most meshes first, naming the step
+    # that found a package
     assert missing_notes(missing) == [
         "3 meshes missing: package `gripper` not found; set `params.package_paths`",
-        "1 mesh missing: `meshes/gone.stl` is not in package `arm_description`",
-        "1 mesh missing: mesh format .ply is not supported (STL, OBJ, DAE, glTF)",
+        "1 mesh missing: not in package `arm_description` (found by package.xml)",
+        "1 mesh missing: mesh format .ply is not supported (STL, OBJ, glTF)",
         "1 mesh missing: http(s) is never fetched (offline)",
     ]
+    two = [*missing, {**missing[0], "uri": "package://arm_description/meshes/other.stl"}]
+    assert missing_notes(two)[1] == (
+        "2 meshes missing: not in package `arm_description` (found by package.xml)"
+    )
 
 
-def test_a_dae_goes_as_the_dae_until_spec_42_prepares_its_glb(tmp_path: Path):
+def test_a_dae_is_missing_until_spec_42_converts_it(tmp_path: Path):
+    """The page has no DAE loader: until SPEC-42's dae.prepare is on main a DAE draws as
+    a placeholder with one note (TODO(SPEC-42)); a sidecar beside it is not guessed at."""
     urdf = write(
         tmp_path / "d.urdf",
         """<robot name="d"><link name="a"><visual><geometry>
              <mesh filename="m/body.dae"/></geometry></visual></link></robot>""",
     )
     stl(tmp_path / "m" / "body.dae")
+    stl(tmp_path / "m" / "body.dae.glb")
     robot = build_robot(urdf)
     geo = robot["model"]["links"][0]["visuals"][0]["geometry"]
-    assert geo["ext"] == "dae" and robot["files"]["m0"].endswith("body.dae")
-    # TODO(SPEC-42): its dae.prepare decides when a converted GLB is fresh; until it is
-    # on main a sidecar beside the DAE is not guessed at
-    stl(tmp_path / "m" / "body.dae.glb")
-    assert build_robot(urdf)["files"]["m0"].endswith("body.dae")
+    assert geo["ext"] is None and geo["url"] is None and "file" not in geo
+    assert robot["files"] == {}
+    assert robot["model"]["missing"] == [
+        {
+            "link": "a",
+            "kind": "visual",
+            "uri": "m/body.dae",
+            "cause": "DAE needs the SPEC-42 converter",
+        }
+    ]
 
 
 def test_a_material_texture_is_resolved_like_a_mesh(tmp_path: Path):
@@ -658,3 +672,133 @@ def test_xml_text_parses_with_the_same_refusals_and_resolves_next_to_its_file(tm
     assert robot["files"]["m0"] == str((tmp_path / "robots" / "meshes" / "a.stl").resolve())
     with pytest.raises(UrdfError, match=r"arm.urdf.xacro is not well-formed"):
         build_robot(xacro, text="<robot", environ={})
+
+
+# -- what may be served: typed regular files, capped; nothing out of a package -------------
+
+
+def test_only_images_are_served_as_textures_and_a_secret_key_never_is(tmp_path: Path):
+    """A texture reference may point anywhere on disk (an absolute path, a package
+    elsewhere): only an image file gets a role; a key file or any other type is listed
+    missing (kind texture) and never served."""
+    secret = tmp_path / "home" / ".ssh" / "id_rsa"
+    secret.parent.mkdir(parents=True)
+    secret.write_text("-----BEGIN OPENSSH PRIVATE KEY-----\n", encoding="utf-8")
+    urdf = write(
+        tmp_path / "proj" / "t.urdf",
+        f"""<robot name="t">
+          <material name="m"><texture filename="{secret.as_uri()}"/></material>
+          <link name="a">
+            <visual><geometry><box size="1 1 1"/></geometry><material name="m"/></visual>
+            <visual><geometry><box size="1 1 1"/></geometry>
+              <material name="n"><texture filename="tex/none.png"/></material></visual>
+          </link></robot>""",
+    )
+    robot = build_robot(urdf, environ={})
+    assert robot["files"] == {}
+    mats = [v["material"] for v in robot["model"]["links"][0]["visuals"]]
+    assert all("texture_file" not in m and m["texture_url"] is None for m in mats)
+    assert robot["model"]["missing"] == [
+        {
+            "link": "a",
+            "kind": "texture",
+            "uri": secret.as_uri(),
+            "cause": "texture format (none) is not an image",
+        },
+        {
+            "link": "a",
+            "kind": "texture",
+            "uri": "tex/none.png",
+            "cause": "not found next to the URDF",
+        },
+    ]
+    assert missing_notes(robot["model"]["missing"]) == [
+        "1 texture missing: texture format (none) is not an image",
+        "1 texture missing: not found next to the URDF",
+    ]
+
+
+def test_a_mesh_reference_to_a_non_mesh_file_is_never_served(tmp_path: Path):
+    secret = tmp_path / "home" / ".ssh" / "id_rsa"
+    secret.parent.mkdir(parents=True)
+    secret.write_text("key", encoding="utf-8")
+    renamed = tmp_path / "home" / ".ssh" / "id_rsa.stl"
+    renamed.mkdir()  # a folder named like a mesh is not a regular file
+    urdf = write(
+        tmp_path / "proj" / "s.urdf",
+        f"""<robot name="s"><link name="a">
+          <visual><geometry><mesh filename="{secret}"/></geometry></visual>
+          <visual><geometry><mesh filename="{renamed.as_uri()}"/></geometry></visual>
+        </link></robot>""",
+    )
+    robot = build_robot(urdf, environ={})
+    assert robot["files"] == {}
+    causes = [m["cause"] for m in robot["model"]["missing"]]
+    assert causes == [
+        "mesh format (none) is not supported (STL, OBJ, glTF)",
+        "not found at its absolute path",
+    ]
+
+
+def test_a_mesh_over_the_cap_is_not_served(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import specto_readers.urdf as urdf_mod
+
+    monkeypatch.setattr(urdf_mod, "MAX_SERVED_BYTES", 8)
+    urdf = write(
+        tmp_path / "big.urdf",
+        """<robot name="b"><link name="a"><visual><geometry>
+             <mesh filename="big.stl"/></geometry></visual></link></robot>""",
+    )
+    stl(tmp_path / "big.stl")  # 20 bytes
+    robot = build_robot(urdf, environ={})
+    assert robot["files"] == {}
+    assert robot["model"]["missing"][0]["cause"] == "mesh file over 0 MB"
+
+
+def test_package_paths_never_reach_out_of_the_package(tmp_path: Path):
+    pkg = package(tmp_path / "ws" / "arm_description", "arm_description")
+    urdf = write(pkg / "urdf" / "arm.urdf", ARM)
+    stl(tmp_path / "outside.stl")
+    res = PackageResolver(urdf, environ={})
+    for uri in (
+        "package://arm_description/../../outside.stl",
+        "package://arm_description/meshes/../../../outside.stl",
+    ):
+        miss = res.resolve(uri)
+        assert miss.path is None, uri
+        assert miss.cause == "not in package `arm_description` (found by package.xml)"
+    stl(pkg / "meshes" / "in.stl")
+    assert res.resolve("package://arm_description/meshes/../meshes/in.stl").path is not None
+
+
+def test_an_oversized_file_is_not_a_urdf_and_not_a_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import specto_readers.urdf as urdf_mod
+
+    monkeypatch.setattr(urdf_mod, "MAX_BYTES", 64)
+    big = write(tmp_path / "big.urdf", '<robot name="r">' + " " * 100 + "</robot>")
+    with pytest.raises(UrdfError, match="over 0 MB"):
+        parse_urdf(big)
+    with pytest.raises(UrdfError, match="over 0 MB"):
+        parse_urdf(text="<robot>" + " " * 100 + "</robot>")
+    pkg = tmp_path / "pkg"
+    write(pkg / "package.xml", "<package><name>p</name>" + " " * 100 + "</package>")
+    assert package_name_of(pkg) is None
+
+
+def test_a_symlink_loop_in_the_project_is_walked_once(tmp_path: Path):
+    import os
+
+    root = tmp_path / "proj"
+    (root / "a").mkdir(parents=True)
+    try:
+        os.symlink(root, root / "a" / "loop", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks need privileges here")
+    urdf = write(root / "robots" / "arm.urdf", ARM)
+    res = PackageResolver(urdf, search_roots=[root], environ={})
+    assert res.find_package("nowhere") is None  # terminates, finds nothing
+    pkg = package(root / "a" / "deep", "arm_description")
+    res = PackageResolver(urdf, search_roots=[root], environ={})
+    assert res.find_package("arm_description") == (pkg.resolve(), "package.xml")

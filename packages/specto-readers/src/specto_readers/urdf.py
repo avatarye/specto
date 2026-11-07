@@ -33,7 +33,10 @@ groups the causes into the view's health notes.
 The model leaves the files out: a mesh geometry carries ``file`` (a role, ``m0``,
 ``m1``, ...) and a material ``texture_file``, both keys of the result's ``files``
 (``{role: absolute path}``); the host serves those through the items host and swaps
-each role for its URL. A mesh keeps its URDF reference as ``uri``.
+each role for its URL. A mesh keeps its URDF reference as ``uri``. Only regular
+files of the mesh and image types, up to ``MAX_SERVED_BYTES``, get a role: a
+reference may point outside the project (a package elsewhere, an absolute path), and
+nothing else is served from there (ADR 0029).
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import stat
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Iterable, Mapping
@@ -50,15 +54,29 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 from xml.parsers import expat
 
-#: mesh file extension -> the Babylon loader the page uses (``ext`` in the model)
+#: mesh file extension -> the Babylon loader the page uses (``ext`` in the model); only
+#: these are ever served as a mesh (a DAE waits for SPEC-42's converter, ``dae_source``)
 MESH_EXTS: dict[str, str] = {
     ".stl": "stl",
     ".obj": "obj",
     ".glb": "glb",
     ".gltf": "gltf",
-    ".dae": "dae",
 }
-SUPPORTED_NOTE = "STL, OBJ, DAE, glTF"
+SUPPORTED_NOTE = "STL, OBJ, glTF"
+DAE_NOTE = "DAE needs the SPEC-42 converter"
+#: the image types a texture may be (what Babylon's texture loaders read); nothing else
+#: is served as one
+IMAGE_EXTS = frozenset(
+    {".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".webp", ".dds", ".ktx", ".ktx2"}
+)
+#: what may be served next to a mesh (``specto://items/.../m<n>/<name>``): an OBJ's
+#: material library and a glTF's buffers, and their textures
+SIDE_EXTS: dict[str, frozenset[str]] = {
+    "obj": frozenset({".mtl"}) | IMAGE_EXTS,
+    "gltf": frozenset({".bin"}) | IMAGE_EXTS,
+}
+#: the largest mesh or texture served (a regular file; bounds a wrong reference)
+MAX_SERVED_BYTES = 512 * 1024 * 1024
 #: how deep the project's folders and a package_paths / ROS_PACKAGE_PATH folder are
 #: searched for a package.xml, and how many folders at most (bounded on a big tree)
 SEARCH_DEPTH = 5
@@ -127,11 +145,30 @@ def safe_xml(data: bytes, name: str = "the file") -> ET.Element:
         raise UrdfError(f"{name} is not well-formed XML: {e}") from None
 
 
+def servable(path: str | Path, allowed: frozenset[str] | set[str] | dict[str, str]) -> str | None:
+    """Why ``path`` may not be served (None: it may): its type must be one of ``allowed``
+    (suffixes), and it must be a regular file of at most ``MAX_SERVED_BYTES``."""
+    p = Path(path)
+    suffix = p.suffix.lower()
+    if suffix not in allowed:
+        return f"type {suffix or '(none)'} is not served"
+    try:
+        st = p.stat()
+    except OSError:
+        return "not found"
+    if not stat.S_ISREG(st.st_mode):
+        return "not a regular file"
+    if st.st_size > MAX_SERVED_BYTES:
+        return f"over {MAX_SERVED_BYTES // (1024 * 1024)} MB"
+    return None
+
+
 def package_name_of(folder: Path) -> str | None:
-    """The ``<name>`` of ``folder/package.xml``, or None."""
+    """The ``<name>`` of ``folder/package.xml``, or None (one over ``MAX_BYTES`` or
+    unreadable is no package)."""
     xml = folder / "package.xml"
     try:
-        if not xml.is_file():
+        if not xml.is_file() or xml.stat().st_size > MAX_BYTES:
             return None
         name = safe_xml(xml.read_bytes(), "package.xml").findtext("name")
     except (OSError, UrdfError):
@@ -141,12 +178,21 @@ def package_name_of(folder: Path) -> str | None:
 
 def _search(root: Path, name: str, depth: int = SEARCH_DEPTH) -> Path | None:
     """The shallowest folder under ``root`` (``root`` included) whose package.xml names
-    ``name``, breadth first, bounded in depth and folder count."""
+    ``name``, breadth first, bounded in depth and folder count; a folder reached twice
+    (a symlink or junction loop) is walked once."""
     level = [root]
     seen = 0
+    visited: set[str] = set()
     for _ in range(depth + 1):
         nxt: list[Path] = []
         for d in level:
+            try:
+                real = os.path.realpath(d)
+            except OSError:
+                continue
+            if real in visited:
+                continue
+            visited.add(real)
             if package_name_of(d) == name:
                 return d
             seen += 1
@@ -265,8 +311,13 @@ class PackageResolver:
                 return Resolution(None, f"package `{name}` not found", package=name)
             folder, via = found
             target = (folder / rel).resolve()
+            missing = f"not in package `{name}` (found by {via})"
+            try:
+                target.relative_to(folder.resolve())  # package://pkg/../../x escapes it
+            except ValueError:
+                return Resolution(None, missing, via, name)
             if not target.is_file():
-                return Resolution(None, f"`{rel}` is not in package `{name}`", via, name)
+                return Resolution(None, missing, via, name)
             return Resolution(str(target), None, via, name)
         if low.startswith("file://"):
             parsed = urlparse(text)
@@ -281,7 +332,8 @@ class PackageResolver:
             target, via = self.urdf.parent / text, "relative"
         target = target.resolve()
         if not target.is_file():
-            return Resolution(None, f"not found: {target}", via)
+            where = "next to the URDF" if via == "relative" else "at its absolute path"
+            return Resolution(None, f"not found {where}", via)
         return Resolution(str(target), None, via)
 
 
@@ -566,11 +618,12 @@ def parse_urdf(
 # -- files: resolved and served --------------------------------------------------------------
 
 
-def dae_source(path: str) -> tuple[str, str]:
-    """A DAE's file for the page. TODO(SPEC-42): ask SPEC-42's ``dae.prepare`` for its
-    converted GLB (it owns the freshness rule and the cache fallback) once it is on
-    main; until then the DAE itself goes, ``ext: "dae"``."""
-    return path, "dae"
+def dae_source(path: str) -> str | None:
+    """A DAE's GLB for the page, or None (the mesh is listed missing, ``DAE_NOTE``).
+    TODO(SPEC-42): return the GLB path SPEC-42's ``dae.prepare`` gives (it owns the
+    freshness rule and the cache fallback) once it is on main."""
+    del path
+    return None
 
 
 class _Files:
@@ -588,30 +641,53 @@ class _Files:
             self.files[role] = path
         return role
 
+    def _miss(self, link: str, kind: str, uri: str, cause: str | None) -> None:
+        self.missing.append({"link": link, "kind": kind, "uri": uri, "cause": cause})
+
     def mesh(self, geo: dict[str, Any], link: str, kind: str) -> None:
         hit = self.resolver.resolve(geo["uri"])
         cause, path = hit.cause, hit.path
         if path is not None:
             suffix = Path(path).suffix.lower()
-            if suffix not in MESH_EXTS:
+            if suffix == ".dae":
+                path = dae_source(path)
+                cause = None if path is not None else DAE_NOTE
+                suffix = Path(path).suffix.lower() if path else suffix
+            elif suffix not in MESH_EXTS:
                 fmt = suffix or "(none)"
                 cause, path = f"mesh format {fmt} is not supported ({SUPPORTED_NOTE})", None
-            else:
-                geo["ext"] = MESH_EXTS[suffix]
-                if suffix == ".dae":
-                    path, geo["ext"] = dae_source(path)
+        if path is not None:
+            refused = servable(path, MESH_EXTS)
+            if refused is not None:
+                cause, path = f"mesh file {refused}", None
         if path is None:
-            self.missing.append({"link": link, "kind": kind, "uri": geo["uri"], "cause": cause})
+            self._miss(link, kind, geo["uri"], cause)
             return
+        geo["ext"] = MESH_EXTS[Path(path).suffix.lower()]
         geo["file"] = self.role_for(path)
 
-    def texture(self, mat: dict[str, Any]) -> None:
+    def texture(self, mat: dict[str, Any], link: str) -> None:
+        """A material's texture: an image file, served like a mesh; anything else, or
+        one not found, is listed missing (kind ``texture``) and the colour shows."""
         tex = mat.pop("texture", None)
         if tex is None:
             return
         hit = self.resolver.resolve(tex)
-        if hit.path is not None:
-            mat["texture_file"] = self.role_for(hit.path)
+        cause, path = hit.cause, hit.path
+        if path is not None:
+            refused = servable(path, IMAGE_EXTS)
+            if refused is not None:
+                suffix = Path(path).suffix.lower() or "(none)"
+                cause = (
+                    f"texture format {suffix} is not an image"
+                    if suffix not in IMAGE_EXTS
+                    else f"texture file {refused}"
+                )
+                path = None
+        if path is None:
+            self._miss(link, "texture", tex, cause)
+            return
+        mat["texture_file"] = self.role_for(path)
 
 
 def build_robot(
@@ -643,7 +719,7 @@ def build_robot(
                     files.mesh(shape["geometry"], link["name"], kind)
                 mat = shape.get("material")
                 if mat is not None:
-                    files.texture(mat)
+                    files.texture(mat, link["name"])
     model["missing"] = files.missing
     joints = model["joints"]
     if progress:
@@ -661,35 +737,48 @@ def build_robot(
     }
 
 
-def missing_notes(missing: Iterable[Mapping[str, Any]]) -> list[str]:
-    """The view's health notes for the missing meshes: one per cause, most meshes first
-    (ties in order of first appearance); a package not found says how to fix it."""
-    counts: dict[str, int] = {}
-    for m in missing:
-        cause = str(m.get("cause") or "unknown")
-        counts[cause] = counts.get(cause, 0) + 1
-    order = sorted(counts, key=lambda c: -counts[c])  # stable: first seen wins a tie
+def count_notes(entries: Iterable[Mapping[str, Any]], verb: str, key: str = "cause") -> list[str]:
+    """Health notes, one per cause: ``"3 meshes missing: <cause>"`` (``verb``
+    ``missing``, the model's ``missing``) or ``"1 mesh unreadable: <error>"`` (``verb``
+    ``unreadable``, ``key`` ``error``: the page's ``loaded.failed``). A texture entry
+    counts as a texture. Most first, ties in order of first appearance; a package not
+    found says how to fix it."""
+    counts: dict[tuple[str, str], int] = {}
+    for e in entries:
+        noun = "texture" if e.get("kind") == "texture" else "mesh"
+        cause = str(e.get(key) or ("unknown" if verb == "missing" else "unreadable"))
+        counts[(noun, cause)] = counts.get((noun, cause), 0) + 1
     notes = []
-    for cause in order:
-        n = counts[cause]
-        line = f"{n} mesh{'es' if n != 1 else ''} missing: {cause}"
+    for (noun, cause), n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        plural = ("es" if noun == "mesh" else "s") if n != 1 else ""
+        line = f"{n} {noun}{plural} {verb}: {cause}"
         if cause.startswith("package `") and cause.endswith("not found"):
             line += f"; {PACKAGE_HINT}"
         notes.append(line)
     return notes
 
 
+def missing_notes(missing: Iterable[Mapping[str, Any]]) -> list[str]:
+    """The notes for the model's ``missing`` (``count_notes``)."""
+    return count_notes(missing, "missing")
+
+
 __all__ = [
     "ACTUATED",
+    "IMAGE_EXTS",
     "JOINT_TYPES",
+    "MAX_SERVED_BYTES",
     "MESH_EXTS",
+    "SIDE_EXTS",
     "PackageResolver",
     "Resolution",
     "UrdfError",
     "build_robot",
+    "count_notes",
     "dae_source",
     "missing_notes",
     "package_name_of",
     "parse_urdf",
     "safe_xml",
+    "servable",
 ]

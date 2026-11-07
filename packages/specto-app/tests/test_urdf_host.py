@@ -552,3 +552,66 @@ def test_pause_and_dispose(engine: Engine):
     assert runtime().caps_of("robo") is None
     # the meshes are no longer served as roles of the item
     assert ".m0" not in (runtime().items.parts("l2", key) or {})
+
+
+def test_next_to_a_mesh_only_its_material_library_and_images_are_served(engine: Engine):
+    """ADR 0029: a URDF's meshes may live anywhere on disk; next to an OBJ the items host
+    serves its .mtl and images only, and nothing next to the URDF or an STL."""
+    from specto_app.web.scheme import locate_item
+
+    submit_robot(engine, {"package_paths": {"gripper": "vendor/grip_pkg"}})
+    _ctx, host, _sink = make_host(engine)
+    key = host.key
+    meshes = Path(runtime().items.parts("l2", key)[".m1"]).parent  # cover.obj's folder
+    (meshes / "cover.mtl").write_text("newmtl grey\n", encoding="utf-8")
+    (meshes / "skin.png").write_bytes(b"\x89PNG\r\n")
+    (meshes / "id_rsa").write_text("secret", encoding="utf-8")
+    (meshes / "notes.txt").write_text("secret", encoding="utf-8")
+    enc = key.replace("/", "%2F")
+
+    def get(role: str, name: str) -> Path | None:
+        entry: dict = {}
+        return locate_item(
+            "items",
+            f"/l2/{enc}/{role}/{name}",
+            "robo.page",
+            caps_of=runtime().caps_of,
+            items=runtime().items,
+            entry=entry,
+        )
+
+    assert get("m1", "cover.obj") is not None  # the mesh itself, by its own name
+    assert get("m1", "cover.mtl") is not None and get("m1", "skin.png") is not None
+    assert get("m1", "id_rsa") is None and get("m1", "notes.txt") is None
+    assert get("m0", "cover.mtl") is None  # nothing next to an STL
+    assert get("urdf", "arm.urdf") is None  # nor next to the URDF
+    # another link's items are untouched by the urdf view's rule
+    assert runtime().items.side_allowed("other", "k", ".md", meshes / "notes.txt") is True
+
+
+def test_a_slider_map_keeps_only_actuated_non_mimic_joints(engine: Engine, tmp_path: Path):
+    (tmp_path / "proj" / "robots" / "cart.urdf").write_text(
+        """<robot name="cart"><link name="a"/><link name="b"/><link name="c"/>
+        <joint name="m" type="revolute"><parent link="a"/><child link="b"/>
+          <limit lower="-1" upper="1" effort="1" velocity="1"/></joint>
+        <joint name="f" type="revolute"><parent link="b"/><child link="c"/>
+          <limit lower="-1" upper="1" effort="1" velocity="1"/><mimic joint="m"/></joint>
+        </robot>""",
+        encoding="utf-8",
+    )
+    submit_robot(engine)
+    _ctx, host, _sink = make_host(engine)
+    host.bridge.send("step", json.dumps({"delta": 1}))
+    host.flush()
+    assert host.snapshot()["robot"] == "cart"
+    host.bridge.send("joints", json.dumps({"m": 0.5, "f": 0.9}))
+    assert engine.live.data["views"]["robo"]["params"]["joints"] == {"m": 0.5}
+
+
+def test_a_warn_view_still_offers_its_gestures_in_the_status_bar():
+    from specto_app.canvas.controller import GESTURES, status_hint
+
+    info = {"id": "robo", "type": "urdf", "health": "warn", "healthMessage": "arm: 1 mesh missing"}
+    line = status_hint(info, hovered=True)
+    assert line.startswith("robo: arm: 1 mesh missing") and line.endswith(GESTURES)
+    assert VIEW_KEYS["urdf"] in line

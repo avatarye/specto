@@ -44,7 +44,13 @@ from specto_core.errors import SpectoError
 from specto_core.jobs import JobInfo
 from specto_core.kinds import Item, PluginManifest, ViewCost, ViewManifest
 from specto_core.links import CameraValue, Collection, Selection
-from specto_readers.urdf import build_robot, missing_notes
+from specto_readers.urdf import (
+    SIDE_EXTS,
+    build_robot,
+    count_notes,
+    missing_notes,
+    servable,
+)
 
 from ..hosts.base import HostContext, SimpleFactory
 from ..hosts.stepping import Stepping
@@ -59,16 +65,8 @@ from .scene3d_view import (
     environment_entries,
 )
 
-DATA, JOINTS, TIME, CAMERA, SELECTION, CONTENT = (
-    "data",
-    "joints",
-    "time",
-    "camera",
-    "selection",
-    "content",
-)
+DATA, CAMERA, SELECTION, CONTENT = "data", "camera", "selection", "content"
 PAGE = "urdf/index.html"
-URDF_ROLES = (".urdf",)
 JOB_KIND = "urdf.parse"
 #: the ROS variables the resolver reads (passed to the job: a pool worker's environment
 #: is the app's, but the job says what it used)
@@ -76,7 +74,6 @@ ROS_ENV = ("ROS_PACKAGE_PATH", "AMENT_PREFIX_PATH")
 HEALTH_SEP = " · "
 #: joint types whose position the limits bound (a continuous joint wraps)
 CLAMPED = ("revolute", "prismatic")
-ACTUATED = ("revolute", "continuous", "prismatic")
 
 
 #: the urdf view type (SPEC-43, ADR 0029): a web view beside the 3d view, its params the
@@ -85,25 +82,19 @@ URDF_MANIFEST = ViewManifest(
     type="urdf",
     label="URDF",
     host="web",
-    doc="One robot description (.urdf), read-only: the picked item of its collection "
-    "(or the first), stepping through the rest. Links and joints in a ROBOT panel "
-    "(the tree nests links under their joints; a slider per revolute, continuous or "
-    "prismatic joint, limits as its range; mimic joints follow), the 3d view's "
-    "camera, environment and VIEW panel. Mesh paths (package://, file://, relative) "
-    "resolve through params.package_paths, then the nearest package.xml naming the "
-    "package, then ROS_PACKAGE_PATH and AMENT_PREFIX_PATH; never fetched over the "
-    "network. A mesh not found draws as a placeholder, is listed by snap with its "
-    "cause, and turns health amber. Pose it through params.joints ({joint name: "
-    "value}, radians and metres); never edit the URDF. A click selects a link and "
-    "sends <item key>#<link name> out; content is the selected link's or joint's "
-    "properties; camera is shared with the 3d view.",
+    doc="One robot (.urdf), read-only: the picked item (or the first), stepping through "
+    "the rest. Pose it through params.joints; never edit the URDF. Meshes resolve through "
+    "params.package_paths, the nearest package.xml, then ROS_PACKAGE_PATH and "
+    "AMENT_PREFIX_PATH; one not found draws as a placeholder, turns health warn and is "
+    "listed by snap. A click selects a link: <item key>#<link> on selection, its "
+    "properties on content; camera is shared with the 3d view.",
     accepts=["urdf"],
     cost=ViewCost(web_views=1, viewports3d=1),
     defaults={
         "joints": {},
         "view_mode": "lit",
         "up": "z",
-        "environment": "none",
+        "environment": ENV_NONE,
         "environment_intensity": 1.0,
         "environment_background": False,
         "environment_rotation": 0.0,
@@ -121,109 +112,64 @@ URDF_MANIFEST = ViewManifest(
                 "type": "object",
                 "additionalProperties": {"type": "number"},
                 "default": {},
-                "description": "The pose: {joint name: position}, radians for "
-                "revolute and continuous joints, metres for prismatic ones (URDF "
-                "units; the sliders show degrees and mm). Joints left out stay at 0, "
-                "clamped into their limits; mimic joints follow their master. A "
-                "slider release writes it as one undo step.",
+                "description": "{joint: position}, radians or metres; clamped to limits.",
             },
             "package_paths": {
                 "type": ["object", "array"],
                 "additionalProperties": {"type": "string"},
                 "items": {"type": "string"},
-                "description": "Where package://<name>/ meshes live, tried first: "
-                "{name: folder} (the package's own folder), or a list of folders "
-                "each searched for the package (a folder named for it, or a "
-                "package.xml naming it). Relative folders are under the project.",
+                "description": "{package: folder} or folders to search, tried first.",
             },
             "view_mode": {
                 "enum": ["lit", "unlit", "wireframe", "collision", "visual_collision"],
                 "default": "lit",
-                "description": "lit, unlit, wireframe, collision (only the colliders, "
-                "each link in a flat tint) or visual_collision (the visuals lit, the "
-                "colliders as translucent shells).",
             },
-            "up": {
-                "enum": ["x", "y", "z", "-x", "-y", "-z"],
-                "default": "z",
-                "description": "The robot's up axis; z for ROS (REP 103).",
-            },
+            "up": {"enum": ["x", "y", "z", "-x", "-y", "-z"], "default": "z"},
             "environment": {
                 "enum": [ENV_NONE, *ENVIRONMENTS],
-                "default": "none",
-                "description": "Image-based lighting from one of the 3d view's "
-                "bundled HDRIs (Poly Haven, CC0); none: the two default lights.",
+                "default": ENV_NONE,
+                "description": "A 3d view HDRI; none: default lights.",
             },
             "environment_intensity": {
                 "type": "number",
                 "minimum": 0,
                 "maximum": ENV_INTENSITY_MAX,
                 "default": 1.0,
-                "description": "How strongly the environment lights the robot.",
             },
-            "environment_background": {
-                "type": "boolean",
-                "default": False,
-                "description": "Draw the environment behind the robot.",
-            },
+            "environment_background": {"type": "boolean", "default": False},
             "environment_rotation": {
                 "type": "number",
                 "minimum": 0,
                 "maximum": 360,
                 "default": 0.0,
-                "description": "Turns the environment about the up axis, in degrees.",
             },
-            "show_grid": {
-                "type": "boolean",
-                "default": True,
-                "description": "The ground grid.",
-            },
-            "show_frames": {
-                "type": "boolean",
-                "default": False,
-                "description": "RGB axes at each link's origin.",
-            },
-            "show_joint_axes": {
-                "type": "boolean",
-                "default": False,
-                "description": "An arrow along each moving joint's axis.",
-            },
-            "show_com": {
-                "type": "boolean",
-                "default": False,
-                "description": "A marker at each link's centre of mass, sized by mass.",
-            },
+            "show_grid": {"type": "boolean", "default": True},
+            "show_frames": {"type": "boolean", "default": False},
+            "show_joint_axes": {"type": "boolean", "default": False},
+            "show_com": {"type": "boolean", "default": False},
             "camera_speed": {
                 "type": "number",
                 "minimum": 0.125,
                 "maximum": 8,
                 "default": 1.0,
-                "description": "Scales flying, zooming and panning, as in the 3d view.",
             },
             "camera_mode": {
                 "enum": ["free", "orbit"],
                 "default": "free",
-                "description": "free: Unreal Editor's camera, as in the 3d view; "
-                "orbit: drag orbits the selection, middle-drag pans, the wheel dollies.",
+                "description": "orbit: left-drag orbits the pivot, right-drag and the wheel "
+                "dolly toward it.",
             },
             "selected": {
                 "type": ["string", "null"],
-                "description": "The item key of the robot shown (default: the picked "
-                "item, else the first).",
+                "description": "The item key of the robot shown.",
             },
             "selected_links": {
                 "type": "array",
                 "items": {"type": "string"},
                 "default": [],
-                "description": "The selected links by name, the last one picked last; "
-                "they go out on selection as <item key>#<link>. A click on the robot or a "
-                "ROBOT panel row writes it.",
+                "description": "The selected links by name.",
             },
-            "panels": {
-                "type": "object",
-                "additionalProperties": True,
-                "description": "The side panels' {collapsed, width} by name (view, robot).",
-            },
+            "panels": {"type": "object", "additionalProperties": True},
         },
         "additionalProperties": True,
     },
@@ -242,24 +188,8 @@ URDF_MANIFEST = ViewManifest(
 URDF_PLUGIN = PluginManifest(name="app-urdf", version="0.1.0", views=[URDF_MANIFEST])
 
 
-def unreadable_notes(failed: list[dict[str, Any]]) -> list[str]:
-    """Health notes for the meshes the page could not read (``loaded.failed``): one per
-    error, most meshes first."""
-    counts: dict[str, int] = {}
-    for f in failed:
-        err = str(f.get("error") or "unreadable")
-        counts[err] = counts.get(err, 0) + 1
-    return [
-        f"{n} mesh{'es' if n != 1 else ''} unreadable: {err}"
-        for err, n in sorted(counts.items(), key=lambda kv: -kv[1])
-    ]
-
-
 def urdf_part(item: Item) -> str | None:
-    for role in URDF_ROLES:
-        if role in item.parts:
-            return item.parts[role]
-    return None
+    return item.parts.get(".urdf")
 
 
 class RobotMeshes:
@@ -271,12 +201,27 @@ class RobotMeshes:
         self.link = ""
         self.key: str | None = None
         self.table: dict[str, str] = {}
+        self.meshes: dict[str, str] = {}  # role -> loader ext (``obj``, ``gltf``, ...)
 
-    def set(self, link: str, key: str | None, table: dict[str, str]) -> None:
-        self.link, self.key, self.table = link, key, dict(table)
+    def set(
+        self, link: str, key: str | None, table: dict[str, str], meshes: dict[str, str]
+    ) -> None:
+        self.link, self.key, self.table, self.meshes = link, key, dict(table), dict(meshes)
 
     def clear(self) -> None:
-        self.set("", None, {})
+        self.set("", None, {}, {})
+
+    def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
+        """A file named under one of the robot's parts (``specto://items/.../<role>/<name>``):
+        the mesh itself, else only an OBJ's .mtl and images, or a glTF's buffers and
+        images, as regular files under the cap; nothing next to the URDF or other meshes."""
+        if link_id != self.link or key != self.key:
+            return False
+        own = self.table.get(role)
+        if role in self.meshes and own is not None and Path(own).resolve() == path.resolve():
+            return True  # the mesh itself, by its own name (the URL's last segment)
+        allowed = SIDE_EXTS.get(self.meshes.get(role, ""))
+        return allowed is not None and servable(path, allowed) is None
 
     # -- ItemResolver ----------------------------------------------------------------------
     def parts(self, link_id: str, key: str) -> dict[str, str] | None:
@@ -352,8 +297,6 @@ class UrdfHost(Stepping, WebViewHost):
                 self._take_selection(value)
         elif port == CAMERA:
             self.page.receive_port(port, value)
-        # joints and time: declared, fed by the joint tracks of SPEC-43.3; until then the
-        # pose comes from params.joints
 
     def _take_selection(self, value: Selection) -> None:
         picked = value.picked
@@ -477,7 +420,10 @@ class UrdfHost(Stepping, WebViewHost):
         }
         it = self.items[self.index]
         self._meshes.set(
-            self.data_link, key, {**dict(it.parts), **{"." + r: p for r, p in files.items()}}
+            self.data_link,
+            key,
+            {**dict(it.parts), **{"." + r: p for r, p in files.items()}},
+            {"." + r: Path(p).suffix.lower().lstrip(".") for r, p in files.items()},
         )
         model = copy.deepcopy(self.robot["model"])
         for link in model["links"]:
@@ -555,7 +501,7 @@ class UrdfHost(Stepping, WebViewHost):
             f"{n_joints} joint{'s' if n_joints != 1 else ''}"
         )
         notes = missing_notes(model["missing"])
-        notes.extend(unreadable_notes((self.loaded or {}).get("failed") or []))
+        notes.extend(count_notes((self.loaded or {}).get("failed") or [], "unreadable", "error"))
         _joints, _source, unknown = self.pose()
         if unknown:
             n = len(unknown)
@@ -586,6 +532,11 @@ class UrdfHost(Stepping, WebViewHost):
             links = [n for n in self.selected_links if n != link] if add else []
             self.selected_links = [*links, link]
             self.selected_joint = joint
+        return self._emit_links()
+
+    def _emit_links(self) -> Selection:
+        """The selected links out on ``selection`` (``<item key>#<link>``) and the
+        last one's (or the joint's) properties on ``content``."""
         key = self.key
         keys = [f"{key}#{n}" for n in self.selected_links] if key else []
         sel = Selection(keys=keys, last=keys[-1] if keys else None)
@@ -675,10 +626,7 @@ class UrdfHost(Stepping, WebViewHost):
         if links == self.selected_links:
             return
         self.selected_links, self.selected_joint = links, None
-        key = self.key
-        keys = [f"{key}#{n}" for n in links] if key else []
-        self.emit(SELECTION, Selection(keys=keys, last=keys[-1] if keys else None))
-        self._emit_content()
+        self._emit_links()
 
     def on_page_event(self, kind: str, payload: Any) -> None:
         args = payload if isinstance(payload, dict) else {}
@@ -700,12 +648,13 @@ class UrdfHost(Stepping, WebViewHost):
 
     def set_joints(self, values: dict[str, Any]) -> None:
         """A slider release or Reset pose: the page's full map of the joints, clamped,
-        replaces ``params.joints`` as one user submit. Names the robot does not have,
-        and values that are not numbers, are dropped; an unchanged map is no submit."""
-        table = self._joint_table()
+        replaces ``params.joints`` as one user submit. Only actuated, non-mimic joints
+        are kept (a mimic follows its master); values that are not numbers are dropped;
+        an unchanged map is no submit."""
+        actuated = set(self.actuated())
         joints: dict[str, float] = {}
         for name, raw in values.items():
-            if name not in table:
+            if name not in actuated:
                 continue
             try:
                 joints[name] = self.clamp(name, float(raw))
@@ -786,6 +735,5 @@ __all__ = [
     "UrdfHost",
     "factory",
     "register",
-    "unreadable_notes",
     "urdf_part",
 ]

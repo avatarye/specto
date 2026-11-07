@@ -135,6 +135,16 @@ class CompositeItems:
                 return k
         return []
 
+    def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
+        """May ``path``, a file next to ``role``'s part, be served? The resolver that
+        answers for the item decides when it says (``side_allowed``: the urdf view's
+        meshes allow an OBJ's .mtl and images only, SPEC-43); otherwise yes."""
+        for r in self.resolvers:
+            if r.parts(link_id, key):
+                fn = getattr(r, "side_allowed", None)
+                return True if fn is None else bool(fn(link_id, key, role, path))
+        return True
+
 
 def pick_role(parts: dict[str, str], wanted: Iterable[str]) -> str | None:
     """First role in ``wanted`` (``[".json", ".geojson"]``) present in ``parts``."""
