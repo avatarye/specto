@@ -927,8 +927,9 @@ class PromptBar(QObject):
 
     async def _run(self, text: str, with_context: bool) -> None:
         #: the agent got this turn's context: a turn with the context whose run_turn
-        #: returned (a session that failed to start, or ended mid-turn, may never have
-        #: sent it: the next turn resends it)
+        #: returned and reached the model (a session that failed to start or ended
+        #: mid-turn, or a turn the CLI refused, may never have sent it: the next turn
+        #: resends it)
         delivered = False
         try:
             if self.session is None:
@@ -943,7 +944,7 @@ class PromptBar(QObject):
                 on_delta=self._delta,
                 with_context=with_context,
             )
-            delivered = with_context
+            delivered = with_context and reply.reached_agent
         except Exception as e:
             msg = e.message if isinstance(e, SpectoError) else f"{type(e).__name__}: {e}"
             reply = Reply(text=msg, summary=msg.splitlines()[0][:200], status="failed", error=msg)
