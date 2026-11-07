@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from .patch import get_at
+from .txn import _OBJ_RE
 
 
 def _brief_view(view: dict[str, Any]) -> str:
@@ -87,41 +88,35 @@ def value_at(doc: dict[str, Any], pointer: str) -> Any:
 LABEL_PHRASES = 3
 
 
-def patch_label(patch: list[dict[str, Any]]) -> str:
+def patch_label(patch: list[dict[str, Any]], inverse: list[dict[str, Any]] | None = None) -> str:
     """A submit's label from its patch, for a submit that gave none (SPEC-18): one phrase
     per view or link it changed, in patch order ("moved kobi", "added image 'Rear'",
     "relabelled tamu 'rear'"). Links added or removed with a view added or removed in the
-    same patch are part of that view's phrase."""
+    same patch are part of that view's phrase; ``inverse`` (the old values) tells which
+    view a removed link belonged to."""
+    old = {op["path"]: op.get("value") for op in inverse or () if "value" in op}
     order: list[tuple[str, str]] = []
     ops: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for op in patch:
-        parts = [p for p in op.get("path", "").split("/") if p]
-        key = (
-            (parts[0], parts[1])
-            if len(parts) >= 2 and parts[0] in ("views", "links")
-            else (
-                "root",
-                ".".join(parts) or "/",
-            )
-        )
+        path = op.get("path", "")
+        m = _OBJ_RE.match(path)
+        if m is not None:
+            key = (path.split("/")[1], m.group(1))
+            rest = [p for p in path[m.end() :].split("/") if p]
+        else:
+            key = ("root", ".".join(p for p in path.split("/") if p) or "/")
+            rest = []
         if key not in ops:
             order.append(key)
             ops[key] = []
-        ops[key].append({**op, "parts": parts[2:] if key[0] != "root" else parts})
+        ops[key].append({**op, "parts": rest})
     whole = {
         oid
         for (section, oid), group in ops.items()
         if section == "views" and any(not op["parts"] for op in group)
     }
-    view_removed = any(
-        section == "views" and op["op"] == "remove" and not op["parts"]
-        for (section, _), group in ops.items()
-        for op in group
-    )
     phrases = [
-        phrase
-        for key in order
-        if (phrase := _object_phrase(key, ops[key], whole, view_removed)) is not None
+        phrase for key in order if (phrase := _object_phrase(key, ops[key], whole, old)) is not None
     ]
     if len(phrases) > LABEL_PHRASES:
         shown = phrases[: LABEL_PHRASES - 1]
@@ -131,25 +126,38 @@ def patch_label(patch: list[dict[str, Any]]) -> str:
     return phrases[0] if phrases else ""
 
 
+def _quoted(value: Any) -> str:
+    return f"'{value}'"
+
+
 def _object_phrase(
-    key: tuple[str, str], group: list[dict[str, Any]], whole_views: set[str], view_removed: bool
+    key: tuple[str, str],
+    group: list[dict[str, Any]],
+    whole_views: set[str],
+    old: dict[str, Any],
 ) -> str | None:
     section, oid = key
     if section == "root":
-        return "set the root view" if oid == "root_view" else f"changed {oid}"
+        head = group[0]
+        if oid == "root_view":
+            value = head.get("value")
+            if head["op"] == "remove" or value is None:
+                return "cleared the root view"
+            return f"set the root view to {value}"
+        return "renamed the project" if oid == "project.label" else f"changed {oid}"
     head = group[0]
     if not head["parts"]:  # the whole object added, removed or replaced
         if section == "links":
-            if head["op"] == "remove":  # a remove op names no ends: the cascade's guess
-                return None if view_removed else f"removed link {oid}"
-            value = head.get("value") or {}
+            value = (old.get(head["path"]) if head["op"] == "remove" else head.get("value")) or {}
             ends = {(value.get(end) or {}).get("view") for end in ("source", "target")}
             if ends & whole_views:
-                return None  # part of its new view's phrase
-            return f"linked {_ends(value)}" if head["op"] == "add" else f"changed link {oid}"
+                return None  # part of its view's phrase (added with it, or a removal cascade)
+            if head["op"] == "add":
+                return f"linked {_link_route(value)}"
+            return f"removed link {oid}" if head["op"] == "remove" else f"changed link {oid}"
         if head["op"] == "add":
             value = head.get("value") or {}
-            return f"added {value.get('type', 'view')} {value.get('label', oid)!r}"
+            return f"added {value.get('type', 'view')} {_quoted(value.get('label', oid))}"
         return f"removed {oid}" if head["op"] == "remove" else f"replaced {oid}"
     if section == "links":
         return f"changed link {oid}"
@@ -162,7 +170,7 @@ def _object_phrase(
             frozenset({("layout", "size")}): f"resized {oid}",
         }.get(frozenset(fields), f"moved and resized {oid}")
     if fields == {("label",)}:
-        return f"relabelled {oid} {group[0].get('value')!r}"
+        return f"relabelled {oid} {_quoted(group[0].get('value'))}"
     if fields == {("layout", "collapsed")}:
         return f"{'collapsed' if group[0].get('value') else 'expanded'} {oid}"
     if fields == {("params",)}:
@@ -171,7 +179,8 @@ def _object_phrase(
     return f"changed {oid}"
 
 
-def _ends(link: dict[str, Any]) -> str:
+def _link_route(link: dict[str, Any]) -> str:
+    """A link's source and target views for its label phrase: "kobi to tamu"."""
     src, dst = link.get("source") or {}, link.get("target") or {}
     return f"{src.get('view')} to {dst.get('view')}"
 

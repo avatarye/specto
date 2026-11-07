@@ -418,6 +418,10 @@ _Avoid_: save, commit (for the agent's signal), done
 A submit that names only what changes, in the canvas document's own shape (a JSON Merge Patch over the live document): objects merge, other values replace, `null` removes, anything left out is kept. The preferred form for the agent; the app merges it and then submits the result as a whole.
 _Avoid_: patch (that is the stored change), delta, diff
 
+**Turn-start copy**:
+The canvas's views and links as they were when a prompt turn began. The agent's submits during the turn are judged against it: what the user changed since then is kept unless the agent changed the same field.
+_Avoid_: base, snapshot (a snapshot is `snap`'s), checkpoint
+
 **Turn-start conflict**:
 A submit during a prompt turn that would change a field of a view or link that the user also changed, differently, after the turn began (or change one the user removed). It is refused with the object's live entry and is not counted as a failed attempt. A submit that changes other fields of such an object is no conflict: the agent's change and the user's both land.
 _Avoid_: merge conflict, race, stale write

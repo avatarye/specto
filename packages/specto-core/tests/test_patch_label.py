@@ -92,3 +92,43 @@ def test_a_given_label_wins_and_an_empty_submit_gets_none(live: LiveCanvas):
     )
     assert res.label == "kobi next to the tree"
     assert live.submit(live.document(), origin=AGENT).label == ""
+
+
+def test_a_link_removed_beside_an_unrelated_view_removal_is_named():
+    """The inverse names each removed link's ends: kobi's own pin goes with kobi, an
+    unrelated link removed in the same patch keeps its phrase."""
+    patch = [
+        {"op": "remove", "path": "/views/kobi"},
+        {"op": "remove", "path": "/links/l2"},
+        {"op": "remove", "path": "/links/l9"},
+    ]
+    inverse = [
+        {"op": "add", "path": "/views/kobi", "value": {"type": "gallery", "label": "kobi"}},
+        {
+            "op": "add",
+            "path": "/links/l2",
+            "value": {"source": {"view": "project"}, "target": {"view": "kobi"}},
+        },
+        {
+            "op": "add",
+            "path": "/links/l9",
+            "value": {"source": {"view": "tamu"}, "target": {"view": "fege"}},
+        },
+    ]
+    assert patch_label(patch, inverse) == "removed kobi and removed link l9"
+
+
+def test_the_root_view_and_the_project_label(live: LiveCanvas):
+    assert patch_label([{"op": "replace", "path": "/root_view", "value": "zuri"}]) == (
+        "set the root view to zuri"
+    )
+    assert patch_label([{"op": "replace", "path": "/root_view", "value": None}]) == (
+        "cleared the root view"
+    )
+    assert submitted(live, {"project": {"label": "Rig"}}) == "renamed the project"
+
+
+def test_a_label_with_a_quote_reads_plainly(live: LiveCanvas):
+    assert submitted(live, {"views": {"kobi": {"label": "Bob's frames"}}}) == (
+        "relabelled kobi 'Bob's frames'"
+    )
