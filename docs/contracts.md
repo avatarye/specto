@@ -295,7 +295,10 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
 - `specto_intake` registers `intaker` (`resolve_intaker`: sources, screener, keys,
   grouping, sort over the files arriving on the input; `.specto/` never enters a
   collection), its watcher (`watch_intaker`), `read_contents` and the 3D scene buffers
-  (`scene3d.attach_scenes`, for intakers feeding a `3d` view).
+  (`scene3d.attach_scenes`, for intakers feeding a `3d` view). For a `.dae` that step
+  writes the converted mesh `<name>.dae.glb` beside it, or in the cache when the folder
+  cannot take it (`specto_readers.dae`, ADR 0028); a converted mesh whose DAE is in the
+  same collection gets no scene, so the model shows once.
 - Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread runs the
   kind's watcher every `watch_interval_s`; a changed listing posts to the runtime,
   `poll()` emits the event `link.arrivals {link, added, removed}` and re-resolves the

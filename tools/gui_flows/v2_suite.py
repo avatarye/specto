@@ -648,6 +648,19 @@ SUITE: dict[str, dict] = {
         "seed": seed("v2-122-seed.py", "{project}"),
         "sessions": [{"flows": ["v2-open-views.txt"]}],
     },
+    "mesh-formats": {
+        # SPEC-42: STL, OBJ (with its MTL and texture) and DAE open in dedicated 3d views
+        # from a double-click, the DAE through arm.dae.glb written beside it; the STL in
+        # the contextual preview (the hosts' entries; no picture offscreen)
+        "seed": seed("v2-mesh-formats-seed.py", "{project}"),
+        "sessions": [{"flows": ["v2-mesh-formats.txt"]}],
+    },
+    "mesh-formats-gpu": {
+        # SPEC-42: the same three formats drawn: each view painted, the Z-up STL and OBJ
+        # upright under up z, the DAE upright from its own up_axis whatever up says
+        "seed": seed("v2-mesh-formats-seed.py", "{project}"),
+        "sessions": [{"flows": ["v2-mesh-formats-gpu.txt"]}],
+    },
     "open-usd-twice": {
         # SPEC-34, SPEC-36: without ovrtx auto usd views cost no RTX view, so a second
         # and third stage open beside the first; a fourth (one 3D viewport too many)
@@ -845,6 +858,7 @@ TIERS: dict[str, tuple[str, str]] = {
     "v2-152-3d-nav.txt": (GPU, _WEBGL),
     "v2-153-3d-modes.txt": (GPU, _WEBGL),
     "v2-175-3d-hdri.txt": (GPU, _WEBGL),
+    "v2-mesh-formats-gpu.txt": (GPU, _WEBGL + "; each mesh format's picture"),
     "v2-66-spz-v4.txt": (GPU, _WEBGL + "; the user's own splat capture, run by hand"),
     "v2-85-splat-first-paint.txt": (GPU, _WEBGL + "; the user's own splat, run by hand"),
     "v2-49-views-map.txt": (GPU, _WEBGL + "; the point pick is on the map's body"),

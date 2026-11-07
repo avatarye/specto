@@ -1,0 +1,55 @@
+# SPEC-42: robot meshes in the 3d view. robot/ holds link.stl, panel.obj (with its MTL and
+# a texture) and arm.dae (centimetres, Z_UP). A double-click on each opens a dedicated 3d
+# view with one mesh item; the DAE's converted mesh, arm.dae.glb, is written next to it on
+# the way. A Ctrl+double-click on the STL opens the contextual preview, which renders it
+# in the 3d renderer. Offscreen there is no WebGL: the hosts' entries are checked here,
+# the pictures in the GPU tier (v2-mesh-formats-gpu.txt).
+# Project: tools/gui_flows/v2-mesh-formats-seed.py <folder>.
+resize 1600 960
+wait 1500
+assert_found slot:@file_tree
+wait_until treeRow:@file_tree:robot 20000
+expand @file_tree:robot
+wait_until treeRow:@file_tree:robot/link.stl 10000
+wait_until treeRow:@file_tree:robot/arm.dae 10000
+# 1 the STL: a dedicated 3d view, labelled name · folder, one mesh with its bounds
+dblclick treeRow:@file_tree:robot/link.stl 0.6 0.5
+wait_until slot:@3d 15000
+assert_text title:@3d link.stl · robot
+assert_host @3d kinds.mesh 1 20000
+assert_host @3d entries 1
+print snap {"target": "@3d"}
+shot mesh-01-stl-dedicated.png
+click close:@3d
+wait 800
+assert_missing slot:@3d
+# 2 the OBJ: its own view (the MTL and texture are not items)
+dblclick treeRow:@file_tree:robot/panel.obj 0.6 0.5
+wait_until slot:@3d 15000
+assert_text title:@3d panel.obj · robot
+assert_host @3d kinds.mesh 1 20000
+assert_host @3d entries 1
+click close:@3d
+wait 800
+assert_missing slot:@3d
+# 3 the DAE: converted on the resolve worker, the GLB written beside it and listed in
+# the tree; the view shows the model once
+dblclick treeRow:@file_tree:robot/arm.dae 0.6 0.5
+wait_until slot:@3d 15000
+assert_text title:@3d arm.dae · robot
+assert_host @3d kinds.mesh 1 30000
+assert_host @3d entries 1
+assert_files {project}/robot/arm.dae.glb 1 10000
+wait_until treeRow:@file_tree:robot/arm.dae.glb 15000
+print snap {"target": "@3d"}
+shot mesh-02-dae-dedicated.png
+click close:@3d
+wait 800
+# 4 Ctrl+double-click: the contextual preview shows the STL in the 3d renderer
+ctrldblclick treeRow:@file_tree:robot/link.stl 0.6 0.5
+wait_until slot:@preview 15000
+wait 1500
+assert_found contextual:@preview
+assert_missing preview:@preview:card
+print snap {"target": "@preview"}
+shot mesh-03-contextual-preview.png

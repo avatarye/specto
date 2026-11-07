@@ -166,3 +166,53 @@ def test_scene_buffers_are_cached_by_file_identity(engine: Engine, tmp_path: Pat
     engine.links.resolve("l2")
     changed = scenes(engine.links.input_of("kobi", "data"))["cloud"]
     assert changed["kind"] == "mesh" and changed["files"]["glb"] != first["points"]
+
+
+def _mesh_samples():
+    """The synthetic STL / OBJ / DAE writers the readers tests use (loaded by path)."""
+    import importlib.util
+
+    path = Path(__file__).parents[2] / "specto-readers" / "tests" / "mesh_samples.py"
+    spec = importlib.util.spec_from_file_location("mesh_samples_for_intake", path)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_robot_meshes_resolve_and_a_converted_dae_is_not_shown_twice(engine: Engine):
+    """SPEC-42: STL and OBJ pass to Babylon's loaders with their bounds; the DAE becomes a
+    GLB next to it (``robot.dae.glb``). That converted mesh is a .glb in the same folder, so the
+    @3d screener keeps it too; its item carries no scene while its DAE is in the
+    collection, and the view shows the robot once. The OBJ's MTL and texture stay out of
+    the collection (Babylon fetches them next to the OBJ)."""
+    samples = _mesh_samples()
+    root = engine.project.root / "scans"
+    samples.write_stl(root / "link.stl")
+    samples.write_obj(root / "panel.obj")
+    samples.write_dae(root / "robot.dae")
+    engine.live.submit(scene_document(engine.live.document()), origin="agent:test", label="3d")
+
+    by = scenes(engine.links.input_of("kobi", "data"))
+    assert (root / "robot.dae.glb").is_file()
+    assert by["link"]["kind"] == "mesh" and by["link"]["role"] == ".stl"
+    assert by["panel"]["kind"] == "mesh" and by["panel"]["role"] == ".obj"
+    robot = by["robot"]
+    assert robot["role"] == ".dae" and robot["up"] == "y"
+    assert robot["files"] == {"glb": str(root / "robot.dae.glb")}
+
+    # the next resolve lists the converted mesh: one item more, still one robot in the scene
+    engine.links.resolve("l2")
+    col = engine.links.input_of("kobi", "data")
+    keys = [it.key for it in col.items]
+    assert "robot.dae" in keys
+    shown = [it.key for it in col.items if "scene" in it.meta]
+    assert sorted(shown) == ["cloud", "gauss", "link", "model", "panel", "quad", "raw", "robot"]
+    parts = {role for it in col.items for role in it.parts}
+    assert ".mtl" not in parts and ".png" not in parts
+
+    # a converted mesh on its own (its DAE elsewhere) is an ordinary GLB
+    (root / "robot.dae").unlink()
+    engine.links.resolve("l2")
+    by = scenes(engine.links.input_of("kobi", "data"))
+    assert by["robot.dae"] == {"kind": "mesh", "role": ".glb", "files": {}}

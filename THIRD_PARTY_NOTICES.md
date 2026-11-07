@@ -51,7 +51,7 @@ Pinned in `packages/specto-web/package.json`, installed from the public npm regi
 | `mermaid` | 12.1.0 | MIT (bundles its own dependencies, d3 and others, under their permissive licences) | Diagrams in the markdown view. |
 | `katex` | 0.19.0 | MIT (Khan Academy); the bundled fonts derive from the AMS and Computer Modern fonts (SIL OFL 1.1) | Maths in the markdown view, with `dist/fonts`. |
 | `maplibre-gl` | 5.24.0 | BSD-3-Clause (MapLibre contributors; the notice names the Mapbox code it forked) | The map view. Basemap tiles are fetched at runtime only when the view's `net:tiles` capability is on, from OpenStreetMap (ODbL data, tile usage policy applies) or Esri World Imagery, each shown with the credit its terms require (`specto_app/web/basemaps.py`). |
-| `babylonjs`, `babylonjs-loaders` | 9.31.0 | Apache-2.0 (its `NOTICE.md` is copied next to the files) | The 3D view's engine and its glTF and SPLAT loaders. Draco, meshopt and KTX2 transcoders are not vendored. |
+| `babylonjs`, `babylonjs-loaders` | 9.31.0 | Apache-2.0 (its `NOTICE.md` is copied next to the files) | The 3D view's engine and its glTF, SPLAT, STL and OBJ loaders. Draco, meshopt and KTX2 transcoders are not vendored. |
 | `fflate` | 0.8.3 | MIT | Decompression for the SPLAT loader's SOG files. |
 | `@adobe/spz` | 0.2.2 | ISC | The SPZ (Gaussian splat) decoder handed to Babylon's loader. |
 | `typescript` (dev only) | 5.9.3 | Apache-2.0 | Type-checks `web/*.js` against `types/`; nothing of it ships. |
@@ -142,10 +142,13 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 | pydantic, pydantic-core | MIT | The canvas document and every validated model. |
 | numpy | BSD-3-Clause (with 0BSD, MIT, Zlib and CC0 parts) | Image buffers, the usd source's frames. |
 | scipy | BSD-3-Clause; its wheels bundle Qhull (Qhull licence), OpenBLAS and LAPACK (BSD-3-Clause variants) and the GCC runtime (GPL-3.0 with the GCC Runtime Library Exception) | Convex hulls (Qhull) for the usd view's collision view. |
-| pillow | MIT-CMU | Image decoding and thumbnails. |
+| pillow | MIT-CMU | Image decoding and thumbnails; a DAE's textures in its conversion. |
 | pyarrow | Apache-2.0 (Apache Arrow; its wheels bundle Arrow C++ and its permissive dependencies, listed in the wheel's `LICENSE.txt` and `NOTICE.txt`; OpenSSL as a dynamically linked library under its OpenSSL / SSLeay licence; on Windows the MSVC C++ runtime `msvcp140` under Microsoft's redistributable terms) | Reads tables (CSV, Parquet) for joint tracks, the URDF view's `joints` port. About 90 MB installed. |
 | xacro | BSD-3-Clause (Robert Haschke, Bielefeld University) | Expands `.xacro` robot descriptions for the URDF view, for approved content only and in a process of its own (its `${...}` evaluates Python). |
 | PyYAML | MIT | Pulled in by xacro (its `load_yaml`, read with `safe_load`). |
+| trimesh | MIT (Michael Dawson-Haggerty; its `LICENSE.md` in the wheel) | The 3d view's COLLADA (`.dae`) conversion to GLB (`specto_readers.dae`, ADR 0028). Installed without extras: its only hard dependency is numpy. |
+| pycollada | BSD-3-Clause (Jeff Terrace and contributors; Scopia Visual Interfaces Systems for 0.1; its `COPYING` in the wheel) | Parses the COLLADA file for trimesh. |
+| python-dateutil, tzdata | Apache-2.0 and BSD-3-Clause (dateutil's `LICENSE` names both); Apache-2.0 | Pulled in by pycollada (asset dates). |
 | PyOpenGL | BSD-3-Clause | The usd view's Storm source draws offscreen with it. |
 | platformdirs | MIT | User and cache directories. |
 | click | BSD-3-Clause | The `specto` CLI. |

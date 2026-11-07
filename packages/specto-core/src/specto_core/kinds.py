@@ -674,10 +674,11 @@ BUILTIN_LOCATORS: list[LocatorManifest] = [
         priority=10,
     ),
     # what the 3d view shows; a .ply is a mesh, a point cloud or a splat by its header,
-    # which the intaker's resolve step reads (specto_readers.scene3d)
+    # which the intaker's resolve step reads (specto_readers.scene3d); .stl and .obj go to
+    # Babylon's loaders, a .dae is converted to a GLB at resolve (SPEC-42)
     LocatorManifest(
         name="scene3d",
-        extensions=[".ply", ".glb", ".gltf", ".splat", ".spz", ".sog"],
+        extensions=[".ply", ".glb", ".gltf", ".splat", ".spz", ".sog", ".stl", ".obj", ".dae"],
         aliases=["@3d"],
         kinds=["mesh", "pointcloud", "splat"],
         priority=10,

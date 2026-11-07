@@ -14,7 +14,9 @@ POINTS = [
     (2.0, 0.5, 1.0),
 ]
 COLORS = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (10, 20, 30), (200, 200, 200)]
-ALIASES = {"@3d": [".glb", ".gltf", ".ply", ".sog", ".splat", ".spz"]}
+ALIASES = {"@3d": [".dae", ".glb", ".gltf", ".obj", ".ply", ".sog", ".splat", ".spz", ".stl"]}
+#: the synthetic STL / OBJ / DAE writers (SPEC-42), shared with the readers tests
+MESH_SAMPLES = Path(__file__).parents[2] / "specto-readers" / "tests" / "mesh_samples.py"
 
 
 def write_cloud_ply(path: Path) -> None:
@@ -46,6 +48,17 @@ def write_splat_ply(path: Path) -> None:
     header = "ply\nformat binary_little_endian 1.0\nelement vertex 1\n"
     header += "".join(f"property float {n}\n" for n in names) + "end_header\n"
     path.write_bytes(header.encode("ascii") + struct.pack("<17f", *([0.5] * 17)))
+
+
+def mesh_samples():
+    """``specto-readers/tests/mesh_samples.py``, loaded by its path."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("mesh_samples_for_app", MESH_SAMPLES)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def seed_scans(root: Path) -> Path:

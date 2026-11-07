@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
-from scene3d_helpers import seed_scans
+from scene3d_helpers import mesh_samples, seed_scans
 from web_helpers import Sink
 
 import specto_intake  # noqa: F401  (registers the intaker resolver)
@@ -165,6 +165,58 @@ def test_each_entry_carries_its_file_size_for_the_items_panel(engine: Engine, tm
     by = {e["id"]: e for e in host.scene_payload()["entries"]}
     assert by["big"]["size"] == 1572864 and by["big"]["size_label"] == "1.5 MB"
     assert by["raw"]["size"] == 64 and by["raw"]["size_label"] == "64 B"
+
+
+def test_robot_meshes_load_through_babylon_and_the_dae_through_its_glb(
+    engine: Engine, tmp_path: Path
+):
+    """SPEC-42: an STL and an OBJ go to Babylon's loaders by ``ext`` with the bounds resolve
+    measured; the OBJ is fetched by its own name so its MTL and texture resolve next to it
+    on the items host; a DAE loads as the GLB written beside it and declares its up axis
+    (the view's up param leaves it alone)."""
+    from specto_app.web.scheme import locate_item
+
+    samples = mesh_samples()
+    scans = tmp_path / "proj" / "scans"
+    samples.write_stl(scans / "link.stl")
+    samples.write_obj(scans / "panel.obj")
+    samples.write_dae(scans / "robot.dae")
+    submit_scene(engine)
+    _ctx, host = make_host(engine)
+    by = {e["id"]: e for e in host.scene_payload()["entries"]}
+    box = [list(samples.BOX_LO), list(samples.BOX_HI)]
+    link = by["link"]
+    assert (link["kind"], link["url"], link["ext"]) == (
+        "mesh",
+        "specto://items/l2/link/stl",
+        ".stl",
+    )
+    assert link["count"] == 36 and _rounded(link["bounds"]) == box and "up" not in link
+    panel = by["panel"]
+    assert panel["url"] == "specto://items/l2/panel/obj/panel.obj" and panel["ext"] == ".obj"
+    assert panel["count"] == 24 and _rounded(panel["bounds"]) == box
+    robot = by["robot"]
+    assert robot["url"] == "specto://items/l2/robot/glb" and robot["ext"] == ".glb"
+    assert robot["label"] == "robot.dae" and robot["up"] == "y"
+    assert _rounded(robot["bounds"]) == samples.DAE_BOUNDS_M_YUP
+    assert runtime().items.parts("l2", "robot")[".glb"] == str(scans / "robot.dae.glb")
+
+    rt = runtime()
+
+    def served(path: str) -> Path | None:
+        entry: dict = {"status": "ok"}
+        return locate_item(
+            "items", path, "kobi.page", caps_of=rt.caps_of, items=rt.items, entry=entry
+        )
+
+    # what Babylon's OBJ loader asks for next to specto://items/l2/panel/obj/panel.obj
+    assert served("/l2/panel/obj/panel.mtl") == (scans / "panel.mtl").resolve()
+    assert served("/l2/panel/obj/textures/panel.png") == (scans / "textures/panel.png").resolve()
+    assert served("/l2/panel/obj/../secret.txt") is None
+
+
+def _rounded(bounds) -> list[list[float]]:
+    return [[round(float(x), 5) + 0.0 for x in row] for row in bounds]
 
 
 def test_the_page_camera_is_the_camera_output_and_an_outside_camera_is_not_echoed(

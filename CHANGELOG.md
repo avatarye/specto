@@ -44,6 +44,15 @@ the release and move on their own schedule.
   double-click on its file). Scripted flows can play a machine with a capability through
   `SPECTO_FAKE_CAPABILITIES` (comma-separated, e.g. `ovrtx`): present for every choice,
   with the stub USD source in place of the renderer.
+- The 3d view opens STL, OBJ and COLLADA (`.dae`) meshes (SPEC-42, ADR 0028), from a
+  double-click (dedicated) or a Ctrl+double-click (contextual) in the file tree and in
+  any `@3d` intaker. STL and OBJ load with Babylon's own loaders, an OBJ with its MTL and
+  textures from next to it; a mesh without a material draws in grey. Their numbers are
+  metres and the view's `up` param stands Z-up robot meshes upright. A DAE is converted
+  to a GLB on first open, written next to it as `<name>.dae.glb` (the converted mesh;
+  Specto's cache when the folder is read-only) and written again when the DAE changes;
+  its `<unit>` and `<up_axis>` are applied, so it stands upright whatever `up` says.
+  **New runtime dependencies:** trimesh and pycollada (with python-dateutil and tzdata).
 - Gallery captions sit on the thumbnails (SPEC-6): each key overlays its tile's bottom
   edge, light text on a dark scrim that reads on light and dark images, and takes no row
   height, so more tiles fit. A time-linked gallery marks its current item (the frame at

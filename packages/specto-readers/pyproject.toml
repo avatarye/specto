@@ -8,7 +8,7 @@ license = "MIT"
 # would fail on a default install, and every setup command would need a third extra.
 # xacro stays below 2.2: its file reads must go through the bare open() the gate
 # shadows (test_xacro_reads_files_only_through_the_bare_open).
-dependencies = ["specto-core", "numpy>=2.0", "pillow>=10.4", "pyarrow>=18", "xacro>=2.1.1,<2.2"]
+dependencies = ["specto-core", "numpy>=2.0", "pillow>=10.4", "pyarrow>=18", "xacro>=2.1.1,<2.2", "trimesh>=4.4", "pycollada>=0.9"]
 
 [build-system]
 requires = ["hatchling"]

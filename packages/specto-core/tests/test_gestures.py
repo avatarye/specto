@@ -272,6 +272,9 @@ def test_a_double_click_opens_a_dedicated_view_of_the_files_kind(live: LiveCanva
         ("look/b.mp4", "video"),
         ("look/c.usda", "usd"),
         ("look/d.ply", "3d"),
+        ("robot/link.stl", "3d"),  # SPEC-42: robot meshes
+        ("robot/panel.obj", "3d"),
+        ("robot/arm.dae", "3d"),
         ("look/e.pdf", "pdf"),
         ("look/f.html", "html"),
         ("look/g.json", "json"),

@@ -5,7 +5,12 @@
  * scene: point clouds as the 16 B/point buffer resolve decoded (float32 xyz block then
  * uint8 rgba block, straight into VertexBuffers), meshes and splats through Babylon's
  * loaders (`ext` names the plugin; the SPLAT loader is told where fflate and the SPZ
- * WASM decoder are, nothing goes to a CDN). Navigation is Unreal Editor's viewport (#152),
+ * WASM decoder are, nothing goes to a CDN). STL and OBJ go to Babylon's own loaders (an
+ * OBJ's url ends in its file name, so its MTL and textures load next to it; an STL keeps
+ * the file's coordinates); a mesh with no material of its own draws in a plain grey. The
+ * view param `up` turns the scene's root for z-up data; an entry with its own `up` (a DAE
+ * resolve converted to a Y-up GLB, SPEC-42) hangs under a root that param leaves alone.
+ * Navigation is Unreal Editor's viewport (#152),
  * the shared web module viewnav.js (its header has the table): drag turns and walks,
  * right-drag looks with W A S D Q E flying and the wheel setting the speed, middle-drag
  * or both buttons pan, the wheel dollies, Alt+drag orbits the selection (else the point
@@ -47,8 +52,10 @@
   const PICK_PX = 6;           // pick cone half-width in pixels
   const IDLE_FRAMES = 12;      // frames rendered after the last change (camera inertia)
   const SETTLE_MAX_MS = 60000; // a splat that never reports settled stops costing frames here
+  const PLAIN_MESH = "#9ea4ab";  // a mesh whose file has no material (STL; OBJ without MTL)
 
   let engine = null, scene = null, camera = null, root = null, lights = [];
+  const declaredRoots = {};    // up axis -> the root of the items whose file declares it
   let params = {
     point_size: 2, up: "y", camera_speed: 1,
     environment: "none", environment_intensity: 1, environment_background: false, environment_rotation: 0,
@@ -98,6 +105,14 @@
     scene.skipPointerMovePicking = true;
     scene.autoClear = true;
     root = new BABYLON.TransformNode("root", scene);
+    // an item whose file declares its up axis (a DAE converted to a Y-up GLB) hangs here,
+    // where the view's up param does not turn it (SPEC-42)
+    declaredRoots.y = new BABYLON.TransformNode("root:y", scene);
+    declaredRoots.z = new BABYLON.TransformNode("root:z", scene);
+    declaredRoots.z.rotation = new BABYLON.Vector3(-Math.PI / 2, 0, 0);
+    // an STL's numbers as the file has them, as for PLY and OBJ: the up param turns them
+    // (the loader would otherwise swap y and z, a mirror in this right-handed scene)
+    if (BABYLON.STLFileLoader) BABYLON.STLFileLoader.DO_NOT_ALTER_FILE_COORDINATES = true;
     camera = new BABYLON.ArcRotateCamera("cam", -Math.PI / 3, 1.1, 20, BABYLON.Vector3.Zero(), scene);
     camera.minZ = 0.05;
     camera.maxZ = 5000;
@@ -522,7 +537,7 @@
         return;
       }
       node.mesh = mesh;
-      node.mesh.parent = root;
+      node.mesh.parent = declaredRoots[e.up] || root;
       node.mesh.metadata = Object.assign({}, node.mesh.metadata || {}, { entry: e.id, kind: e.kind });
       node.mesh.getChildMeshes().forEach(function (m) {
         m.metadata = Object.assign({}, m.metadata || {}, { entry: e.id, kind: e.kind, collision: e.kind === "mesh" && COLLISION_NAME.test(m.name || "") });
@@ -581,12 +596,23 @@
     options.rootUrl = rootUrl;
     const res = await BABYLON.ImportMeshAsync(file, scene, options);
     const holder = new BABYLON.TransformNode("item:" + e.id, scene);
+    let plain = null;   // the item's own: it goes with the item's meshes when they are disposed
     res.meshes.forEach(function (m) {
       if (!m.parent) m.parent = holder;
       if (m.material && m.material.pointsCloud) m.material.pointSize = params.point_size || 2;
+      // an STL, or an OBJ without its MTL, comes with no material: a mid grey, not
+      // Babylon's white default that vanishes on the light background
+      if (!m.material && m.getTotalVertices() > 0) m.material = plain = plain || plainMaterial(e.id);
     });
     holder.metadata = { babylon: res.meshes.length };
     return holder;
+  }
+
+  function plainMaterial(id) {
+    const mat = new BABYLON.StandardMaterial("plainMat:" + id, scene);
+    mat.diffuseColor = BABYLON.Color3.FromHexString(PLAIN_MESH);
+    mat.specularColor = new BABYLON.Color3(0.15, 0.15, 0.15);
+    return mat;
   }
 
   function applyParams() {

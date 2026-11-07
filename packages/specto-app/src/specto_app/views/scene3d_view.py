@@ -2,8 +2,9 @@
 
 One Babylon.js page (``web/3d/index.html``, WebGL2, vendored offline) shows every 3D
 item of the collection on its ``data`` input in one scene: point clouds from the
-buffers resolve decoded (``specto_readers.scene3d``), PLY meshes as the GLB resolve
-wrote, glTF/GLB and Gaussian splats through Babylon's own loaders. The host is glue on
+buffers resolve decoded (``specto_readers.scene3d``), PLY meshes and DAEs as the GLB
+resolve wrote (a DAE's beside it, ``specto_readers.dae``), glTF/GLB, STL, OBJ and
+Gaussian splats through Babylon's own loaders. The host is glue on
 ``WebViewHost``:
 
 - ``data`` in: the page is told what to load (``scene``); the files are served by the
@@ -47,6 +48,9 @@ from ..web.webview import WebViewHost
 from .file_tree import format_bytes
 
 DATA, CAMERA, SELECTION = "data", "camera", "selection"
+#: parts the page fetches by their own file name, so the files they name (a glTF's .bin
+#: and images, an OBJ's .mtl and its textures) resolve next to them (SPEC-42)
+SIBLING_EXTS = (".gltf", ".obj")
 PAGE = "3d/index.html"
 VENDOR_FILES = ("babylon/babylon.js", "babylon/babylonjs.loaders.min.js", "babylon/fflate.js")
 #: ``camera_speed`` scales flying, zooming and panning (the VIEW panel's slider, #129);
@@ -81,7 +85,9 @@ STATE_SCHEMA: dict[str, Any] = {
         "up": {
             "enum": ["y", "z"],
             "default": "y",
-            "description": "The data's up axis: z for most LiDAR and photogrammetry.",
+            "description": "The data's up axis: z for most LiDAR, photogrammetry and "
+            "robot meshes (STL, OBJ). A DAE is converted to Y up from its own up_axis and "
+            "is not turned by this.",
         },
         "camera_speed": {
             "type": "number",
@@ -139,9 +145,12 @@ SCENE3D_MANIFEST = ViewManifest(
     label="3D",
     host="web",
     doc="Babylon.js scene of every 3D item on its data input: point clouds (decoded at "
-    "resolve, up to about 20 M points), glTF/GLB and PLY meshes, Gaussian splats (up to "
-    "about 2 M). Unreal Editor viewport controls: drag turns and walks, right-drag looks "
-    "(W A S D Q E fly, the wheel sets the speed), middle-drag pans, the wheel dollies, "
+    "resolve, up to about 20 M points), glTF/GLB, PLY, STL and OBJ meshes (an OBJ's MTL "
+    "and textures next to it), COLLADA .dae (converted to <name>.dae.glb beside it, its "
+    "unit and up_axis applied), Gaussian splats (up to about 2 M). STL and OBJ numbers are "
+    "metres; up: z stands Z-up data upright. Unreal Editor viewport controls: drag turns "
+    "and walks, right-drag looks (W A S D Q E fly, the wheel sets the speed), middle-drag "
+    "pans, the wheel dollies, "
     "Alt+drag orbits the selection, F frames the selection or the scene; click a point "
     "or a mesh to select it. camera_speed (1 = default, 1/8 to 8) scales flying, "
     "walking, panning and dollying. view_mode: lit (default), unlit, wireframe, or "
@@ -290,13 +299,20 @@ class Scene3DHost(WebViewHost):
             elif kind == "error":
                 entry["error"] = scene.get("error", "unreadable")
             else:
-                # Babylon picks its loader by ``ext``; a .gltf is fetched by its own
-                # name so its sibling .bin and textures resolve next to it
+                # Babylon picks its loader by ``ext``; a .gltf or .obj is fetched by its
+                # own name so its sibling .bin / .mtl and textures resolve next to it
                 url = item_url(link, it.key, role)
-                if role.lower() == ".gltf":
+                if role.lower() in SIBLING_EXTS:
                     url += "/" + Path(it.parts[role]).name
                 entry["url"] = url
                 entry["ext"] = role.lower()
+                if scene.get("bounds"):  # STL and OBJ: measured at resolve
+                    entry["count"] = scene.get("count")
+                    entry["bounds"] = scene.get("bounds")
+            if scene.get("up") in ("y", "z"):
+                # the file declares its up axis (a converted DAE): the view's up param
+                # leaves it alone
+                entry["up"] = scene["up"]
             self.entries.append(entry)
         if self.picked is not None and self.picked.get("item") not in self._files:
             self.picked = None  # the picked item left with its collection

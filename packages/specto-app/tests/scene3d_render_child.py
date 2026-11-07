@@ -7,6 +7,9 @@ report (environment state, canvas rect) and the grab's path; or ``{"skip": reaso
 when there is no WebGL2 here.
 
     python scene3d_render_child.py '{"glb": ..., "out": ..., "envs": [...], "steps": [...]}'
+
+or, in place of ``glb``, ``entries`` (each ``{id, kind, file, ext, ...}``) with an optional
+``camera`` and ``params`` (the SPEC-42 mesh formats).
 """
 
 from __future__ import annotations
@@ -108,19 +111,42 @@ def main() -> int:
     view.load(QUrl.fromLocalFile(str(html)))
     result: dict = {"steps": []}
     state = {"phase": "boot", "step": 0, "t0": time.monotonic(), "report": None}
-    glb = Path(plan["glb"]).resolve()
+    if "entries" in plan:
+        # the plan's own entries (SPEC-42 meshes): {id, kind, file, ext, ...}; the file
+        # becomes a file:// URL, so an OBJ's MTL and textures load next to it
+        entries = [
+            {
+                "index": i,
+                "label": Path(e["file"]).name,
+                **{k: v for k, v in e.items() if k != "file"},
+                "url": Path(e["file"]).resolve().as_uri(),
+            }
+            for i, e in enumerate(plan["entries"])
+        ]
+    else:
+        glb = Path(plan["glb"]).resolve()
+        entries = [
+            {
+                "id": "spheres",
+                "index": 0,
+                "kind": "mesh",
+                "label": glb.name,
+                "url": glb.as_uri(),
+                "ext": ".glb",
+                "bounds": [[-5.4, 0, -1], [5.4, 2, 1]],
+            }
+        ]
     scene = {
-        "entries": [{
-            "id": "spheres", "index": 0, "kind": "mesh", "label": glb.name,
-            "url": glb.as_uri(), "ext": ".glb", "bounds": [[-5.4, 0, -1], [5.4, 2, 1]],
-        }],
-        "params": {"point_size": 2, "up": "y"},
+        "entries": entries,
+        "params": {"point_size": 2, "up": "y", **plan.get("params", {})},
         "generation": 1,
-        "camera": {
+        "camera": plan.get("camera") or {
             "position": [0, 3.2, 11.5], "target": [0, 1, 0], "up": [0, 1, 0],
             "fov_y": 0.8, "near": 0.05, "far": 400,
         },
-        "environments": [{**e, "url": Path(e["file"]).resolve().as_uri()} for e in plan["envs"]],
+        "environments": [
+            {**e, "url": Path(e["file"]).resolve().as_uri()} for e in plan.get("envs", [])
+        ],
     }  # fmt: skip
 
     def js(code: str, then=None) -> None:
@@ -155,11 +181,12 @@ def main() -> int:
                 state.update(phase="load", report=None)
             return
         if state["phase"] == "load":
-            item = ((r or {}).get("items") or {}).get("spheres") or {}
-            if item.get("error"):
-                result["error"] = "load: " + item["error"]
+            items = [((r or {}).get("items") or {}).get(e["id"]) or {} for e in entries]
+            broken = [i["error"] for i in items if i.get("error")]
+            if broken:
+                result["error"] = "load: " + "; ".join(broken)
                 finish(1)
-            elif item.get("loaded"):
+            elif all(i.get("loaded") for i in items):
                 if (r.get("babylon") or "") and "webgl" not in result:
                     result["webgl"] = True
                 state.update(phase="step", settle=None)

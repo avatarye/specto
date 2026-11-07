@@ -1,0 +1,57 @@
+# SPEC-42 in the GPU tier: the robot meshes drawn. robot/ holds Z-up boxes: link.stl, panel.obj
+# (with its MTL and a green texture) and arm.dae (centimetres, Z_UP: a blue box with a
+# red textured one 80 cm above). Each opens in a dedicated 3d view from a double-click,
+# loads, and paints its view. The page reports each item's world bounds: the STL and OBJ
+# lie along z under the default up y and stand upright under up z; the DAE, converted
+# to metres and Y up, stands 1.2 m tall whatever up says. Check the shots: a grey box, a
+# green box, a blue box under a red one.
+# Project: tools/gui_flows/v2-mesh-formats-seed.py <folder>.
+resize 1600 960
+wait 1500
+assert_found slot:@file_tree
+wait_until treeRow:@file_tree:robot 20000
+expand @file_tree:robot
+wait_until treeRow:@file_tree:robot/link.stl 10000
+wait_until treeRow:@file_tree:robot/arm.dae 10000
+# 1 the STL: grey, as the file says under up y, upright under up z
+dblclick treeRow:@file_tree:robot/link.stl 0.6 0.5
+wait_until slot:@3d 15000
+assert_web @3d items.link.loaded true 20000
+assert_web @3d items.link.bounds [[-0.2,-0.2,0],[0.2,0.2,0.8]]
+params @3d {"up": "z"}
+assert_web @3d items.link.bounds [[-0.2,0,-0.2],[0.2,0.8,0.2]]
+webclick @3d buttons.frameAll
+wait 900
+assert_pixel slot:@3d 0.476 0.47 not #faf7f1
+shot mesh-gpu-01-stl-upright.png
+click close:@3d
+wait 800
+assert_missing slot:@3d
+# 2 the OBJ: its MTL and texture loaded from next to it (green), upright under up z
+dblclick treeRow:@file_tree:robot/panel.obj 0.6 0.5
+wait_until slot:@3d 15000
+assert_web @3d items.panel.loaded true 20000
+params @3d {"up": "z"}
+assert_web @3d items.panel.bounds [[-0.2,0,-0.2],[0.2,0.8,0.2]]
+webclick @3d buttons.frameAll
+wait 900
+assert_pixel slot:@3d 0.476 0.47 not #faf7f1
+shot mesh-gpu-02-obj-textured.png
+click close:@3d
+wait 800
+assert_missing slot:@3d
+# 3 the DAE: through arm.dae.glb, upright under the default up y and still under up z
+dblclick treeRow:@file_tree:robot/arm.dae 0.6 0.5
+wait_until slot:@3d 15000
+assert_web @3d items.arm.loaded true 30000
+assert_web @3d items.arm.bounds [[-0.2,0,-0.2],[0.2,1.2,0.2]]
+webclick @3d buttons.frameAll
+wait 900
+assert_pixel slot:@3d 0.476 0.68 not #faf7f1
+assert_pixel slot:@3d 0.476 0.25 not #faf7f1
+shot mesh-gpu-03-dae-up-y.png
+params @3d {"up": "z"}
+wait 800
+assert_web @3d items.arm.bounds [[-0.2,0,-0.2],[0.2,1.2,0.2]]
+shot mesh-gpu-04-dae-up-z.png
+print snap {"target": "@3d"}
