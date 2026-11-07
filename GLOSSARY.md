@@ -134,6 +134,10 @@ _Avoid_: reader, detector, sniffer
 The expensive half of a reader: it turns a located item into pixels, points, text or rows on request, away from the GUI.
 _Avoid_: reader, loader, codec
 
+**Joint track**:
+A robot's joint positions over time, per joint name (data kind `joint_track`): a table with a time column and one column per joint, later a bag's joint-state topic. A view shows the sample nearest the clock's time, never an interpolated one.
+_Avoid_: trajectory, animation, joint states (for the general case)
+
 **Binding**:
 Assigning a collection to a view; the view then shows every item it can and reports the rest.
 _Avoid_: attach, feed, source (as a verb)

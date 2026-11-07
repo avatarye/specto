@@ -406,7 +406,12 @@ before. Thumbnails and posters never open an audio device.
   Test-only: `SPECTO_DISABLE_CAPABILITIES` (comma-separated) makes capabilities absent
   without detecting them, `SPECTO_FAKE_CAPABILITIES` present (the usd view then runs the
   stub USD source in the faked renderer's place); a name in both is disabled. Data kinds: `image2d image_seq video_ref pointcloud mesh splat usd_stage_ref
-  geojson json text markdown table message_stream pose_track`.
+  geojson json text markdown table message_stream pose_track joint_track`. `joint_track`
+  (`specto_readers.joint_track`): a CSV or Parquet table, one time column plus one column
+  per joint, decoded to one time-sorted float64 table (seconds first, `NaN` for an empty
+  cell; `meta.columns`, `timeline`, `skipped`); `JointTrack.sample(TimeValue)` gives each
+  joint's nearest sample, never interpolated. xacro (`specto_readers.xacro_expand`)
+  expands only files whose content hash the user approved (ADR 0006), includes too.
 - Intake (`specto-intake`): the intaker's params are the spec (section 2); items are
   `Item {key, parts: {role -> path}, index, meta}`; keys are the named groups of
   `params.keys` joined in `group_by` order; several sources namespace keys by source

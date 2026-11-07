@@ -5,7 +5,7 @@ declare namespace SpectoApi {
   type ApiLevel = 1;
   type SchemaVersion = 2;
   type Effect = "file" | "job" | "watch" | "process";
-  type DataKind = "image2d" | "image_seq" | "video_ref" | "pointcloud" | "mesh" | "splat" | "usd_stage_ref" | "geojson" | "json" | "text" | "markdown" | "html" | "pdf" | "table" | "message_stream" | "pose_track";
+  type DataKind = "image2d" | "image_seq" | "video_ref" | "pointcloud" | "mesh" | "splat" | "usd_stage_ref" | "geojson" | "json" | "text" | "markdown" | "html" | "pdf" | "table" | "message_stream" | "pose_track" | "joint_track";
   type ViewType = "3d" | "gallery" | "html" | "image" | "json" | "map" | "markdown" | "pdf" | "preview" | "scratch" | "text" | "usd" | "video";
   type PortType = "files" | "collection" | "item" | "selection" | "time" | "content" | "camera";
   type LinkKind = "intaker" | "follow" | "read_contents" | "time_map" | "python";

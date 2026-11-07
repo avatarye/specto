@@ -55,6 +55,7 @@ DATA_KINDS: tuple[str, ...] = (
     "table",
     "message_stream",
     "pose_track",
+    "joint_track",
 )
 DataKind = Literal[
     "image2d",
@@ -73,6 +74,7 @@ DataKind = Literal[
     "table",
     "message_stream",
     "pose_track",
+    "joint_track",
 ]
 
 HostKind = Literal["quick", "web", "frame"]
@@ -689,6 +691,11 @@ BUILTIN_LOCATORS: list[LocatorManifest] = [
         kinds=["usd_stage_ref"],
         priority=10,
     ),
+    # a table of joint positions over time (SPEC-43.3: the urdf view's joints port); the
+    # lowest priority, so a .csv stays text for every view that does not ask for a track
+    LocatorManifest(
+        name="joint_track", extensions=[".csv", ".parquet"], kinds=["joint_track"], priority=1
+    ),
 ]
 
 BUILTIN_DECODERS: list[DecoderManifest] = [
@@ -700,6 +707,8 @@ BUILTIN_DECODERS: list[DecoderManifest] = [
     # the root layer's header as JSON (up axis, units, time codes, default prim), without
     # pxr; what needs the composed stage is listed as unavailable
     DecoderManifest(name="usd_info", kinds=["usd_stage_ref"], purposes=["meta"], produces="bytes"),
+    # a time column plus one column per joint as one float64 table, time-sorted, in seconds
+    DecoderManifest(name="joint_track", kinds=["joint_track"], purposes=["full"]),
 ]
 
 

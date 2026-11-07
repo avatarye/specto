@@ -5,6 +5,8 @@
 - ``PoolJobManager``: a ``spawn`` process pool implementing ``specto_core.jobs.JobManager``;
   decoded arrays come back as ``SharedResult`` (shared memory, zero-copy attach).
 - ``submit_decode`` / ``submit_decode_batch``: queue decodes on any job manager.
+- ``joint_track``: joint tracks from tables (the ``joint_track`` decoder, ``JointTrack``);
+  ``xacro_expand``: xacro for approved content only. Both serve the URDF view.
 
 No Qt anywhere; the app imports this on the GUI thread, the workers never import Qt.
 """

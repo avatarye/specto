@@ -2734,7 +2734,8 @@
   "pdf",
   "table",
   "message_stream",
-  "pose_track"
+  "pose_track",
+  "joint_track"
  ],
  "port_types": [
   {

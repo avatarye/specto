@@ -49,12 +49,13 @@ def test_manifest_matches_core_vocabulary():
     mine = plugin_manifest()
     assert {m.name for m in mine.locators} == {m.name for m in core.locators()}
     d = describe()
-    assert set(d["registered"]["decoders"]) == {"image", "json", "text", "usd_info"}
+    assert set(d["registered"]["decoders"]) == {"image", "joint_track", "json", "text", "usd_info"}
     assert set(d["registered"]["locators"]) == {
         "container",
         "geojson",
         "html",
         "image",
+        "joint_track",
         "json",
         "markdown",
         "pdf",

@@ -6,6 +6,8 @@
   ``meta.top`` says what the root is, ``meta.pretty`` is set when the text was re-indented.
 - ``text``: UTF-8 bytes (invalid sequences replaced; ``meta.encoding_errors`` counts them).
 - ``usd_info``: a USD file's root-layer header as JSON bytes (``usd_info.py``).
+- ``joint_track``: a table of joint positions over time as one float64 table
+  (``joint_track.py``).
 
 Every decoder opens its source through ``specto_core.containers.open_source``, so a
 virtual ``archive#/member`` ref is read as a stream out of the archive (M2 containers).
@@ -130,6 +132,7 @@ class TextDecoder:
 
 
 def builtin_decoders() -> list[Any]:
-    from .usd_info import UsdInfoDecoder  # it imports DecodeError from here
+    from .joint_track import JointTrackDecoder  # these import DecodeError from here
+    from .usd_info import UsdInfoDecoder
 
-    return [ImageDecoder(), JsonDecoder(), TextDecoder(), UsdInfoDecoder()]
+    return [ImageDecoder(), JsonDecoder(), TextDecoder(), UsdInfoDecoder(), JointTrackDecoder()]
