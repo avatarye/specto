@@ -154,7 +154,8 @@ def test_a_view_without_a_slot_is_never_marked_released(app, spin):
     images(app)
     host = gallery(app, spin)
     slot = app.hosts.slot_of("kobi")
-    app.hosts.detach("kobi", slot)  # the slot went (a rebuild): the item waits parked
+    # the slot went (a rebuild): the item waits hidden in the parking
+    app.hosts.detach("kobi", slot)
     assert app.hosts.pause("kobi")
     assert not app.hosts.is_released("kobi")
     app.hosts.resume("kobi")
@@ -265,3 +266,77 @@ def test_a_resumed_gallery_decodes_its_thumbnails_again_after_its_first_frame(tm
     fake.frame()
     qapp.processEvents()
     assert len(fake.pushed) == 8
+
+
+def test_a_playing_video_released_by_the_registry_comes_back_on_its_frame_then_plays(app, spin):
+    """A playing video goes off-screen: the registry pauses it, schedules its release,
+    takes its item out of the scene after the delay (its node frees mpv's render
+    context) and puts it back on the pan home; the item reopens its file, and the host
+    lands on the frame it rested on and only then plays. mpv itself is a fake (no
+    OpenGL offscreen: the real one never opens a file here); the scene moves are real."""
+    import shutil
+
+    from gallery_helpers import TESTDATA
+    from test_video_host import FakeMpv
+
+    video = TESTDATA / "runs" / "run-001" / "video"
+    if not (video / "cam-a.mp4").exists():
+        pytest.skip(f"no test data at {TESTDATA}")
+    root = app.engine.project.root / "video"
+    root.mkdir()
+    for name in ("cam-a.mp4", "cam-a.timeline.json"):
+        shutil.copy2(video / name, root / name)
+    doc = app.live.document()
+    doc["views"]["naru"] = {
+        "type": "video",
+        "label": "Clip",
+        "layout": {"position": [300, 40], "size": [640, 400]},
+    }
+    pin(doc, "naru", sources=["video"])
+    submit(app, doc, "a video")
+    spin(until=lambda: "naru" in app.hosts.hosts and app.hosts.hosts["naru"].path is not None)
+    host = app.hosts.hosts["naru"]
+    host.release_delay_s = 0.2
+    mpv = FakeMpv()
+    host.mpv = mpv  # type: ignore[assignment]
+    host._on_loaded()
+    mpv.props["paused"] = False
+    host._on_paused()  # playing
+    times: list = []
+    emit = host.emit
+
+    def recording(port: str, value: object) -> None:
+        if port == "time":
+            times.append(value)
+        emit(port, value)
+
+    host.emit = recording  # type: ignore[method-assign]
+    mpv.props["position"] = host.timemap.pts[6]
+    host._on_position()  # playing, at frame 6
+    rest = host.time_value(6)
+
+    app.controller.panBy(3000, 0)
+    spin(until=lambda: app.hosts.is_paused("naru"))
+    assert mpv.writes[-1] == ("pause", True) and not app.hosts.is_released("naru")
+    mpv.props["paused"] = True
+    host._on_paused()  # it rests on frame 6
+    spin(until=lambda: app.hosts.is_released("naru"))
+    assert host.item.window() is None  # out of the scene after the delay
+    mpv.props["position"] = host.timemap.pts[7]
+    host._on_position()  # the old render context's frame goes
+
+    mpv.writes.clear()
+    app.controller.home()
+    spin(until=lambda: not app.hosts.is_paused("naru"))
+    assert in_scene(app, host, "naru") and not app.hosts.is_released("naru")
+    assert ("pause", False) not in mpv.writes  # not before the landing
+    mpv.props["position"] = 0.0
+    host._on_position()  # the file reopening for the new render context
+    host._on_loaded()
+    assert mpv.writes[-1] == ("seek", host.timemap.pts[6])
+    assert ("pause", False) not in mpv.writes
+    host._on_restart()
+    mpv.props["position"] = host.timemap.pts[6]
+    host._on_position()
+    assert host.frame == 6 and mpv.writes[-1] == ("pause", False)
+    assert times and all(t == rest for t in times)  # no time but the frame it rested on

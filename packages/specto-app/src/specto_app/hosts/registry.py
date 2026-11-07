@@ -32,7 +32,7 @@ from specto_core import Engine
 from specto_core.kinds import PluginManifest, ViewManifest
 from specto_core.links import Collection, ContentValue
 
-from .base import HostContext, QuickViewHost, ViewHostFactory
+from .base import RELEASE_DELAY_S, HostContext, QuickViewHost, ViewHostFactory
 
 ENTRY_POINT_GROUP = "specto.view_hosts"
 #: the empty-state line of a view that follows the file tree's picks (glossary: selection
@@ -393,10 +393,8 @@ class HostRegistry(QObject):
             return False
         self._paused[view_id] = {"status": "ok", "message": "", "hint": ""}
         self._paused[view_id].update(self.ctx.health_of(view_id))
-        pause = getattr(h, "pause", None)
         try:
-            if callable(pause):
-                pause()
+            _call_hook(h, "pause")
             self._schedule_release(view_id, h)
             self.ctx.set_health(view_id, "paused", "off-screen")
         except Exception as e:
@@ -408,12 +406,10 @@ class HostRegistry(QObject):
         before = self._paused.pop(view_id, None)
         if h is None or getattr(h, "disposed", False) or before is None:
             return False
-        resume = getattr(h, "resume", None)
         try:
             self._cancel_release(view_id)
             self._restore(view_id, h)
-            if callable(resume):
-                resume()
+            _call_hook(h, "resume")
             # the health from before the pause, the empty-state hint with it (#91)
             self.ctx.set_health(view_id, before["status"], before["message"], before["hint"])
         except Exception as e:
@@ -433,7 +429,7 @@ class HostRegistry(QObject):
         and straight back costs nothing, one left off-screen is released."""
         if not getattr(host, "release_when_paused", False):
             return
-        delay = float(getattr(host, "release_delay_s", 0.0))
+        delay = float(getattr(host, "release_delay_s", RELEASE_DELAY_S))
         if delay <= 0:
             self._release(view_id)
             return
@@ -464,9 +460,7 @@ class HostRegistry(QObject):
             return  # not in a slot (headless, or the slot is being rebuilt)
         self._released.add(view_id)
         item.setParentItem(None)
-        hook = getattr(host, "on_release", None)
-        if callable(hook):
-            hook()
+        _call_hook(host, "on_release")
 
     def _restore(self, view_id: str, host: Any) -> None:
         """Back from a release: the item goes into its slot (or, with none now, hidden
@@ -480,11 +474,8 @@ class HostRegistry(QObject):
             if slot is not None:
                 self._place(item, slot)
             else:
-                item.setParentItem(self._parking)
-                item.setVisible(False)
-        hook = getattr(host, "on_restore", None)
-        if callable(hook):
-            hook()
+                self._park(item)
+        _call_hook(host, "on_restore")
 
     def snapshot_image(self, view_id: str) -> Any:
         """The host's own image, or None (the shell then crops a window grab)."""
@@ -522,6 +513,11 @@ class HostRegistry(QObject):
             self._place(item, slot)
         return True
 
+    def _park(self, item: QQuickItem) -> None:
+        """Into the hidden parking, alive and out of sight, until a slot takes it."""
+        item.setParentItem(self._parking)
+        item.setVisible(False)
+
     @staticmethod
     def _place(item: QQuickItem, slot: QQuickItem) -> None:
         item.setParentItem(slot)
@@ -539,8 +535,7 @@ class HostRegistry(QObject):
         if item is None:
             return
         if item.parentItem() is slot:
-            item.setParentItem(self._parking)
-            item.setVisible(False)
+            self._park(item)
         if self._slots.get(view_id) is slot:
             self._slots.pop(view_id, None)
 
@@ -554,6 +549,13 @@ class HostRegistry(QObject):
 
     def slot_of(self, view_id: str) -> QQuickItem | None:
         return self._slots.get(view_id)
+
+
+def _call_hook(host: Any, name: str) -> None:
+    """Call the host's optional hook ``name`` (pause, resume, on_release, on_restore)."""
+    hook = getattr(host, name, None)
+    if callable(hook):
+        hook()
 
 
 def _link_name(link: dict[str, Any]) -> str:

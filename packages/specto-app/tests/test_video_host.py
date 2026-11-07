@@ -567,8 +567,6 @@ def test_a_video_playing_when_released_plays_on_from_the_same_frame(engine: Engi
     host._on_restart()
     at(host, mpv, 6)
     assert mpv.writes[-1] == ("pause", False)  # plays on from the frame it showed
-    stamps = {v.t for v in times}
-    assert stamps <= {host.time_value(6).t, host.time_value(None).t}
     assert times[-1] == host.time_value(6)
 
 

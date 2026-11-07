@@ -43,7 +43,9 @@ footer (#128): a full-length progress bar, the transport row and the viewer row.
   hwdec, timeline, time, muted, volume, the audio track and output and the render
   backend; health from mpv (``loading`` / ``ok`` / ``error``);
 - ``pause()`` / ``resume()`` for the shell's pause API (off-screen views): playback is
-  paused and resumed, the decoder stays.
+  paused and resumed. Released (``release_when_paused``, SPEC-3), the item leaves the
+  scene, its node frees mpv's render context, and the item reopens the file for the new
+  one on the way back; the host lands it on the frame it showed, playing again only then.
 
 Interaction map (``VideoView.qml``): click the picture, the footer's play button or
 Space: play / pause; Left / Right: one frame; wheel over the picture: frames; Home /
@@ -57,6 +59,7 @@ from __future__ import annotations
 
 import bisect
 import contextlib
+import enum
 from pathlib import Path
 from typing import Any
 
@@ -108,6 +111,14 @@ VIDEO_MANIFEST = ViewManifest(
 VIDEO_PLUGIN = PluginManifest(name="app-video", version="0.3.0", views=[VIDEO_MANIFEST])
 #: the volume slider's grid: 5 % steps (a press snaps to the nearest, the wheel moves one)
 VOLUME_STEPS = 20
+
+
+class PlayOnLanding(enum.Enum):
+    """A video released while playing plays again once back on its frame (SPEC-3)."""
+
+    NO = 0
+    AWAIT_REOPEN = 1  # the file is reopening for the new render context
+    AWAIT_LANDING = 2  # the seek back to the frame shown is in flight
 
 
 class VideoBridge(QObject):
@@ -240,9 +251,8 @@ class VideoHost(Stepping, QuickViewHost):
         # the file for the new render context; position changes nobody asked for until
         # then (the old context's last frame going, the reopening) are not emitted
         self._landing: int | None = None
-        # released while playing: play again once back on the frame (0 no, 1 waiting for
-        # the file to reopen, 2 waiting for the landing)
-        self._play_on_landing = 0
+        # released while playing: play again once back on the frame
+        self._play_on_landing = PlayOnLanding.NO
         self._params: dict[str, Any] = {}
         self.tl = TimelineController(self)
         self.tl.on_scrub = self.scrub
@@ -326,7 +336,7 @@ class VideoHost(Stepping, QuickViewHost):
         self._following = True  # positions reported while the file opens are not ours
         self._seek_target = None
         self._landing = None
-        self._play_on_landing = 0
+        self._play_on_landing = PlayOnLanding.NO
         self._rebuild_timemap()
         if self.item is not None:
             self.item.setProperty("caption", self.caption())
@@ -470,8 +480,8 @@ class VideoHost(Stepping, QuickViewHost):
             # or the one a time received meanwhile asked for
             frame, self._landing = self._landing, None
             self.seek_frame(frame, following=True)
-            if self._play_on_landing:
-                self._play_on_landing = 2
+            if self._play_on_landing is PlayOnLanding.AWAIT_REOPEN:
+                self._play_on_landing = PlayOnLanding.AWAIT_LANDING
             return
         # a view that opens while a time already sits on its port lands on it
         value = self.ctx.links.input_of(self.view_id, TIME)
@@ -508,8 +518,8 @@ class VideoHost(Stepping, QuickViewHost):
             if self._seek_target is None:  # the landing report of a followed seek
                 self._following = False
                 self._emit_time()
-                if self._play_on_landing == 2 and self.mpv is not None:
-                    self._play_on_landing = 0
+                if self._play_on_landing is PlayOnLanding.AWAIT_LANDING and self.mpv is not None:
+                    self._play_on_landing = PlayOnLanding.NO
                     self.mpv.play()
         elif self._landing is None:
             self._emit_time()
@@ -739,7 +749,8 @@ class VideoHost(Stepping, QuickViewHost):
 
     # -- shell pause API -----------------------------------------------------------------
     def pause(self) -> None:
-        """Off screen: stop decoding work (playback); the decoder stays."""
+        """Off screen: stop decoding work (playback). The file stays open until a release
+        (``on_release``), after which the item reopens it on the way back."""
         self._was_playing = not self.playback_paused
         if self.mpv is not None and not self.playback_paused:
             self.mpv.pause()
@@ -756,7 +767,7 @@ class VideoHost(Stepping, QuickViewHost):
         super().resume()
         if self._was_playing and self.mpv is not None:
             if self._landing is not None:
-                self._play_on_landing = 1  # once reopened and back on its frame
+                self._play_on_landing = PlayOnLanding.AWAIT_REOPEN
             else:
                 self.mpv.play()
         self._was_playing = False

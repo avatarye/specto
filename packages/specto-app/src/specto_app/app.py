@@ -691,7 +691,7 @@ class SpectoApp(QObject):
             poll(0)
         self.engine.links.poll()
 
-    # -- snapshots (contracts section 16; the overworld's cards, #45) -----------------------
+    # -- snapshots (contracts sections 11, 12; the overworld's cards, #45) -----------------------
     def capture_views(
         self, view_ids: list[str] | None = None, on_done: Callable[[str], None] | None = None
     ) -> list[str]:

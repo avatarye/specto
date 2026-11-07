@@ -5,7 +5,7 @@ The shell grabs every on-screen view's item on its own (``capture``, through
 ``QQuickItem.grabToImage``: the item subtree rendered alone, so nothing painted over the
 view, another view, a popup, the prompt bar, lands in its card, and the image comes in
 the item's own device pixels); a host that renders where a grab cannot see returns its
-own image from ``snapshot_image()`` (contracts section 16). Grabs land asynchronously, a
+own image from ``snapshot_image()`` (contracts section 11). Grabs land asynchronously, a
 frame later; ``capture`` reports each through ``on_done``. QML reads the store through
 the ``image://snaps/<view>?<rev>`` provider; the ``rev`` in the URL defeats Qt's image
 cache.

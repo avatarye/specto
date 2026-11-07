@@ -556,8 +556,8 @@ class GalleryHost(QuickViewHost):  # one per live view
     def on_patch(self, patch, meta) -> None: ...  # ops under /views/<id> (label, layout, params)
     def snapshot(self) -> dict: ...  # structured state for snap
 
-    # optional: pause(), resume(), snapshot_image(), dispose()
-    release_when_paused = True  # optional: the item leaves the scene while paused
+    # optional: pause(), resume(), on_release(), on_restore(), snapshot_image(), dispose()
+    release_when_paused = True  # optional: paused release_delay_s (3 s), the item leaves the scene
 
 
 register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
@@ -717,7 +717,8 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
 - One window, one free canvas at 1:1 (`specto_app.canvas.controller.CanvasController`):
   `pan {x, y}`, `viewport {x, y, w, h}` in canvas px, `setPan/panBy/home`, `maximize(id)`
   / Esc restores. Views outside the viewport pause (`hosts.pause`) and resume when
-  panned back; Home brings the file tree back unless the focused view takes it (Home /
+  panned back (one paused past its `release_delay_s` gives back its GPU memory, section
+  11, ADR 0030); Home brings the file tree back unless the focused view takes it (Home /
   End go to the focused view first; Space held pans, a Space tap goes to the focused
   view, #113). Header drag = move, border drag =
   resize, window resize = "resize window", header lock and close: each one user submit

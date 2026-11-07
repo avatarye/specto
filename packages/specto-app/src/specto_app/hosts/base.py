@@ -53,6 +53,9 @@ QML_DIR = Path(__file__).resolve().parent.parent / "qml"
 SHELL_QML = QML_DIR / "Specto" / "Shell"
 
 USER = "user"
+#: how long a view stays paused before it gives back its GPU memory (SPEC-3): panning
+#: out and straight back costs nothing
+RELEASE_DELAY_S = 3.0
 OK_HEALTH = {"status": "ok", "message": "", "hint": ""}
 
 
@@ -237,9 +240,8 @@ class QuickViewHost(QObject):
     #: ``resume``. Set by the views whose items rebuild by themselves; web views keep
     #: their pages (ADR 0030).
     release_when_paused: bool = False
-    #: how long a view stays paused before it is released: panning out and straight
-    #: back costs nothing
-    release_delay_s: float = 3.0
+    #: how long a view stays paused before it is released (``RELEASE_DELAY_S``)
+    release_delay_s: float = RELEASE_DELAY_S
 
     def __init__(self, ctx: HostContext, view_id: str, manifest: ViewManifest) -> None:
         super().__init__()
