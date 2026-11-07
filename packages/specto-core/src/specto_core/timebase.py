@@ -53,6 +53,19 @@ class TimeValue(BaseModel):
     timeline: str = DEFAULT_CLOCK
 
 
+#: an integer stamp at least this big is in these units: (magnitude, units per second)
+STAMP_MAGNITUDES: tuple[tuple[int, int], ...] = ((10**17, 10**9), (10**14, 10**6), (10**11, 10**3))
+
+
+def stamp_divisor(magnitude: float) -> int:
+    """Units per second of a stamp of this size: 10**9 (ns), 10**6 (us), 10**3 (ms) or 1
+    (seconds). One rule for item stamps and stamp columns (a joint track's)."""
+    for floor, per_second in STAMP_MAGNITUDES:
+        if magnitude >= floor:
+            return per_second
+    return 1
+
+
 def stamp_seconds(value: Any) -> float | None:
     """An integer stamp (ns, us, ms or s by magnitude) or a float of seconds -> seconds."""
     if isinstance(value, bool) or value is None:
@@ -68,13 +81,7 @@ def stamp_seconds(value: Any) -> float | None:
     if isinstance(value, float):
         return value
     if isinstance(value, int):
-        if value >= 10**17:
-            return value / 1e9
-        if value >= 10**14:
-            return value / 1e6
-        if value >= 10**11:
-            return value / 1e3
-        return float(value)
+        return value / float(stamp_divisor(value))
     return None
 
 
@@ -248,12 +255,14 @@ __all__ = [
     "DEFAULT_CLOCK",
     "INDEX",
     "OWN_TIMELINE",
+    "STAMP_MAGNITUDES",
     "VIDEO_EXTS",
     "GlobalClock",
     "TimeTable",
     "TimeValue",
     "item_stamp",
     "load_sidecar",
+    "stamp_divisor",
     "stamp_seconds",
     "video_part",
 ]

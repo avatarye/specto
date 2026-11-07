@@ -182,3 +182,66 @@ def test_decoded_on_the_pool_and_cached_after_the_shared_buffer_is_released(tmp_
         track = JointTrack.from_buffer(res.buffer)
         res.release()
     assert track.sample(TimeValue(t=1.4)) == {"j": 2.0}
+
+
+def test_only_a_table_that_looks_like_a_track_is_located_as_one(tmp_path: Path):
+    from specto_core.kinds import Item
+
+    reg = default_readers()
+    track = _csv(tmp_path, "time,shoulder\n0,0.1\n", name="run.csv")
+    notes = _csv(tmp_path, "name,comment\nbase,first\n", name="notes.csv")
+
+    def item(p: Path) -> Item:
+        return Item(key=p.stem, parts={p.suffix: str(p)})
+
+    ref = reg.locate(item(track), accepts=["joint_track"])
+    assert ref is not None and ref.kind == "joint_track"
+    assert reg.locate(item(notes), accepts=["joint_track"]) is None
+    # every other view still takes a .csv as text
+    plain = reg.locate(item(track))
+    assert plain is not None and plain.kind == "text"
+
+
+def test_the_content_check_reads_the_header_or_the_schema(tmp_path: Path):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from specto_readers.joint_track import joint_track_problem
+
+    assert joint_track_problem(str(_csv(tmp_path, "t,j\n0,1\n", name="ok.csv"))) is None
+    p = _csv(tmp_path, "time,label\n0,a\n", name="nojoints.csv")
+    assert "no joint columns" in joint_track_problem(str(p))
+    p = _csv(tmp_path, "when,j\nnoon,1\n", name="wordtime.csv")
+    assert "time column 'when' is not numbers" in joint_track_problem(str(p))
+    p = _csv(tmp_path, "time,j\n", name="headeronly.csv")
+    assert joint_track_problem(str(p)) == "no header and data row"
+    good = tmp_path / "ok.parquet"
+    pq.write_table(pa.table({"stamp_ns": [T0_NS], "elbow": [0.5]}), good)
+    assert joint_track_problem(str(good)) is None
+    words = tmp_path / "words.parquet"
+    pq.write_table(pa.table({"time": [0.0], "note": ["x"]}), words)
+    assert "no joint columns" in joint_track_problem(str(words))
+
+
+def test_no_view_claims_a_table_by_extension():
+    """Joint tracks reach a view through its joints port, never as a dedicated view:
+    a double-click on a .parquet or .csv must not open a robot (ADR 0023)."""
+    from specto_core.kinds import default_plugins
+
+    reg = default_plugins()
+    assert reg.typed_view_for("x.parquet") is None
+    assert reg.typed_view_for("x.csv") == "json"
+
+
+def test_a_huge_table_is_refused_with_the_fix(tmp_path: Path, monkeypatch):
+    from specto_readers import joint_track
+
+    monkeypatch.setattr(joint_track, "MAX_CELLS", 5)
+    p = _csv(tmp_path, "time,a,b\n0,1,2\n1,3,4\n")
+    with pytest.raises(DecodeError, match="more than 5 cells"):
+        _decode(p)
+
+
+def test_a_float_time_column_of_epoch_ms_reads_by_magnitude(tmp_path: Path):
+    p = _csv(tmp_path, "stamp,j\n1700000000000.0,1\n1700000000500.0,2\n")
+    assert _decode(p).range() == pytest.approx((1_700_000_000.0, 1_700_000_000.5))

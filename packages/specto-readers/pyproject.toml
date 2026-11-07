@@ -1,7 +1,7 @@
 [project]
 name = "specto-readers"
 version = "0.2.0"
-description = "Specto readers: built-in locators and decoders (images, JSON, text)."
+description = "Specto readers: built-in locators and decoders (images, JSON, text, USD headers, joint tracks), xacro expansion and the worker pool."
 requires-python = ">=3.12,<3.13"
 license = "MIT"
 dependencies = ["specto-core", "numpy>=2.0", "pillow>=10.4", "pyarrow>=18", "xacro>=2.1.1"]

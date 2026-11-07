@@ -5,42 +5,58 @@ per joint name, read from a table and sampled at the global clock's time.
   one numeric column per joint name. Values are URDF units (radians, metres).
 - **The time column**: ``options["time_column"]`` when given; else the first column named
   like a time (``time``, ``t``, ``stamp``, ``timestamp``, ``sec``..., with or without a
-  unit suffix ``_ns`` / ``_us`` / ``_ms`` / ``_s``); else the first column. A unit
-  suffix sets the unit; without one the column's magnitude does (integers or floats of
-  at least 1e17 are ns, 1e14 us, 1e11 ms, else seconds: ``timebase.stamp_seconds``'s
-  rule), so an epoch-ns stamp lands on the ``stamp`` clock beside stamped images and
-  bag messages. The timeline is ``options["timeline"]``, default ``stamp``.
+  unit suffix ``_ns`` / ``_us`` / ``_ms`` / ``_s``); else the **first column**. A unit
+  suffix sets the unit; without one the column's largest magnitude sets **one unit for
+  the whole column** (``timebase.stamp_divisor``, the rule item stamps use: at least
+  1e17 is ns, 1e14 us, 1e11 ms, else seconds), so an epoch-ns stamp lands on the
+  ``stamp`` clock beside stamped images and bag messages. The timeline is
+  ``options["timeline"]``, default ``stamp``.
+- **What counts as a joint track** (:func:`joint_track_problem`, the locator's content
+  check): a time column of numbers plus at least one other numeric column, read from
+  the CSV header and first row or the Parquet schema. A table that fails it is not
+  located as a track (an intaker asking for ``joint_track`` skips it with the reason),
+  and a ``.csv`` stays text for every other view. Whether the joint names match the
+  URDF is the view's health note (:meth:`JointTrack.unmatched`), not this check.
 - **The decoder** ``joint_track`` (worker side) returns one float64 ``(rows, 1 + joints)``
   table sorted by time, the time in seconds first, ``NaN`` where a cell was empty;
   ``meta``: ``columns`` (the time column's own name first), ``timeline``, ``skipped``
-  (non-numeric columns, left out), ``source``.
+  (non-numeric columns, left out), ``source``. Rows without a time are dropped. Memory
+  peaks at about the Arrow table plus twice the result (``8 * rows * (1 + joints)``
+  bytes, sorted into a copy); past ``MAX_CELLS`` the decoder refuses with the fix.
 - :class:`JointTrack` (GUI side) caches the columns and answers :meth:`JointTrack.sample`:
   per joint, the sample **nearest** ``t``, never an interpolated one (owner decision,
-  2026-11-07); a tie goes to the earlier sample, and twins sharing a stamp to the first
-  row. Before the first and after the last sample the end samples show. A joint whose
-  cell is empty at a row is not reported there: it shows its own nearest sample.
+  2026-11-07); a tie between two samples goes to the earlier one, and rows sharing a
+  stamp to the **first row**. Before the first and after the last sample the end
+  samples show. A joint whose cell is empty (``NaN``) at a row is not reported there:
+  it shows its own **nearest valid sample**.
 """
 
 from __future__ import annotations
 
+import csv
 import io
 import re
+from pathlib import PurePath
 from typing import Any
 
 import numpy as np
 
 from specto_core.containers import open_source
-from specto_core.errors import SpectoError
-from specto_core.kinds import DataRef, DecodeRequest, TypedBuffer
-from specto_core.timebase import DEFAULT_CLOCK, OWN_TIMELINE, TimeValue
+from specto_core.errors import NotFound, SpectoError
+from specto_core.kinds import DataRef, DecodeRequest, Item, TypedBuffer
+from specto_core.timebase import DEFAULT_CLOCK, OWN_TIMELINE, TimeValue, stamp_divisor
 
 from .decoders import DecodeError
+from .locators import ExtensionLocator
 
 #: column names read as the time column (lower case, unit suffix stripped)
 TIME_NAMES = ("time", "t", "stamp", "timestamp", "header.stamp", "sec", "secs", "seconds")
 _UNIT = re.compile(r"^(?P<base>.+?)[_.](?P<unit>ns|us|ms|s)$")
-_SCALE = {"ns": 1e-9, "us": 1e-6, "ms": 1e-3, "s": 1.0}
-PARQUET_EXTS = (".parquet", ".pq")
+_PER_SECOND = {"ns": 10**9, "us": 10**6, "ms": 10**3, "s": 1}
+PARQUET_EXTS = (".parquet",)
+#: the largest table the decoder takes, in cells (rows x columns): 400 MB as float64
+MAX_CELLS = 50_000_000
+_SNIFF_BYTES = 64 * 1024
 
 
 def _split_unit(name: str) -> tuple[str, str | None]:
@@ -54,17 +70,78 @@ def _is_time_name(name: str) -> bool:
     return low in TIME_NAMES or _split_unit(low)[0] in TIME_NAMES
 
 
-def _magnitude_scale(values: np.ndarray) -> float:
-    """``stamp_seconds``'s magnitude rule over a whole column."""
-    finite = values[np.isfinite(values)]
-    top = float(np.max(np.abs(finite))) if finite.size else 0.0
-    if top >= 1e17:
-        return 1e-9
-    if top >= 1e14:
-        return 1e-6
-    if top >= 1e11:
-        return 1e-3
-    return 1.0
+def time_column_of(names: list[str], wanted: str | None = None) -> str | None:
+    """The time column among ``names`` (module docstring); None when ``wanted`` is not
+    one of them or there are no columns."""
+    if wanted is not None:
+        return wanted if wanted in names else None
+    return next((n for n in names if _is_time_name(n)), names[0] if names else None)
+
+
+def _is_parquet(path: str) -> bool:
+    return PurePath(path).suffix.lower() in PARQUET_EXTS
+
+
+def _is_number(text: str) -> bool:
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return text.strip() != ""
+
+
+def joint_track_problem(path: str, time_column: str | None = None) -> str | None:
+    """Why ``path`` is not a joint track, or None when it looks like one: a numeric time
+    column plus at least one other numeric column, from the CSV header and first row or
+    the Parquet schema (cheap: never the whole table)."""
+    try:
+        with open_source(path) as f:
+            head = f.read() if _is_parquet(path) else f.read(_SNIFF_BYTES)
+    except (OSError, SpectoError) as e:
+        return f"cannot read it: {e}"
+    if _is_parquet(path):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        try:
+            schema = pq.read_schema(pa.BufferReader(head))
+        except (pa.ArrowException, ValueError) as e:
+            return f"not a Parquet table: {e}"
+        names = [str(n) for n in schema.names]
+        numeric = {
+            n
+            for n, t in zip(names, schema.types, strict=True)
+            if pa.types.is_integer(t) or pa.types.is_floating(t)
+        }
+    else:
+        rows = list(csv.reader(io.StringIO(head.decode("utf-8", "replace"))))[:2]
+        if len(rows) < 2:
+            return "no header and data row"
+        names, first = rows[0], rows[1]
+        numeric = {n for n, v in zip(names, first, strict=False) if _is_number(v)}
+    time_name = time_column_of(names, time_column)
+    if time_name is None:
+        return f"no time column {time_column!r}" if time_column else "no columns"
+    if time_name not in numeric:
+        return f"its time column {time_name!r} is not numbers"
+    if not (numeric - {time_name}):
+        return f"no joint columns (numeric columns besides {time_name!r})"
+    return None
+
+
+class JointTrackLocator(ExtensionLocator):
+    """The ``joint_track`` locator: by extension, then by content (:func:`joint_track_problem`)
+    in ``locate``, so only a table that looks like a track becomes one."""
+
+    def locate(self, item: Item) -> DataRef:
+        ref = super().locate(item)
+        problem = joint_track_problem(ref.uri)
+        if problem is not None:
+            raise NotFound(
+                f"{PurePath(ref.uri).name} is not a joint track: {problem}",
+                fix="a time column plus one numeric column per joint",
+            )
+        return ref
 
 
 def _read_table(uri: str) -> Any:
@@ -78,7 +155,7 @@ def _read_table(uri: str) -> Any:
     except (OSError, SpectoError) as e:
         raise DecodeError(f"cannot read {uri}: {e}") from e
     try:
-        if uri.lower().endswith(PARQUET_EXTS):
+        if _is_parquet(uri):
             return pq.read_table(pa.BufferReader(data))
         return pcsv.read_csv(io.BytesIO(data))
     except (pa.ArrowException, ValueError) as e:
@@ -86,31 +163,26 @@ def _read_table(uri: str) -> Any:
 
 
 def _numeric(column: Any) -> np.ndarray | None:
-    """A pyarrow column as float64 with NaN for nulls; None when it is not numbers."""
+    """A pyarrow column as numbers (an int column without nulls stays integer, so an
+    epoch-ns stamp keeps its precision; nulls become NaN); None when it is not numbers."""
     import pyarrow as pa
 
     if not (pa.types.is_integer(column.type) or pa.types.is_floating(column.type)):
         return None
-    if pa.types.is_integer(column.type):
-        # an epoch-ns int64 keeps its precision until the one division into seconds
-        arr = column.to_numpy(zero_copy_only=False)
-        if column.null_count:
-            arr = arr.astype(np.float64)
-            arr[np.asarray(column.is_null())] = np.nan
-        return arr
-    return column.cast(pa.float64()).fill_null(np.nan).to_numpy(zero_copy_only=False)
+    return np.asarray(column.to_numpy(zero_copy_only=False))
 
 
 def _time_seconds(name: str, values: np.ndarray) -> np.ndarray:
     unit = _split_unit(name)[1]
     if unit is not None:
-        scale = _SCALE[unit]
+        per_second = _PER_SECOND[unit]
     else:
-        scale = _magnitude_scale(values.astype(np.float64))
-    if np.issubdtype(values.dtype, np.integer) and scale != 1.0:
-        whole = round(1.0 / scale)
-        return (values // whole).astype(np.float64) + (values % whole).astype(np.float64) * scale
-    return values.astype(np.float64) * scale
+        finite = values[np.isfinite(values)] if values.dtype.kind == "f" else values
+        per_second = stamp_divisor(float(np.max(np.abs(finite))) if finite.size else 0.0)
+    if values.dtype.kind in "iu":
+        whole, part = np.divmod(values, per_second)
+        return whole.astype(np.float64) + part.astype(np.float64) / per_second
+    return values.astype(np.float64) / per_second
 
 
 class JointTrackDecoder:
@@ -128,15 +200,18 @@ class JointTrackDecoder:
             raise DecodeError(f"{ref.uri} has no columns")
         if table.num_rows == 0:
             raise DecodeError(f"{ref.uri} has no rows")
-        wanted = opts.get("time_column")
-        if wanted is not None:
-            if wanted not in names:
-                raise DecodeError(
-                    f"{ref.uri} has no time column {wanted!r}", fix=f"columns: {names}"
-                )
-            time_name = str(wanted)
-        else:
-            time_name = next((n for n in names if _is_time_name(n)), names[0])
+        if table.num_rows * len(names) > MAX_CELLS:
+            raise DecodeError(
+                f"{ref.uri} has {table.num_rows} rows x {len(names)} columns, more than "
+                f"{MAX_CELLS} cells",
+                fix="downsample the track or drop columns",
+            )
+        time_name = time_column_of(names, opts.get("time_column"))
+        if time_name is None:
+            raise DecodeError(
+                f"{ref.uri} has no time column {opts.get('time_column')!r}",
+                fix=f"columns: {names}",
+            )
         raw_time = _numeric(table.column(time_name))
         if raw_time is None:
             raise DecodeError(
@@ -154,16 +229,16 @@ class JointTrackDecoder:
                 skipped.append(n)
                 continue
             joints.append(n)
-            cols.append(col.astype(np.float64))
+            cols.append(col)
         if not joints:
             raise DecodeError(
                 f"{ref.uri} has no joint columns (numeric columns besides {time_name!r})",
                 fix=f"columns: {names}",
             )
-        keep = ~np.isnan(raw_time.astype(np.float64))
-        if not keep.any():
-            raise DecodeError(f"{ref.uri} has no rows with a time")
+        keep = ~np.isnan(raw_time) if raw_time.dtype.kind == "f" else slice(None)
         times = _time_seconds(time_name, raw_time[keep])
+        if not times.size:
+            raise DecodeError(f"{ref.uri} has no rows with a time")
         out = np.empty((times.size, 1 + len(joints)), dtype=np.float64)
         out[:, 0] = times
         for i, col in enumerate(cols, start=1):
@@ -259,8 +334,16 @@ def _nearest(times: np.ndarray, values: np.ndarray, t: float) -> float:
         j = i
     else:
         j = i - 1
-    j = int(np.searchsorted(times, times[j], side="left"))  # twins: the first row
+    j = int(np.searchsorted(times, times[j], side="left"))  # rows sharing a stamp: the first
     return float(values[j])
 
 
-__all__ = ["TIME_NAMES", "JointTrack", "JointTrackDecoder"]
+__all__ = [
+    "MAX_CELLS",
+    "TIME_NAMES",
+    "JointTrack",
+    "JointTrackDecoder",
+    "JointTrackLocator",
+    "joint_track_problem",
+    "time_column_of",
+]

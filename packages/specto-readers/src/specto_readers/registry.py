@@ -80,19 +80,23 @@ class ReaderRegistry:
 
     def locate(self, item: Item, *, accepts: Iterable[str] | None = None) -> DataRef | None:
         """A ``DataRef`` for the item's best part, optionally limited to accepted kinds.
-        None when no part resolves: the view lists the item as skipped."""
+        Candidates go by priority; a locator may refuse the item by content (``locate``
+        raises ``NotFound``: the joint-track locator), and the next one is tried. None
+        when no part resolves: the view lists the item as skipped."""
         wanted = set(accepts) if accepts is not None else None
-        best: tuple[int, Locator] | None = None
+        cands: list[tuple[int, Locator]] = []
         for path in item.parts.values():
             for lo in self.locators_for(path):
                 kinds = list(getattr(lo, "kinds", []))
                 if wanted is not None and not (wanted & set(kinds)):
                     continue
-                prio = lo.can_handle(path)
-                if best is None or prio > best[0]:
-                    best = (prio, lo)
-                break
-        return best[1].locate(item) if best else None
+                cands.append((lo.can_handle(path), lo))
+        for _prio, lo in sorted(cands, key=lambda c: -c[0]):
+            try:
+                return lo.locate(item)
+            except NotFound:
+                continue
+        return None
 
     def decode(self, ref: DataRef, request: DecodeRequest | None = None) -> TypedBuffer:
         """Decode in this process (tests, headless). The app goes through the pool."""

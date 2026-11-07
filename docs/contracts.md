@@ -408,10 +408,14 @@ before. Thumbnails and posters never open an audio device.
   stub USD source in the faked renderer's place); a name in both is disabled. Data kinds: `image2d image_seq video_ref pointcloud mesh splat usd_stage_ref
   geojson json text markdown table message_stream pose_track joint_track`. `joint_track`
   (`specto_readers.joint_track`): a CSV or Parquet table, one time column plus one column
-  per joint, decoded to one time-sorted float64 table (seconds first, `NaN` for an empty
-  cell; `meta.columns`, `timeline`, `skipped`); `JointTrack.sample(TimeValue)` gives each
-  joint's nearest sample, never interpolated. xacro (`specto_readers.xacro_expand`)
-  expands only files whose content hash the user approved (ADR 0006), includes too.
+  per joint, located as a track only when its header (or schema) has a numeric time
+  column and another numeric column (a locator may refuse an item by content in
+  `locate`; `ReaderRegistry.locate` then tries the next one); decoded to one time-sorted
+  float64 table (seconds first, `NaN` for an empty cell; `meta.columns`, `timeline`,
+  `skipped`; at most `MAX_CELLS`); `JointTrack.sample(TimeValue)` gives each joint's
+  nearest sample, never interpolated. No view claims a table by extension: tracks reach
+  a view through a port. xacro (`specto_readers.xacro_expand`) is a code-running path
+  (section 10).
 - Intake (`specto-intake`): the intaker's params are the spec (section 2); items are
   `Item {key, parts: {role -> path}, index, meta}`; keys are the named groups of
   `params.keys` joined in `group_by` order; several sources namespace keys by source
@@ -496,6 +500,16 @@ the transport-agnostic handler; `specto_app.endpoint.LocalEndpoint` serves it;
   SDK connection per MCP session with `origin="agent:<session>"`; a rejected submit is a
   tool error listing every problem with its fix-it. No transactions: a submit is whole
   and atomic, so sessions hold no open state.
+- Code-running paths (ADR 0006), the complete list; each runs only content whose sha256
+  the user approved in the window, in its own `python -I -X utf8` process started from a
+  pool worker, never in the app or a worker:
+  - Python links (section 6, `_python_link_runner.py`);
+  - xacro expansion (`specto_readers.xacro_expand`, `_xacro_runner.py`): the root file's
+    hash must be approved; every file xacro reads (includes and `load_yaml` files) is
+    hashed before it is parsed and must be approved too, except during the Approve of
+    that exact root (`approved_root_sha`), whose reads the host then records; `$(find)`
+    goes to Specto's package resolver, and `roots` confine reads to the project and the
+    found packages. Untrusted, it says "xacro needs Approve"; plain URDF always opens.
 
 ## 11. View hosts (specto-app; `specto_app.hosts`)
 

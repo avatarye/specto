@@ -143,8 +143,8 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 | numpy | BSD-3-Clause (with 0BSD, MIT, Zlib and CC0 parts) | Image buffers, the usd source's frames. |
 | scipy | BSD-3-Clause; its wheels bundle Qhull (Qhull licence), OpenBLAS and LAPACK (BSD-3-Clause variants) and the GCC runtime (GPL-3.0 with the GCC Runtime Library Exception) | Convex hulls (Qhull) for the usd view's collision view. |
 | pillow | MIT-CMU | Image decoding and thumbnails. |
-| pyarrow | Apache-2.0 (Apache Arrow; its wheels bundle Arrow C++ and its permissive dependencies, listed in the wheel's `LICENSE.txt` and `NOTICE.txt`) | Reads tables (CSV, Parquet) for joint tracks, the URDF view's `joints` port. |
-| xacro | BSD-3-Clause (Robert Haschke, Bielefeld University) | Expands `.xacro` robot descriptions for the URDF view, for approved content only (its `${...}` evaluates Python). |
+| pyarrow | Apache-2.0 (Apache Arrow; its wheels bundle Arrow C++ and its permissive dependencies, listed in the wheel's `LICENSE.txt` and `NOTICE.txt`; OpenSSL as a dynamically linked library under its OpenSSL / SSLeay licence; on Windows the MSVC C++ runtime `msvcp140` under Microsoft's redistributable terms) | Reads tables (CSV, Parquet) for joint tracks, the URDF view's `joints` port. About 90 MB installed. |
+| xacro | BSD-3-Clause (Robert Haschke, Bielefeld University) | Expands `.xacro` robot descriptions for the URDF view, for approved content only and in a process of its own (its `${...}` evaluates Python). |
 | PyYAML | MIT | Pulled in by xacro (its `load_yaml`, read with `safe_load`). |
 | PyOpenGL | BSD-3-Clause | The usd view's Storm source draws offscreen with it. |
 | platformdirs | MIT | User and cache directories. |

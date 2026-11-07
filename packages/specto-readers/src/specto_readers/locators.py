@@ -65,4 +65,7 @@ class ExtensionLocator:
 
 
 def builtin_locators() -> list[ExtensionLocator]:
-    return [ExtensionLocator(m) for m in BUILTIN_LOCATORS]
+    from .joint_track import JointTrackLocator  # it subclasses ExtensionLocator
+
+    special = {"joint_track": JointTrackLocator}
+    return [special.get(m.name, ExtensionLocator)(m) for m in BUILTIN_LOCATORS]
