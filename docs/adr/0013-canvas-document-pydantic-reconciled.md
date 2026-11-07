@@ -39,6 +39,20 @@ Measured on Sonnet (bench, `tools/bench/prompt_bench.py`): the move from 705-719
 
 Considered and not chosen: a JSON Patch (RFC 6902) argument (the same cut, but the model writes op lists and paths instead of the shape it reads); a seventh tool `edit_canvas` (the same cut, at the cost of ADR 0017's six-tool contract and a drift toward per-gesture tools).
 
+## Amendment 2026-11-07: the turn-start conflict is per field; a submit's label may come from its patch (SPEC-18)
+
+Point 5 refused a whole object as soon as the user had touched it mid-turn. That refused two submits that did not contradict the user: a whole document read before a drag (its stale copy of the dragged view differs from the live one, though the agent never meant to change it), and an edit of another field of a view the user moved (a relabel of a view the user dragged).
+
+1. **Merge against the turn-start copy.** Each `LiveCanvas.mark` has its own id and keeps a copy of the views and links as the turn began (the newest four marks; the prompt bar marks once per turn). A non-user submit with `since` judges each view or link the user changed after the mark against that copy. A field is an object's top-level key or one key of its layout or params (`edits.FIELD_PARENTS`); anything inside a field is one value (a link end, `layout.floating`, a param's value, a position), so two halves never merge into what neither side wrote.
+   - An **edit** changes the fields it names: a named field the user also changed, to a different value, is a conflict, even when the edit sets it back to its turn-start value. A link the edit drops without naming it (it goes with a view the edit removes) that the user added or changed this turn is a conflict too.
+   - A **whole document** merges three ways (`edits.three_way`): a field only one side changed takes that side's value; a field both changed differently, or an object one side removed while the other changed it, is a conflict. A stale whole document therefore keeps the user's drag and lands its own change, and a view the user closed stays closed unless the agent changed it. A link the user added that the merged document would leave without one of its views is a conflict.
+   - A conflict is refused as before with the live entry, naming the fields. Its fix-it says to keep the user's value or ask the user: `since` stays the turn's start, so writing over the value would be refused again. A merged document is validated again before the usual submit rules. A `since` that no `mark` returned has no copy and refuses as point 5 did.
+   - All submits run on the GUI thread (the prompt bar's agent tools on the qasync loop, the endpoint's `QLocalServer`, the gestures), so the read, merge and apply of one submit cannot interleave with another's; no lock is needed.
+   - Not covered: a stale whole document can still revert a user's `root_view` or `project.label` change made during the turn (they are no views or links).
+2. **A label from the patch.** A submit without a label gets one from its patch (`diff_text.patch_label`: "moved kobi", "added image 'Rear'", "relabelled tamu 'rear'", up to three phrases). The tool description and the system prompt let the agent leave the label out of a plain move, resize or relabel, which saves the label's tokens on the commonest turn. Point 7's strip still shows a label.
+
+Considered and not chosen: closing SPEC-18 as low value now that edits exist. Edits made the stale whole document rare, but point 5 also refused edits of a dragged view's other fields, which the merge accepts. Also not chosen: a field-level merge of lists (a position is one value: half of the user's drag and half of the agent's move would be neither).
+
 ## Considered options
 
 - Commands only (HLD 3.4): rejected as too slow for agent composition.

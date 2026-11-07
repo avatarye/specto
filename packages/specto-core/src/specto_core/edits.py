@@ -210,12 +210,84 @@ def _ends(link: Any) -> set[str]:
     }
 
 
+class _Missing:
+    """An absent key or object, apart from ``None`` (a JSON null is a value)."""
+
+    def __repr__(self) -> str:
+        return "MISSING"
+
+
+#: what ``three_way`` takes and returns for an object or key that is not there
+MISSING: Any = _Missing()
+
+
+#: the paths whose keys are fields of their own: the object itself, its layout and its
+#: params. Anything deeper (a link end ``{view, port}``, ``layout.floating``, a param's
+#: value) is one value: half of one side's and half of the other's would be neither
+FIELD_PARENTS = frozenset({"", "layout", "params"})
+
+
+def field_paths(entry: Any) -> set[str]:
+    """The fields an object (or an edit of one) names, as ``three_way`` merges them:
+    ``label``, ``layout.position``, ``params.tile``."""
+    if not isinstance(entry, dict):
+        return set()
+    out: set[str] = set()
+    for key, value in entry.items():
+        if key in FIELD_PARENTS and isinstance(value, dict):
+            out |= {f"{key}.{sub}" for sub in value}
+        else:
+            out.add(key)
+    return out
+
+
+def field_at(entry: Any, path: str) -> Any:
+    """The value of one ``field_paths`` field (``MISSING`` when absent)."""
+    for key in path.split("."):
+        if not isinstance(entry, dict) or key not in entry:
+            return MISSING
+        entry = entry[key]
+    return entry
+
+
+def three_way(base: Any, live: Any, agent: Any, path: str = "") -> tuple[Any, list[str]]:
+    """Merge the agent's copy of one object with the live one against the turn-start copy
+    (SPEC-18): a field only one side changed takes that side's value, a field both
+    changed alike is kept, the object, its layout and its params merge field by field
+    (``FIELD_PARENTS``), and anything else (a value both changed differently, or one side
+    removed what the other changed) is a conflict. Returns the merged value (``MISSING``:
+    absent) and the conflicting field paths (dotted, ``""`` for the whole object)."""
+    if agent == base:
+        return live, []
+    if live in (base, agent):
+        return agent, []
+    if path in FIELD_PARENTS and all(isinstance(v, dict) for v in (base, live, agent)):
+        merged: dict[str, Any] = {}
+        conflicts: list[str] = []
+        for key in dict.fromkeys([*base, *live, *agent]):
+            value, clash = three_way(
+                base.get(key, MISSING),
+                live.get(key, MISSING),
+                agent.get(key, MISSING),
+                f"{path}.{key}" if path else key,
+            )
+            conflicts += clash
+            if value is not MISSING:
+                merged[key] = value
+        return merged, conflicts
+    return live, [path]
+
+
 __all__ = [
     "EDITABLE",
+    "MISSING",
     "REFUSED",
     "already_removed",
     "edit_problems",
+    "field_at",
+    "field_paths",
     "merge_edits",
     "merge_patch",
+    "three_way",
     "unknown_ids",
 ]

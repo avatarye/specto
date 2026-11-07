@@ -126,10 +126,11 @@ class Api:
             Patch (RFC 7396) over the running document, in its own shape; null removes, what is
             left out is kept. May name views, links, root_view and project.label.
             label: str (default '') -- One line saying what changed; the user reads it in the
-            reply strip and the undo history.
+            reply strip and the undo history. Left empty, the app writes one from the change
+            ('moved kobi').
             since: int | None (default None) -- A turn start (the prompt bar's LiveCanvas.mark):
-            a change to a view or link the user changed after it is refused with its live entry
-            (code conflict).
+            a view or link the user changed after it merges field by field with this submit; a
+            field both changed is refused with the live entry (code conflict).
         """
         return self._call(
             "canvas.submit",

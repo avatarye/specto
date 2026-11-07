@@ -37,7 +37,8 @@ from .canvas_document import (
     validate_canvas,
     watch_the_file_tree,
 )
-from .edits import already_removed, merge_edits
+from .diff_text import patch_label
+from .edits import MISSING, already_removed, field_at, field_paths, merge_edits, three_way
 from .errors import PatchError, TxnError
 from .events import EventStream
 from .journal import Journal, JournalEntry
@@ -95,6 +96,43 @@ class CanvasConflict(CanvasInvalid):
 
 
 _OBJECT_PATH = re.compile(r"^/(views|links)/([^/]+)")
+#: how many turn-start copies ``mark`` keeps (the prompt bar needs the newest)
+MARK_COPIES = 4
+
+
+def _conflict(section: str, oid: str, entry: Any, fields: list[str]) -> Problem:
+    """A turn-start conflict on one object: removed by the user, or changed in
+    ``fields`` (dotted paths; ``""`` for the object as a whole) by both sides. ``since``
+    stays the turn's start, so a retry of the same change meets the same conflict: the
+    fix-it says to keep the user's value or ask, never to write over it."""
+    if entry is MISSING:
+        return Problem(
+            path=f"/{section}/{oid}",
+            message=f"{oid} was removed by the user during this turn",
+            fix=f"leave {oid} out; add it again only if the user asks for it",
+        )
+    which = ", ".join(f for f in fields if f)
+    what = f"{oid}'s {which}" if which else oid
+    return Problem(
+        path=f"/{section}/{oid}",
+        message=f"{oid} was changed by the user during this turn"
+        + (f" ({which})" if which else "")
+        + f"; its entry is now {json.dumps(entry, separators=(',', ':'))}",
+        fix=f"keep the user's {what}: leave it out of your submit, or ask the user before "
+        "changing it",
+    )
+
+
+def _link_conflict(lid: str, views: list[str]) -> Problem:
+    """A link the user added or changed this turn that the submit would leave without one
+    of its views."""
+    names = " and ".join(views)
+    return Problem(
+        path=f"/links/{lid}",
+        message=f"{lid} was added or changed by the user during this turn and links {names}, "
+        "which your change removes",
+        fix=f"keep {names}, or ask the user before removing it",
+    )
 
 
 def _changes(patch: list[dict[str, Any]], section: str) -> dict[str, list[str]]:
@@ -171,6 +209,11 @@ class LiveCanvas:
         #: (submits, undos, redos; not navigation): what ``mark`` counts and the
         #: conflict rule reads
         self._changes: list[tuple[str, list[str]]] = []
+        #: each recent ``mark``: its place in ``_changes`` and the views and links as it
+        #: found them (the turn-start copy a submit with that ``since`` merges against,
+        #: SPEC-18); the newest ``MARK_COPIES`` are kept
+        self._marks: dict[int, tuple[int, dict[str, dict[str, Any]]]] = {}
+        self._mark_no = 0
 
     # -- construction ------------------------------------------------------------------
     @classmethod
@@ -354,9 +397,11 @@ class LiveCanvas:
         document (``edits.merge_edits``, #98); the merged document then takes the same
         path, so the whole result is validated.
 
-        ``since`` (a ``mark``, the prompt bar's turn start): a non-user submit that would
-        change a view or link the user changed after the mark is refused with
-        ``CanvasConflict``, carrying the live entry (#98)."""
+        ``since`` (a ``mark``, the prompt bar's turn start): a non-user submit merges three
+        ways with the views and links the user changed after the mark, against their
+        turn-start copies (SPEC-18); a field both changed differently is refused with
+        ``CanvasConflict``, carrying the live entry (#98). A submit without a ``label``
+        gets one from its patch (``diff_text.patch_label``)."""
         if (document is None) == (edits is None):
             raise CanvasInvalid(
                 [
@@ -408,9 +453,14 @@ class LiveCanvas:
                     view["params"] = {"selected": kept}
         patch = make_patch(self.data, new)
         if since is not None and not is_user_origin(origin):
-            conflicts = self._conflicts(patch, since)
+            edit = json.loads(edits) if isinstance(edits, str) else edits
+            merged, conflicts = self._merge_user_changes(new, patch, since, edit)
             if conflicts:
                 raise CanvasConflict(conflicts)
+            if merged:
+                doc = validate_canvas(new)
+                new = doc.to_data()
+                patch = make_patch(self.data, new)
         problems = lock_problems(self.data, new, origin)
         problems += reach_problems(self.data, doc, is_user_origin(origin))
         problems += quota_problems(new, self.quotas, self.view_cost)
@@ -428,6 +478,7 @@ class LiveCanvas:
                 depth=len(self.history),
             )
         inverse = invert_patch(self.data, patch)
+        label = label or patch_label(patch, inverse)
         apply_patch(self.data, patch)
         self._txn_no += 1
         rec = TxnRecord(
@@ -483,19 +534,43 @@ class LiveCanvas:
         return named - set(self.data["views"]) - set(self.data["links"])
 
     def mark(self) -> int:
-        """A point in this session's changes; ``submit(since=mark)`` refuses to change
-        what the user changed after it (the prompt bar marks each turn's start)."""
-        return len(self._changes)
+        """A turn start: ``submit(since=mark)`` merges with what the user changed after it,
+        against the views and links as the mark found them (its turn-start copy). Each
+        mark has its own id and copy (the prompt bar marks each turn's start once)."""
+        self._mark_no += 1
+        self._marks[self._mark_no] = (
+            len(self._changes),
+            copy.deepcopy({"views": self.data["views"], "links": self.data["links"]}),
+        )
+        for old in sorted(self._marks)[:-MARK_COPIES]:
+            del self._marks[old]
+        return self._mark_no
 
-    def _conflicts(self, patch: list[dict[str, Any]], since: int) -> list[Problem]:
-        """One problem per view or link ``patch`` changes that a user change after
-        ``since`` touched, each with the object's live entry."""
+    def _merge_user_changes(
+        self,
+        new: dict[str, Any],
+        patch: list[dict[str, Any]],
+        since: int,
+        edit: dict[str, Any] | None,
+    ) -> tuple[bool, list[Problem]]:
+        """Merge, in place in ``new``, each view or link ``patch`` changes that a user change
+        after the mark ``since`` touched, against its turn-start copy. An edit changes what
+        it names: a named field the user also changed, to another value, is a conflict
+        (even when the edit sets it back to its turn-start value), and an object the edit
+        drops without naming it (a link of a removed view) is one too. A whole document is
+        merged three ways (``edits.three_way``), and a link the user added that it leaves
+        without one of its views is a conflict. Returns whether ``new`` changed and the
+        conflicts, each with the live entry. A ``since`` no ``mark`` returned is read as a
+        place in the changes with no copy: every such object is a conflict, as before
+        SPEC-18."""
+        start, base = self._marks.get(since, (since, None))
         user = {
             oid
-            for origin, touched in self._changes[since:]
+            for origin, touched in self._changes[start:]
             if is_user_origin(origin)
             for oid in touched
         }
+        changed = False
         out: list[Problem] = []
         seen: set[str] = set()
         for op in patch:
@@ -504,26 +579,70 @@ class LiveCanvas:
                 continue
             section, oid = m.groups()
             seen.add(oid)
-            entry = self.data[section].get(oid)
-            if entry is None:
-                out.append(
-                    Problem(
-                        path=f"/{section}/{oid}",
-                        message=f"{oid} was removed by the user during this turn",
-                        fix=f"leave {oid} out; add it again only if the user asks for it",
-                    )
-                )
+            live_entry = self.data[section].get(oid, MISSING)
+            new_entry = new[section].get(oid, MISSING)
+            if base is None:
+                out.append(_conflict(section, oid, live_entry, [""]))
                 continue
-            out.append(
-                Problem(
-                    path=f"/{section}/{oid}",
-                    message=f"{oid} was changed by the user during this turn; its entry is "
-                    f"now {json.dumps(entry, separators=(',', ':'))}",
-                    fix="submit again on the current state: write your change over this "
-                    "entry (with edits, name only the fields you change)",
+            base_entry = base[section].get(oid, MISSING)
+            if edit is not None:
+                problem = self._edit_conflict(
+                    section, oid, edit, base_entry, live_entry, new_entry, new
                 )
-            )
-        return out
+                if problem is not None:
+                    out.append(problem)
+                continue
+            merged, fields = three_way(base_entry, live_entry, new_entry)
+            if fields:
+                out.append(_conflict(section, oid, live_entry, fields))
+                continue
+            if merged is MISSING:
+                new[section].pop(oid, None)
+            else:
+                new[section][oid] = merged
+            changed = True
+        if edit is None and base is not None:
+            for lid in sorted(user & set(new["links"])):
+                link = new["links"][lid]
+                lost = [
+                    end["view"]
+                    for end in (link.get("source") or {}, link.get("target") or {})
+                    if end.get("view") not in (None, "project") and end["view"] not in new["views"]
+                ]
+                if lost:
+                    out.append(_link_conflict(lid, lost))
+        return changed, out
+
+    @staticmethod
+    def _edit_conflict(
+        section: str,
+        oid: str,
+        edit: dict[str, Any],
+        base_entry: Any,
+        live_entry: Any,
+        new_entry: Any,
+        new: dict[str, Any],
+    ) -> Problem | None:
+        """The turn-start conflict, if any, of an edit on one object the user touched."""
+        named = edit.get(section) if isinstance(edit.get(section), dict) else {}
+        if oid not in named:  # dropped with a view the edit removed
+            if new_entry is MISSING and live_entry is not MISSING and section == "links":
+                gone = [
+                    end.get("view")
+                    for end in (live_entry.get("source") or {}, live_entry.get("target") or {})
+                    if end.get("view") not in new["views"]
+                ]
+                return _link_conflict(oid, [v for v in gone if v])
+            return None
+        if named[oid] is None:  # the edit removes what the user changed
+            return None if live_entry == base_entry else _conflict(section, oid, live_entry, [""])
+        clash = sorted(
+            f
+            for f in field_paths(named[oid])
+            if field_at(live_entry, f) != field_at(base_entry, f)
+            and field_at(new_entry, f) != field_at(live_entry, f)
+        )
+        return _conflict(section, oid, live_entry, clash) if clash else None
 
     # -- undo / redo ------------------------------------------------------------------------------
     def undo(self, *, origin: str = "user") -> UndoResult:

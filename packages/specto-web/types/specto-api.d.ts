@@ -118,9 +118,9 @@ step, nothing journaled). */
     document?: Record<string, unknown> | string | null;
     /** Only what changes: a JSON Merge Patch (RFC 7396) over the running document, in its own shape; null removes, what is left out is kept. May name views, links, root_view and project.label. default: null */
     edits?: Record<string, unknown> | string | null;
-    /** One line saying what changed; the user reads it in the reply strip and the undo history. default: "" */
+    /** One line saying what changed; the user reads it in the reply strip and the undo history. Left empty, the app writes one from the change ('moved kobi'). default: "" */
     label?: string;
-    /** A turn start (the prompt bar's LiveCanvas.mark): a change to a view or link the user changed after it is refused with its live entry (code conflict). default: null */
+    /** A turn start (the prompt bar's LiveCanvas.mark): a view or link the user changed after it merges field by field with this submit; a field both changed is refused with the live entry (code conflict). default: null */
     since?: number | null;
   }
   /** What a submit changed. ``empty`` when the document equalled the live one (no undo
