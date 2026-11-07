@@ -266,6 +266,68 @@ def _file_size(path: str | None) -> int | None:
         return None
 
 
+def derived_files(scene: dict[str, Any]) -> dict[str, str]:
+    """The files resolve derived for an item (``points`` and ``kdtree``, or ``glb``)."""
+    return {str(k): str(v) for k, v in (scene.get("files") or {}).items()}
+
+
+def scene_entry(
+    key: str, index: int, parts: dict[str, str], scene: dict[str, Any], link: str, root: str
+) -> dict[str, Any]:
+    """The page's entry for one item of the collection under ``link`` (its ``key``, position,
+    ``parts`` and ``meta["scene"]``, the link's ``root``): what to load from the items host
+    (a derived buffer or GLB, else the file by its own name so a .gltf's .bin or an OBJ's
+    MTL resolve beside it) and ``ext`` for Babylon's loader choice; size for the items panel;
+    count and bounds; the files an OBJ names that cannot be served; and the up axis the file
+    declares, when it does (``specto_readers.scene3d`` says which formats do)."""
+    role = str(scene.get("role", ""))
+    kind = scene.get("kind")
+    files = derived_files(scene)
+    entry: dict[str, Any] = {
+        "id": key,
+        "index": index,
+        "kind": kind,
+        "label": Path(parts[role]).name if role in parts else key,
+    }
+    size = _file_size(parts.get(role))
+    if size is not None:
+        # the items panel shows it under the name (#129)
+        entry["size"] = size
+        entry["size_label"] = format_bytes(size)
+    if kind == "pointcloud":
+        entry["url"] = item_url(link, key, "points")
+        entry["count"] = scene.get("count")
+        entry["bounds"] = scene.get("bounds")
+    elif kind == "mesh" and "glb" in files:
+        entry["url"] = item_url(link, key, "glb")
+        if scene.get("version"):
+            # a converted DAE keeps its GLB's path: the version makes a new URL, so an
+            # open view loads the GLB again when the DAE changes
+            entry["url"] += "?v=" + quote(str(scene["version"]), safe="")
+        entry["ext"] = ".glb"
+        entry["count"] = scene.get("count")
+        entry["bounds"] = scene.get("bounds")
+    elif kind == "error":
+        entry["error"] = scene.get("error", "unreadable")
+    else:
+        # Babylon picks its loader by ``ext``; a .gltf or .obj is fetched by its own name
+        # so its sibling .bin / .mtl and textures resolve next to it
+        url = item_url(link, key, role)
+        if role.lower() in SIBLING_EXTS:
+            url += "/" + sibling_path(parts[role], root)
+        entry["url"] = url
+        entry["ext"] = role.lower()
+        if scene.get("bounds"):  # STL and OBJ: measured at resolve
+            entry["count"] = scene.get("count")
+            entry["bounds"] = scene.get("bounds")
+        if scene.get("missing"):  # files an OBJ names that cannot be served
+            entry["missing"] = list(scene["missing"])
+    if scene.get("up") in ("y", "z"):
+        # the file declares its up axis: the view's up param leaves it alone
+        entry["up"] = scene["up"]
+    return entry
+
+
 class Scene3DHost(WebViewHost):
     page = PAGE
     vendor_files = VENDOR_FILES
@@ -317,54 +379,8 @@ class Scene3DHost(WebViewHost):
             scene = it.meta.get("scene")
             if not isinstance(scene, dict):
                 continue
-            role = str(scene.get("role", ""))
-            kind = scene.get("kind")
-            files = {str(k): str(v) for k, v in (scene.get("files") or {}).items()}
-            self._files[it.key] = files
-            entry: dict[str, Any] = {
-                "id": it.key,
-                "index": i,
-                "kind": kind,
-                "label": Path(it.parts[role]).name if role in it.parts else it.key,
-            }
-            size = _file_size(it.parts.get(role))
-            if size is not None:
-                # the items panel shows it under the name (#129)
-                entry["size"] = size
-                entry["size_label"] = format_bytes(size)
-            if kind == "pointcloud":
-                entry["url"] = item_url(link, it.key, "points")
-                entry["count"] = scene.get("count")
-                entry["bounds"] = scene.get("bounds")
-            elif kind == "mesh" and "glb" in files:
-                entry["url"] = item_url(link, it.key, "glb")
-                if scene.get("version"):
-                    # a converted DAE keeps its GLB's path: the version makes a new URL, so
-                    # an open view loads the GLB again when the DAE changes
-                    entry["url"] += "?v=" + quote(str(scene["version"]), safe="")
-                entry["ext"] = ".glb"
-                entry["count"] = scene.get("count")
-                entry["bounds"] = scene.get("bounds")
-            elif kind == "error":
-                entry["error"] = scene.get("error", "unreadable")
-            else:
-                # Babylon picks its loader by ``ext``; a .gltf or .obj is fetched by its
-                # own name so its sibling .bin / .mtl and textures resolve next to it
-                url = item_url(link, it.key, role)
-                if role.lower() in SIBLING_EXTS:
-                    url += "/" + sibling_path(it.parts[role], root)
-                entry["url"] = url
-                entry["ext"] = role.lower()
-                if scene.get("bounds"):  # STL and OBJ: measured at resolve
-                    entry["count"] = scene.get("count")
-                    entry["bounds"] = scene.get("bounds")
-                if scene.get("missing"):  # files an OBJ names that cannot be served
-                    entry["missing"] = list(scene["missing"])
-            if scene.get("up") in ("y", "z"):
-                # the file declares its up axis (glTF, a converted DAE): the view's up param
-                # leaves it alone
-                entry["up"] = scene["up"]
-            self.entries.append(entry)
+            self._files[it.key] = derived_files(scene)
+            self.entries.append(scene_entry(it.key, i, it.parts, scene, link, root))
         if self.picked is not None and self.picked.get("item") not in self._files:
             self.picked = None  # the picked item left with its collection
         self.notify("scene", self.scene_payload())

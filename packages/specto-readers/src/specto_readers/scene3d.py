@@ -26,8 +26,12 @@ dict is what ends up in ``item.meta["scene"]``::
     {kind: pointcloud|mesh|splat, role: ".ply", files: {points, kdtree} | {glb} | {},
      count?, bounds?: [[min xyz], [max xyz]], up?: "y"}
 
-``up`` is there only for an item whose file declares its up axis (glTF, a converted DAE): the
-view's ``up`` param turns every other item.
+``up`` is there only for an item whose file declares its up axis, and this is the one
+list of who does (the host, the page, the tests and ADR 0028 point here; the view's ``up``
+param description restates it for the agent): glTF and GLB (``MESH_EXTS``; Y up by the glTF
+specification, ``glb.GLTF_UP``) and a converted DAE (``DAE_EXTS``; converted to that Y
+up). PLY, STL, OBJ, point clouds and splats say nothing about their up axis, so the view's
+``up`` param turns them.
 """
 
 from __future__ import annotations
@@ -43,7 +47,7 @@ from typing import Any
 import numpy as np
 
 from . import dae
-from .glb import write_glb
+from .glb import GLTF_UP, write_glb
 from .kdtree import KdTree
 from .ply import PlyError, classify, read_header, read_ply
 from .scenecache import CACHE_SUBDIR, cache_folder, cached, read_record, write_record
@@ -85,7 +89,7 @@ def prepare_scene(
     ext = path.suffix.lower()
     if ext in MESH_EXTS:
         # glTF is Y up by its specification: declared, like a converted DAE (SPEC-50)
-        return {"kind": "mesh", "role": ext, "files": {}, "up": "y"}
+        return {"kind": "mesh", "role": ext, "files": {}, "up": GLTF_UP}
     if ext in SPLAT_EXTS:
         return {"kind": "splat", "role": ext, "files": {}}
     if ext in DAE_EXTS:

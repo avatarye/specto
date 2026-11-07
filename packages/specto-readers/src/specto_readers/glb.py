@@ -12,6 +12,9 @@ from pathlib import Path
 import numpy as np
 
 GLB_MAGIC = b"glTF"
+#: the up axis glTF 2.0 makes normative (+Y): what a glTF item's scene entry declares and
+#: what a DAE is converted to (``specto_readers.scene3d`` has the list of who declares one)
+GLTF_UP = "y"
 ARRAY_BUFFER = 34962
 ELEMENT_ARRAY_BUFFER = 34963
 FLOAT = 5126

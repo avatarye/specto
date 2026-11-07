@@ -9,8 +9,8 @@
  * OBJ's url ends in its file name, so its MTL and textures load next to it; an STL keeps
  * the file's coordinates); a mesh with no material of its own draws in a plain grey. The
  * view param `up` turns the scene's root for z-up data; an entry with its own `up` (a glTF,
- * Y up by its spec, SPEC-50; a DAE
- * resolve converted to a Y-up GLB, SPEC-42) hangs under a root that param leaves alone.
+ * Y up by its spec, SPEC-50; a DAE resolve converted to a Y-up GLB, SPEC-42; the list is
+ * specto_readers/scene3d.py's docstring) hangs under a root that param leaves alone.
  * The view param `mesh_unit` (m, cm, mm, in) scales the STL and OBJ items, whose files
  * carry no unit: the host sends the factor (`mesh_scale` in the scene payload, and the
  * `mesh_scale {scale}` notification when the param changes).
@@ -112,8 +112,9 @@
     scene.skipPointerMovePicking = true;
     scene.autoClear = true;
     root = new BABYLON.TransformNode("root", scene);
-    // an item whose file declares its up axis (a DAE converted to a Y-up GLB) hangs here,
-    // where the view's up param does not turn it (SPEC-42)
+    // an item whose file declares its up axis (a glTF, a DAE converted to a Y-up GLB; the
+    // list is specto_readers/scene3d.py's docstring) hangs here, where the view's up param
+    // does not turn it (SPEC-42, SPEC-50)
     declaredRoots.y = new BABYLON.TransformNode("root:y", scene);
     declaredRoots.z = new BABYLON.TransformNode("root:z", scene);
     declaredRoots.z.rotation = new BABYLON.Vector3(-Math.PI / 2, 0, 0);

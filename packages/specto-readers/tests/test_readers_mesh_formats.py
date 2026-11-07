@@ -625,8 +625,8 @@ def test_an_empty_stl_or_obj_still_opens(tmp_path: Path):
 
 def test_a_gltf_declares_y_up_as_its_spec_says(tmp_path: Path):
     """SPEC-50: glTF is Y up by its specification, like the GLB a DAE converts to; both
-    declare it, so the view's up param turns neither (it turns STL, OBJ, PLY, points and
-    splats, which say nothing about their up axis)."""
+    declare it, so the view's up param turns neither (``scene3d``'s module docstring is the
+    list of who declares one; an STL does not)."""
     glb = tmp_path / "model.glb"
     glb.write_bytes(b"glTF" + bytes(8))
     gltf = tmp_path / "model.gltf"

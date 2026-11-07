@@ -46,6 +46,7 @@ from typing import Any
 
 import numpy as np
 
+from .glb import GLTF_UP
 from .scenecache import (
     CONVERT_LOG_SUFFIX,
     CONVERT_TEMP_SUFFIX,
@@ -373,7 +374,7 @@ def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
         scene["count"] = rec.get("count", 0)
         if rec.get("bounds") is not None:
             scene["bounds"] = rec["bounds"]
-        scene["up"] = "y"
+        scene["up"] = GLTF_UP
         scene["version"] = version_of(stamp)
         return scene
 

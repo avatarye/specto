@@ -19,6 +19,7 @@ from PySide6.QtGui import QImage
 from scene3d_helpers import mesh_samples
 
 import specto_web
+from specto_app.views.scene3d_view import derived_files, scene_entry
 from specto_readers import dae
 from specto_readers.scene3d import prepare_scene
 
@@ -45,9 +46,11 @@ DAE_UPRIGHT = [[-0.2, 0.0, -0.2], [0.2, 1.2, 0.2]]
 BACKGROUND = (250, 247, 241)  # --color-surface-alt
 
 
-def render(tmp: Path, entry: dict | list[dict], more: tuple[dict, ...] = ()) -> dict:
+def render(tmp: Path, entries: list[dict], more: tuple[dict, ...] = ()) -> dict:
+    """Draw the entries (each ``{id, kind, file, ext, ...}``, the file served from disk)
+    under up z, then under up y, then each step of ``more``."""
     plan = {
-        "entries": entry if isinstance(entry, list) else [entry],
+        "entries": entries,
         "out": str(tmp / "out"),
         "camera": CAMERA,
         "params": {"up": "z"},
@@ -89,7 +92,7 @@ def painted(rgb: tuple[int, int, int]) -> bool:
 def test_an_stl_draws_grey_and_follows_the_up_param(tmp_path: Path):
     stl = mesh_samples().write_stl(tmp_path / "link.stl")
     entry = {"id": "m", "kind": "mesh", "file": str(stl), "ext": ".stl"}
-    out = render(tmp_path, entry, ({"up": "z", "mesh_scale": 0.01},))  # mesh_unit cm
+    out = render(tmp_path, [entry], ({"up": "z", "mesh_scale": 0.01},))  # mesh_unit cm
     z_up, y_up, in_cm = out["steps"]
     assert bounds(z_up) == UPRIGHT and bounds(y_up) == LYING
     # mesh_unit cm: the numbers are centimetres, the box 8 mm tall (the page rounds to cm)
@@ -100,7 +103,7 @@ def test_an_stl_draws_grey_and_follows_the_up_param(tmp_path: Path):
 
 def test_an_obj_draws_its_mtl_texture_and_follows_the_up_param(tmp_path: Path):
     obj = mesh_samples().write_obj(tmp_path / "panel.obj")
-    out = render(tmp_path, {"id": "m", "kind": "mesh", "file": str(obj), "ext": ".obj"})
+    out = render(tmp_path, [{"id": "m", "kind": "mesh", "file": str(obj), "ext": ".obj"}])
     z_up, y_up = out["steps"][:2]
     assert bounds(z_up) == UPRIGHT and bounds(y_up) == LYING
     r, g, b = pixel(z_up, 0.5, 0.5)
@@ -114,7 +117,7 @@ def test_an_obj_texture_with_map_options_still_loads(tmp_path: Path):
     mtl = tmp_path / "panel.mtl"
     text = mtl.read_text(encoding="ascii").replace("map_Kd ", "map_Kd -s 1 1 1 -clamp on ")
     mtl.write_text(text, encoding="ascii")
-    out = render(tmp_path, {"id": "m", "kind": "mesh", "file": str(obj), "ext": ".obj"})
+    out = render(tmp_path, [{"id": "m", "kind": "mesh", "file": str(obj), "ext": ".obj"}])
     r, g, b = pixel(out["steps"][0], 0.5, 0.5)
     assert g > r + 60 and g > b + 60, f"not the green texture: {(r, g, b)}"
 
@@ -125,7 +128,7 @@ def test_a_dae_draws_through_its_glb_upright_whatever_the_up_param(tmp_path: Pat
     glb = dae.converted_path(src)
     dae.convert(src, glb)
     entry = {"id": "m", "kind": "mesh", "file": str(glb), "ext": ".glb", "up": "y"}
-    out = render(tmp_path, entry)
+    out = render(tmp_path, [entry])
     z_up, y_up = out["steps"][:2]
     assert bounds(z_up) == DAE_UPRIGHT and bounds(y_up) == DAE_UPRIGHT
     # the blue box from 0 to 40 cm, the textured red one from 80 to 120 cm
@@ -136,15 +139,12 @@ def test_a_dae_draws_through_its_glb_upright_whatever_the_up_param(tmp_path: Pat
     assert not painted(pixel(z_up, 0.5, 0.5))  # the gap between them
 
 
-def entry_from_scene(item: str, path: Path, scene: dict) -> dict:
-    """The page's entry for a prepared file, as the host builds it: a derived GLB when
-    resolve wrote one, the file itself otherwise, and the file's own up axis if it has one."""
-    glb = (scene.get("files") or {}).get("glb")
-    entry = {"id": item, "kind": scene["kind"], "file": glb or str(path)}
-    entry["ext"] = ".glb" if glb else scene["role"]
-    if scene.get("up"):
-        entry["up"] = scene["up"]
-    return entry
+def page_entry(item: str, index: int, path: Path, scene: dict) -> dict:
+    """The entry the host builds for a prepared file (``scene_entry``: kind, ext, bounds and
+    the up axis the file declares), plus the file the render child serves in place of the
+    items host: the GLB resolve wrote when there is one, else the file itself."""
+    entry = scene_entry(item, index, {scene["role"]: str(path)}, scene, "demo", str(path.parent))
+    return {**entry, "file": derived_files(scene).get("glb") or str(path)}
 
 
 def test_a_mixed_scene_lines_up_under_up_y_and_up_z(tmp_path: Path):
@@ -160,9 +160,9 @@ def test_a_mixed_scene_lines_up_under_up_y_and_up_z(tmp_path: Path):
     gltf = tmp_path / "model.glb"  # the same Y-up model, as a plain glTF file
     gltf.write_bytes(Path(robot["files"]["glb"]).read_bytes())
     entries = [
-        entry_from_scene("stl", stl, prepare_scene(stl, cache)),
-        entry_from_scene("dae", src, robot),
-        entry_from_scene("gltf", gltf, prepare_scene(gltf, cache)),
+        page_entry("stl", 0, stl, prepare_scene(stl, cache)),
+        page_entry("dae", 1, src, robot),
+        page_entry("gltf", 2, gltf, prepare_scene(gltf, cache)),
     ]
     out = render(tmp_path, entries)
     z_up, y_up = out["steps"][:2]
