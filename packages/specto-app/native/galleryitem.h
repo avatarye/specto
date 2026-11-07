@@ -424,6 +424,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void mouseUngrabEvent() override;
     void wheelEvent(QWheelEvent *event) override;
     void hoverMoveEvent(QHoverEvent *event) override;
     void hoverLeaveEvent(QHoverEvent *event) override;
@@ -537,6 +538,7 @@ private:
     qint64 m_anchorMs = -100000;   // last zoom step (notches of one gesture share the anchor)
     bool m_gestureFromAnim = false;
     qint64 m_lastUploadMs = -1000;
+    qint64 m_lastSyncMs = -1000;   // item clock at the last sync (the frame stats report)
 
     // stats
     int m_statResident[TierCount] = {0, 0, 0};
