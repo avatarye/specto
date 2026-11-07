@@ -14,7 +14,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Literal
 
 from .canvas_document import CanvasInvalid, Problem, parse_canvas_text
 
@@ -95,7 +95,7 @@ def merge_edits(
     links = merged.get("links")
     if isinstance(links, dict):
         merged["links"] = {
-            lid: link for lid, link in links.items() if lid in named or not (_ends(link) & gone)
+            lid: link for lid, link in links.items() if lid in named or not (link_ends(link) & gone)
         }
     if "root_view" not in edits and merged.get("root_view") in gone:
         merged["root_view"] = None
@@ -199,8 +199,8 @@ def _not_an_object(why: str) -> Problem:
     )
 
 
-def _ends(link: Any) -> set[str]:
-    """The views a link (JSON form) runs between."""
+def link_ends(link: Any) -> set[str]:
+    """The views a link (JSON form) runs between (its source and target)."""
     if not isinstance(link, dict):
         return set()
     return {
@@ -219,6 +219,10 @@ class _Missing:
 
 #: what ``three_way`` takes and returns for an object or key that is not there
 MISSING: Any = _Missing()
+
+#: the two submit forms a conflict's fix-it speaks to: ``edits`` names what changes, a
+#: ``document`` is the whole canvas (leaving something out of it removes it)
+Form = Literal["edits", "document"]
 
 
 #: the paths whose keys are fields of their own: the object itself, its layout and its
@@ -250,23 +254,24 @@ def field_at(entry: Any, path: str) -> Any:
     return entry
 
 
-def three_way(base: Any, live: Any, agent: Any, path: str = "") -> tuple[Any, list[str]]:
-    """Merge the agent's copy of one object with the live one against the turn-start copy
-    (SPEC-18): a field only one side changed takes that side's value, a field both
-    changed alike is kept, the object, its layout and its params merge field by field
-    (``FIELD_PARENTS``), and anything else (a value both changed differently, or one side
-    removed what the other changed) is a conflict. Returns the merged value (``MISSING``:
-    absent) and the conflicting field paths (dotted, ``""`` for the whole object)."""
-    if agent == base:
+def three_way(known: Any, live: Any, agent: Any, path: str = "") -> tuple[Any, list[str]]:
+    """Merge the agent's document's version of one object with the live one against the
+    agent's copy, ``known`` (the object as the agent last knew it, SPEC-18): a field only
+    one side changed takes that side's value, a field both changed alike is kept, the
+    object, its layout and its params merge field by field (``FIELD_PARENTS``), and
+    anything else (a value both changed differently, or one side removed what the other
+    changed) is a conflict. Returns the merged value (``MISSING``: absent) and the
+    conflicting field paths (dotted, ``""`` for the whole object)."""
+    if agent == known:
         return live, []
-    if live in (base, agent):
+    if live in (known, agent):
         return agent, []
-    if path in FIELD_PARENTS and all(isinstance(v, dict) for v in (base, live, agent)):
+    if path in FIELD_PARENTS and all(isinstance(v, dict) for v in (known, live, agent)):
         merged: dict[str, Any] = {}
         conflicts: list[str] = []
-        for key in dict.fromkeys([*base, *live, *agent]):
+        for key in dict.fromkeys([*known, *live, *agent]):
             value, clash = three_way(
-                base.get(key, MISSING),
+                known.get(key, MISSING),
                 live.get(key, MISSING),
                 agent.get(key, MISSING),
                 f"{path}.{key}" if path else key,
@@ -297,19 +302,23 @@ def conflict_problem(
     entry: Any,
     fields: list[str],
     *,
-    edit: bool,
+    form: Form,
     links: Iterable[str] = (),
+    root: bool = False,
 ) -> Problem:
     """A turn-start conflict on one object: removed by the user (``entry`` ``MISSING``),
     or changed in ``fields`` (dotted paths; ``""`` for the object as a whole) by both
-    sides. ``since`` stays the turn's start, so writing over the user's value is refused
-    again: the fix-it says how to keep it, per submit form. An edit leaves the field out;
-    a whole document copies the live value (leaving it out would remove it, refused
-    again), and leaves out a view the user removed together with ``links``, its links in
-    the document (else they fail validation before the merge)."""
+    sides. Writing over the user's value is refused again, so the fix-it says how to
+    keep it, per submit ``form``. An edit leaves the field out; a whole document copies
+    the live value (leaving it out would remove it, refused again), and leaves out a view
+    the user removed together with ``links``, its links still in the document, and
+    clears ``root_view`` when the document made it the root (``root``); both would fail
+    validation before the merge."""
     if entry is MISSING:
         with_links = sorted(links)
         what = f"{oid} and links {', '.join(with_links)}" if with_links else oid
+        if root:
+            what += " and clear root_view"
         return Problem(
             path=f"/{section}/{oid}",
             message=f"{oid} was removed by the user during this turn",
@@ -319,7 +328,7 @@ def conflict_problem(
     what = f"{oid}'s {which}" if which else oid
     how = (
         "leave it out of your edits"
-        if edit
+        if form == "edits"
         else "copy its live value (from this entry) into your document"
     )
     return Problem(
@@ -331,14 +340,14 @@ def conflict_problem(
     )
 
 
-def link_conflict_problem(lid: str, views: list[str], *, edit: bool) -> Problem:
+def link_conflict_problem(lid: str, views: list[str], *, form: Form) -> Problem:
     """A link the user added or changed this turn that the submit would leave without one
     of its views. The fix-it keeps the views: an edit drops their removal; a whole
     document keeps them and their links (copied from the live canvas)."""
     names = " and ".join(views)
     how = (
         f"drop the removal of {names} from your edits"
-        if edit
+        if form == "edits"
         else f"keep {names} and its links in your document (copy them from the live canvas)"
     )
     return Problem(
@@ -353,35 +362,36 @@ def edit_conflict(
     section: str,
     oid: str,
     edit: dict[str, Any],
-    base: Any,
+    known: Any,
     live: Any,
     new: Any,
     views: Any,
 ) -> Problem | None:
     """The turn-start conflict of an edit on one object the user touched (SPEC-18), or
     ``None`` when it lands. An edit changes what it names: named fields the user changed
-    to another value conflict (even when the edit sets them back to their turn-start
-    value; a named removal of what the user changed too), and so does a user's link the
-    edit drops with a view it removes."""
+    (from ``known``, the object as the agent last knew it) to another value conflict,
+    even when the edit sets them back to the known value; a named removal of what the
+    user changed too; and a user's link the edit drops with a view it removes."""
     named = edit.get(section) if isinstance(edit.get(section), dict) else {}
     if oid not in named:
         if new is MISSING and live is not MISSING and section == "links":
-            return link_conflict_problem(oid, lost_ends(live, views), edit=True)
+            return link_conflict_problem(oid, lost_ends(live, views), form="edits")
         return None
     if named[oid] is None:
-        return None if live == base else conflict_problem(section, oid, live, [""], edit=True)
+        return None if live == known else conflict_problem(section, oid, live, [""], form="edits")
     clash = sorted(
         f
         for f in field_paths(named[oid])
-        if field_at(live, f) != field_at(base, f) and field_at(new, f) != field_at(live, f)
+        if field_at(live, f) != field_at(known, f) and field_at(new, f) != field_at(live, f)
     )
-    return conflict_problem(section, oid, live, clash, edit=True) if clash else None
+    return conflict_problem(section, oid, live, clash, form="edits") if clash else None
 
 
 __all__ = [
     "EDITABLE",
     "MISSING",
     "REFUSED",
+    "Form",
     "already_removed",
     "conflict_problem",
     "edit_conflict",
@@ -389,6 +399,7 @@ __all__ = [
     "field_at",
     "field_paths",
     "link_conflict_problem",
+    "link_ends",
     "lost_ends",
     "merge_edits",
     "merge_patch",

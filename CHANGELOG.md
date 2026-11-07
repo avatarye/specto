@@ -108,7 +108,10 @@ the release and move on their own schedule.
   (SPEC-18, ADR 0013 amendment). Its submit is merged field by field with what you
   changed since its turn began: you drag a view while it relabels the view, and both
   stick; a whole document it read before your drag keeps your drag. Only a field you
-  both changed is refused, and the agent keeps your value or asks you. The agent may also
+  both changed is refused, and the agent keeps your value or asks you. The agent is
+  judged against what it last wrote, not against the turn's start: undo its change
+  mid-turn and its next document keeps your undo instead of doing the change again (its
+  own undo, from the undo tool, counts as its word taken back). The agent may also
   leave the label out of a plain move, resize or relabel; the app writes it from the
   change ("moved kobi"). A change of the canvas off the GUI thread (or off the canvas's
   serialise lock, which every endpoint takes) now warns in the app and fails the tests.

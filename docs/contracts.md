@@ -116,7 +116,7 @@ live.data                                # the live document dict (read only; ne
 live.document()                          # a deep copy to edit and submit
 live.submit(document, origin="user", label="") -> SubmitResult
 live.submit(edits={"views": {"kobi": {"layout": {"position": [330, 0]}}}}, origin=..., since=mark)
-live.mark() -> int                       # a turn start's id: submit(since=) merges with what the user changed after it
+live.mark() -> int                       # a turn start's id: submit(since=) merges with what the user changed after it against the agent's copy
 live.owner_thread; live.serial_lock      # submits run on the owner thread (the GUI thread) or holding serial_lock
 live.check_thread()                      # off both: raises under tests, warns in the app (SPECTO_THREAD_CHECK)
 live.undo() / live.redo() -> UndoResult; live.history: list[TxnRecord]; live.cursor; live.top_id
@@ -137,7 +137,9 @@ live.events: EventStream                 # doc.patched, canvas.submitted|squashe
   Merge Patch over the live document that may name `views`, `links`, `root_view` and
   `project.label`; `null` on a view also removes its links and clears `root_view`. The
   merged document then takes the path above unchanged. With `since` (a `mark` id), a
-  non-user submit is judged against the mark's turn-start copy for each view or link the
+  non-user submit is judged against the agent's copy (the mark's, advanced by each
+  accepted submit of the agent's: an edit by the fields it named, an object it created
+  whole, a document whole; the agent's own undo rewinds it) for each view or link the
   user changed after it: an edit by the fields it names, a whole document three ways
   (`edits.three_way`, fields per `edits.FIELD_PARENTS`); a field both changed
   differently, or a user's link left without its view, raises `CanvasConflict` (code

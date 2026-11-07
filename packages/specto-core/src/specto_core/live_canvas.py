@@ -46,6 +46,7 @@ from .edits import (
     conflict_problem,
     edit_conflict,
     link_conflict_problem,
+    link_ends,
     lost_ends,
     merge_edits,
     merge_patch,
@@ -114,29 +115,68 @@ class CanvasConflict(CanvasInvalid):
     code = "conflict"
 
 
-#: how many turn-start copies ``mark`` keeps (the prompt bar needs the newest)
+#: how many marks (turn starts, each with the agent's copy) the canvas keeps (the prompt
+#: bar needs the newest)
 MARK_COPIES = 4
 #: what a submit off the canvas's own thread does: ``warn`` (the app's default), ``raise``
 #: (the test suite sets it, conftest.py) or ``off``
 THREAD_CHECK_ENV = "SPECTO_THREAD_CHECK"
 
+#: the views and links of the canvas document, as the agent's copy holds them
+Objects = dict[str, dict[str, Any]]
 
-def _ends_of(link: Any) -> set[str]:
-    """The views a link's source and target name."""
-    if not isinstance(link, dict):
-        return set()
-    return {
-        end["view"]
-        for end in (link.get("source"), link.get("target"))
-        if isinstance(end, dict) and isinstance(end.get("view"), str)
-    }
+
+class Mark:
+    """A turn start (SPEC-18): where in ``_changes`` it was taken, and the agent's copy, the
+    views and links as the agent last knew them. The copy starts as the mark found them
+    and advances with each accepted agent submit (``LiveCanvas._advance_mark``): one entry
+    per submit, keyed by its txn, so the agent's own undo rewinds the copy to before that
+    submit and its redo moves it forward again."""
+
+    def __init__(self, start: int, found: Objects) -> None:
+        self.start = start
+        #: ``(txn id or None for the turn's start, the copy after it)``, newest last
+        self.copies: list[tuple[str | None, Objects]] = [(None, found)]
+        #: copies the agent's undo took off, newest last, for its redo
+        self.undone: list[tuple[str, Objects]] = []
+
+    @property
+    def known(self) -> Objects:
+        """The agent's copy now."""
+        return self.copies[-1][1]
+
+    def advance(self, txn: str, known: Objects) -> None:
+        self.copies.append((txn, known))
+        self.undone.clear()
+
+    def rewind(self, txn: str) -> None:
+        """The agent undid ``txn``: back to the copy before it (when that submit is the
+        newest copy's; the agent undoes its own submits newest first)."""
+        if len(self.copies) > 1 and self.copies[-1][0] == txn:
+            self.undone.append(self.copies.pop())  # type: ignore[arg-type]
+
+    def forward(self, txn: str) -> None:
+        """The agent redid ``txn``: its copy again."""
+        if self.undone and self.undone[-1][0] == txn:
+            self.copies.append(self.undone.pop())
+
+
+def _rename_ends(link: Any, renamed: dict[str, str]) -> Any:
+    """``link`` with the views its ends name by placeholder renamed as the app named them."""
+    if not isinstance(link, dict) or not renamed:
+        return link
+    for end in (link.get("source"), link.get("target")):
+        if isinstance(end, dict) and end.get("view") in renamed:
+            end["view"] = renamed[end["view"]]
+    return link
 
 
 class SerialLock:
     """The canvas's one serialise lock (SPEC-18): re-entrant, and it knows its holder. Every
-    endpoint that calls the canvas from threads of its own takes it around each request
-    (the SDK's test endpoints, the app's endpoint); a submit on such a thread passes the
-    thread check only while holding it."""
+    submit takes it (on the owner thread too, uncontended there), and every endpoint that
+    calls the canvas from threads of its own takes it around each request (the SDK's test
+    endpoints, the app's endpoint); a submit on such a thread passes the thread check only
+    while holding it."""
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -236,10 +276,9 @@ class LiveCanvas:
         #: (submits, undos, redos; not navigation): what ``mark`` counts and the
         #: conflict rule reads
         self._changes: list[tuple[str, list[str]]] = []
-        #: each recent ``mark``: its place in ``_changes`` and the views and links as it
-        #: found them (the turn-start copy a submit with that ``since`` merges against,
-        #: SPEC-18); the newest ``MARK_COPIES`` are kept
-        self._marks: dict[int, tuple[int, dict[str, dict[str, Any]]]] = {}
+        #: each recent ``mark`` (its place in ``_changes`` and the agent's copy a submit
+        #: with that ``since`` merges against, SPEC-18); the newest ``MARK_COPIES`` are kept
+        self._marks: dict[int, Mark] = {}
         self._mark_no = 0
         #: the thread that owns the canvas (the GUI thread in the app, where ``SpectoApp``
         #: opens it): every submit runs there, or on a thread holding ``serial_lock``, so
@@ -430,11 +469,11 @@ class LiveCanvas:
         path, so the whole result is validated.
 
         ``since`` (a ``mark``, the prompt bar's turn start): a non-user submit merges three
-        ways with the views and links the user changed after the mark, against their
-        turn-start copies (SPEC-18); a field both changed differently is refused with
+        ways with the views and links the user changed after the mark, against the agent's
+        copy of them (SPEC-18); a field both changed differently is refused with
         ``CanvasConflict``, carrying the live entry (#98). A submit without a ``label``
         gets one from its patch (``diff_text.patch_label``). After an accepted agent submit
-        the mark's turn-start copy advances to what the agent wrote, so its next document
+        the agent's copy advances to what it wrote (``_advance_mark``), so its next document
         is judged against its own last one (a user's later change, an undo too, is kept).
 
         A submit runs on the canvas's owner thread or one already holding ``serial_lock``
@@ -503,8 +542,15 @@ class LiveCanvas:
         patch = make_patch(self.data, new)
         agent_turn = since is not None and not is_user_origin(origin)
         edit = json.loads(edits) if isinstance(edits, str) else edits
-        #: what the agent wrote (its whole document, before the merge): its next base
+        #: what the agent wrote (its whole document, before the merge): its copy next
         written = copy.deepcopy({"views": new["views"], "links": new["links"]})
+        #: the views and links this submit creates (the copy takes them whole)
+        created = {
+            oid
+            for section in ("views", "links")
+            for oid in new[section]
+            if oid not in self.data[section]
+        }
         if agent_turn:
             merged, conflicts = self._merge_user_changes(new, patch, since, edit)
             if conflicts:
@@ -555,7 +601,9 @@ class LiveCanvas:
         rec.ts, rec.seq = entry.ts, entry.seq
         self.dirty = True
         if agent_turn:
-            self._advance_mark(since, written if edit is None else None, edit, renamed)
+            self._advance_mark(
+                since, rec.id, written if edit is None else None, edit, renamed, created
+            )
         self.events.emit("canvas.submitted", {**rec.summary(), "seq": entry.seq})
         self._notify(patch, {"kind": "submit", "txn": rec.id, "origin": origin, "label": label})
         if self.autosave:
@@ -608,10 +656,11 @@ class LiveCanvas:
 
     def mark(self) -> int:
         """A turn start: ``submit(since=mark)`` merges with what the user changed after it,
-        against the views and links as the mark found them (its turn-start copy). Each
-        mark has its own id and copy (the prompt bar marks each turn's start once)."""
+        against the agent's copy (the views and links as the mark found them, then as the
+        agent's accepted submits wrote them). Each mark has its own id and copy (the
+        prompt bar marks each turn's start once)."""
         self._mark_no += 1
-        self._marks[self._mark_no] = (
+        self._marks[self._mark_no] = Mark(
             len(self._changes),
             copy.deepcopy({"views": self.data["views"], "links": self.data["links"]}),
         )
@@ -622,35 +671,46 @@ class LiveCanvas:
     def _advance_mark(
         self,
         since: int | None,
-        written: dict[str, Any] | None,
+        txn: str,
+        written: Objects | None,
         edit: dict[str, Any] | None,
         renamed: dict[str, str],
+        created: set[str],
     ) -> None:
-        """After an accepted agent submit, the mark's turn-start copy becomes what the
-        agent wrote (SPEC-18): its whole document, or its edit merged onto the copy (by the
-        names the app gave new objects). The next submit is judged against the agent's own
-        last word, so a user change made after it (an undo included) is the user's."""
-        entry = self._marks.get(since) if since is not None else None
-        if entry is None:
+        """After an accepted agent submit, the mark's copy becomes what the agent wrote
+        (SPEC-18): its whole document, or its edit laid over the copy. An edit advances
+        only the fields it named (an object it created goes in whole, as the app wrote
+        it), so a user's field the edit never named stays unknown to the agent and its
+        next document meets the user's value as a conflict, not as a copy of it. New
+        objects go by the names the app gave them, inside link ends too. The next submit
+        is judged against the agent's own last word, so a user change made after it (an
+        undo included) is the user's."""
+        mark = self._marks.get(since) if since is not None else None
+        if mark is None:
             return
-        start, base = entry
         if written is not None:
-            self._marks[since] = (start, written)
+            mark.advance(txn, written)
             return
-        base = copy.deepcopy(base)
+        known = copy.deepcopy(mark.known)
         for section in ("views", "links"):
             named = edit.get(section) if edit and isinstance(edit.get(section), dict) else {}
             for key, value in named.items():
                 oid = renamed.get(key, key)
                 if value is None:
-                    base[section].pop(oid, None)
-                elif oid in base[section]:
-                    base[section][oid] = merge_patch(base[section][oid], copy.deepcopy(value))
-                elif oid in self.data[section]:
-                    base[section][oid] = copy.deepcopy(self.data[section][oid])
-        for lid in [lid for lid, link in base["links"].items() if lost_ends(link, base["views"])]:
-            del base["links"][lid]  # gone with a view the edit removed
-        self._marks[since] = (start, base)
+                    known[section].pop(oid, None)
+                    continue
+                if oid in created:
+                    known[section][oid] = copy.deepcopy(self.data[section][oid])
+                    continue
+                value = copy.deepcopy(value)
+                if section == "links":
+                    value = _rename_ends(value, renamed)
+                known[section][oid] = (
+                    merge_patch(known[section][oid], value) if oid in known[section] else value
+                )
+        for lid in [lid for lid, link in known["links"].items() if lost_ends(link, known["views"])]:
+            del known["links"][lid]  # gone with a view the edit removed
+        mark.advance(txn, known)
 
     def _merge_user_changes(
         self,
@@ -660,13 +720,16 @@ class LiveCanvas:
         edit: dict[str, Any] | None,
     ) -> tuple[bool, list[Problem]]:
         """Merge, in place in ``new``, each view or link ``patch`` changes that a user change
-        after the mark ``since`` touched, against its turn-start copy. An edit changes what
+        after the mark ``since`` touched, against the agent's copy. An edit changes what
         it names (``edits.edit_conflict``); a whole document is merged three ways
         (``edits.three_way``), and a link the user added that it leaves without one of its
         views is a conflict. Returns whether ``new`` changed and the conflicts, each with
         the live entry. ``since`` is a mark id: one no ``mark`` returned (or an evicted
         one) has no copy, so every object the user changed this session is a conflict."""
-        start, base = self._marks.get(since, (0, None))
+        mark = self._marks.get(since)
+        start = mark.start if mark is not None else 0
+        known = mark.known if mark is not None else None
+        form = "edits" if edit is not None else "document"
         user = {
             oid
             for origin, touched in self._changes[start:]
@@ -684,26 +747,35 @@ class LiveCanvas:
             seen.add(oid)
             live_entry = self.data[section].get(oid, MISSING)
             new_entry = new[section].get(oid, MISSING)
-            if base is None:
-                out.append(conflict_problem(section, oid, live_entry, [""], edit=edit is not None))
+            # a whole document's fix-it for a view the user removed names what else to
+            # leave out: the view's links still in the document, and the root view
+            links = (
+                [lid for lid, link in new["links"].items() if oid in link_ends(link)]
+                if form == "document" and section == "views"
+                else []
+            )
+            root = form == "document" and new.get("root_view") == oid
+            if known is None:
+                out.append(
+                    conflict_problem(
+                        section, oid, live_entry, [""], form=form, links=links, root=root
+                    )
+                )
                 continue
-            base_entry = base[section].get(oid, MISSING)
+            known_entry = known[section].get(oid, MISSING)
             if edit is not None:
                 problem = edit_conflict(
-                    section, oid, edit, base_entry, live_entry, new_entry, new["views"]
+                    section, oid, edit, known_entry, live_entry, new_entry, new["views"]
                 )
                 if problem is not None:
                     out.append(problem)
                 continue
-            merged, fields = three_way(base_entry, live_entry, new_entry)
+            merged, fields = three_way(known_entry, live_entry, new_entry)
             if fields:
-                links = (
-                    [lid for lid, link in new["links"].items() if oid in _ends_of(link)]
-                    if section == "views"
-                    else []
-                )
                 out.append(
-                    conflict_problem(section, oid, live_entry, fields, edit=False, links=links)
+                    conflict_problem(
+                        section, oid, live_entry, fields, form=form, links=links, root=root
+                    )
                 )
                 continue
             if merged is MISSING:
@@ -711,11 +783,11 @@ class LiveCanvas:
             else:
                 new[section][oid] = merged
             changed = True
-        if edit is None and base is not None:
+        if edit is None and known is not None:
             for lid in sorted(user & set(new["links"])):
                 lost = lost_ends(new["links"][lid], new["views"])
                 if lost:
-                    out.append(link_conflict_problem(lid, lost, edit=False))
+                    out.append(link_conflict_problem(lid, lost, form="document"))
         return changed, out
 
     # -- undo / redo ------------------------------------------------------------------------------
@@ -754,6 +826,14 @@ class LiveCanvas:
     ) -> UndoResult:
         self._journal(rec, kind=kind, patch=patch, inverse=inverse, origin=origin)
         self._changes.append((origin, rec.touched))
+        if not is_user_origin(origin):
+            # the agent's own undo takes its copy back to before the undone submit (its
+            # redo forward again); a user's undo is a user change the copy knows nothing of
+            for mark in self._marks.values():
+                if kind == "undo":
+                    mark.rewind(rec.id)
+                else:
+                    mark.forward(rec.id)
         self.dirty = True
         self._notify(patch, {"kind": kind, "txn": rec.id, "origin": origin, "label": rec.label})
         if self.autosave:

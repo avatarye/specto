@@ -73,8 +73,10 @@ def app_plugins(reg: PluginRegistry | None = None) -> PluginRegistry:
     return reg
 
 
-def run_in_thread(fn: Any) -> list[BaseException]:
-    """Run ``fn`` on a worker thread of its own and wait; what it raised, if anything."""
+def run_in_thread(fn: Any, timeout: float = 10.0) -> list[BaseException]:
+    """Run ``fn`` on a worker thread of its own and wait; what it raised, if anything. A
+    worker still running after ``timeout`` seconds (a hang, a deadlock) fails the test
+    rather than passing as "raised nothing"."""
     import threading
 
     errors: list[BaseException] = []
@@ -85,7 +87,8 @@ def run_in_thread(fn: Any) -> list[BaseException]:
         except BaseException as e:
             errors.append(e)
 
-    worker = threading.Thread(target=run)
+    worker = threading.Thread(target=run, daemon=True)
     worker.start()
-    worker.join(10)
+    worker.join(timeout)
+    assert not worker.is_alive(), f"the worker is still running after {timeout} s"
     return errors

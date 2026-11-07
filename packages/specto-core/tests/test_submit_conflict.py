@@ -360,7 +360,12 @@ def test_a_foreign_release_leaves_the_holder_s_lock_alone(live: LiveCanvas):
         (error,) = run_in_thread(lambda: lock.__exit__(None, None, None))
         assert isinstance(error, RuntimeError) and lock.held()
     assert not lock.held()
-    assert run_in_thread(lambda: lock.__enter__() and lock.__exit__(None, None, None)) == []
+
+    def take_and_leave() -> None:
+        with lock:
+            pass
+
+    assert run_in_thread(take_and_leave) == []
 
 
 def test_a_closed_view_s_fix_it_names_its_links_and_following_it_lands(live: LiveCanvas):
@@ -440,3 +445,196 @@ def test_a_user_undo_of_the_agent_s_change_is_kept_by_its_next_document(live: Li
     after["views"]["tamu"]["label"] = "rear"
     live.submit(after, origin=AGENT, since=since)
     assert "kobi" in live.data["views"] and live.data["views"]["tamu"]["label"] == "rear"
+
+
+def add_view(live: LiveCanvas, vid: str, label: str, *, origin: str = "user") -> None:
+    doc = live.document()
+    doc["views"][vid] = {
+        "type": "gallery",
+        "label": label,
+        "layout": {"position": [1800, 0], "size": [600, 400]},
+    }
+    pin(doc, vid)
+    live.submit(doc, origin=origin, label=f"add {vid}")
+
+
+def test_the_advance_copies_only_the_fields_the_edit_named(live: LiveCanvas):
+    """The user adds rena ("a"), the agent reads, the user relabels it ("b"), the agent's
+    edit sets rena's params.selected (no conflict: it names another field). The agent's
+    copy of rena then holds that field alone, not the whole live entry, so the agent's
+    next whole document (its read: "a") meets the user's "b" as a conflict instead of
+    reverting it silently."""
+    since = live.mark()
+    add_view(live, "rena", "a")
+    read = live.document()
+    live.submit(edits={"views": {"rena": {"label": "b"}}}, origin="user")
+    live.submit(
+        edits={"views": {"rena": {"params": {"selected": ["x.png"]}}}}, origin=AGENT, since=since
+    )
+    assert live.data["views"]["rena"]["label"] == "b"
+
+    read["views"]["rena"]["params"] = {"selected": ["x.png"]}
+    read["views"]["tamu"]["label"] = "rear"
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(read, origin=AGENT, since=since)
+    (problem,) = e.value.problems
+    assert problem["path"] == "/views/rena" and "label" in problem["message"]
+    assert live.data["views"]["rena"]["label"] == "b"
+
+
+def test_the_advance_copies_a_whole_object_the_edit_created(live: LiveCanvas):
+    """An object this submit created goes into the copy whole, as the app wrote it (with
+    the defaults it filled in), so the agent's next document that repeats it is no change."""
+    since = live.mark()
+    new = {
+        "type": "gallery",
+        "label": "Rena",
+        "layout": {"position": [1800, 0], "size": [600, 400]},
+    }
+    pinned = {
+        "kind": "intaker",
+        "scope": "pinned",
+        "source": {"view": "project", "port": "all_files"},
+        "target": {"view": "new1", "port": "data"},
+        "params": {"sources": ["."]},
+        "summary": {"sentence": "Rena always shows its sources."},
+    }
+    res = live.submit(
+        edits={"views": {"new1": new}, "links": {"new2": pinned}}, origin=AGENT, since=since
+    )
+    rena = res.renamed["new1"]
+    read = live.document()
+    gestures.move_views(live, {rena: (1900, 100)})  # the user drags it
+
+    read["views"]["tamu"]["label"] = "rear"
+    live.submit(read, origin=AGENT, since=since)
+    assert position(live, rena) == [1900.0, 100.0] and live.data["views"]["tamu"]["label"] == "rear"
+
+
+def test_the_advance_renames_new_view_ids_inside_the_edit_s_values(live: LiveCanvas):
+    """A link the edit retargets onto a new view names it by its placeholder; the copy
+    takes the name the app gave it, so the link stays in the copy (instead of being
+    dropped as a link whose view is gone) and the agent's next document is judged
+    against it."""
+    since = live.mark()
+    res = live.submit(edits={"links": {"new1": follow("kobi", "tamu")}}, origin=AGENT, since=since)
+    lid = res.renamed["new1"]
+    new = {
+        "type": "gallery",
+        "label": "Rena",
+        "layout": {"position": [1800, 0], "size": [600, 400]},
+    }
+    pinned = {
+        "kind": "intaker",
+        "scope": "pinned",
+        "source": {"view": "project", "port": "all_files"},
+        "target": {"view": "new1", "port": "data"},
+        "params": {"sources": ["."]},
+        "summary": {"sentence": "Rena always shows its sources."},
+    }
+    res = live.submit(
+        edits={
+            "views": {"new1": new},
+            "links": {"new2": pinned, lid: {"target": {"view": "new1", "port": "selection"}}},
+        },
+        origin=AGENT,
+        since=since,
+    )
+    rena = res.renamed["new1"]
+    assert live.data["links"][lid]["target"]["view"] == rena
+    read = live.document()
+    live.submit(edits={"links": {lid: {"params": {"match": "stem"}}}}, origin="user")
+
+    read["views"]["tamu"]["label"] = "rear"
+    live.submit(read, origin=AGENT, since=since)  # lid is in the copy as written: no conflict
+    assert live.data["links"][lid]["params"]["match"] == "stem"
+    assert live.data["views"]["tamu"]["label"] == "rear"
+
+
+def test_the_agent_s_own_undo_rewinds_its_copy(live: LiveCanvas):
+    """The agent removes kobi, then undoes that itself (the undo tool). Its copy goes back
+    to what it was before the undone submit, so the user's drag of kobi after the undo
+    and the agent's next document (from a read after its undo) both land."""
+    since = live.mark()
+    live.submit(edits={"views": {"kobi": None}}, origin=AGENT, since=since)
+    live.undo(origin=AGENT)
+    assert "kobi" in live.data["views"]
+    read = live.document()
+    gestures.move_views(live, {"kobi": (700, 300)})
+
+    read["views"]["tamu"]["label"] = "rear"
+    live.submit(read, origin=AGENT, since=since)
+    assert (
+        position(live, "kobi") == [700.0, 300.0] and live.data["views"]["tamu"]["label"] == "rear"
+    )
+
+
+def test_the_agent_s_redo_advances_its_copy_again(live: LiveCanvas):
+    since = live.mark()
+    live.submit(edits={"views": {"kobi": {"label": "front"}}}, origin=AGENT, since=since)
+    live.undo(origin=AGENT)
+    live.redo(origin=AGENT)
+    read = live.document()  # kobi "front", as the agent wrote it
+    live.submit(edits={"views": {"kobi": {"label": "user's"}}}, origin="user")
+
+    read["views"]["tamu"]["label"] = "rear"
+    live.submit(read, origin=AGENT, since=since)  # the stale "front" is the agent's own word
+    assert live.data["views"]["kobi"]["label"] == "user's"
+
+
+def test_a_closed_root_view_s_fix_it_says_to_clear_root_view_and_following_it_lands(
+    live: LiveCanvas,
+):
+    doc = live.document()
+    doc["views"]["clip"] = {
+        "type": "video",
+        "label": "clip",
+        "layout": {"position": [1800, 0], "size": [600, 400]},
+    }
+    pin(doc, "clip")
+    doc["root_view"] = "clip"
+    clip = live.submit(doc, origin="user", label="add clip as root").renamed.get("clip", "clip")
+    since = live.mark()
+    doc = live.document()
+    gestures.close_view(live, clip)
+    assert live.data["root_view"] is None
+    doc["views"][clip]["label"] = "rear"
+    doc["views"]["kobi"]["label"] = "front"
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(doc, origin=AGENT, since=since)
+    problem = next(p for p in e.value.problems if p["path"] == f"/views/{clip}")
+    pins = sorted(lid for lid, link in doc["links"].items() if link["target"]["view"] == clip)
+    assert problem["fix"].startswith(
+        f"leave out {clip} and links {', '.join(pins)} and clear root_view"
+    )
+
+    del doc["views"][clip]  # as the fix-it says: the view, those links, the root view
+    for lid in pins:
+        del doc["links"][lid]
+    doc["root_view"] = None
+    live.submit(doc, origin=AGENT, since=since)
+    assert clip not in live.data["views"] and live.data["views"]["kobi"]["label"] == "front"
+
+
+def test_without_a_copy_a_closed_view_s_fix_it_names_its_links_too(live: LiveCanvas):
+    """``since`` with no copy (0) judges every user change this session; its fix-it for a
+    closed view still names the links to leave out with it."""
+    doc = live.document()
+    gestures.close_view(live, "tamu")
+    pins = sorted(lid for lid, link in doc["links"].items() if link["target"]["view"] == "tamu")
+    doc["views"]["tamu"]["label"] = "rear"
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(doc, origin=AGENT, since=0)
+    problem = next(p for p in e.value.problems if p["path"] == "/views/tamu")
+    assert problem["fix"].startswith(f"leave out tamu and links {', '.join(pins)}")
+
+
+def test_run_in_thread_fails_on_a_worker_that_does_not_finish():
+    import threading
+
+    go = threading.Event()
+    try:
+        with pytest.raises(AssertionError, match="still running"):
+            run_in_thread(go.wait, timeout=0.2)
+    finally:
+        go.set()
