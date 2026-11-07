@@ -1,10 +1,14 @@
-// Texture atlas pages for GalleryItem. Render thread only (GL context current).
+// Texture atlas pages for GalleryItem. Pages: render thread only (GL context current);
+// prepareCell: any thread.
 //
 // A page is one square GL texture with a fixed grid of cells and a small mip chain
 // (kLevels levels, uploaded per tile from CPU box-filtered copies, so no page-wide
 // glGenerateMipmap). A tile is written as a full cell buffer with the thumbnail
 // centred and the gutter filled by edge replication, which keeps linear and mip
-// sampling free of neighbour bleed.
+// sampling free of neighbour bleed. A new page is cleared to the placeholder tone on
+// the GPU (glClearTexImage) where the context has it, so creating one costs no CPU fill
+// and no upload (21 MiB for a 2048 px page with its mips) in the frame that needs it
+// (SPEC-1).
 #pragma once
 
 #include <QtCore/QSize>
@@ -33,6 +37,23 @@ struct CellRef {
     int16_t cell = -1;
 };
 
+// One tier's cell, ready to upload (SPEC-1): the thumbnail's size in the tier and the
+// cell buffer with every mip level, built off the render thread so an upload is only
+// glTexSubImage2D calls.
+struct PreparedTier {
+    int w = 0, h = 0;                           // 0: the thumb has no picture in this tier
+    std::vector<std::vector<uint8_t>> levels;   // levels[lv]: (cell >> lv)^2 * 4 bytes
+};
+
+// Build the cell (buildCell) and its box-filtered mip chain for a w*h thumb. CPU only:
+// any thread.
+void prepareCell(const uint8_t *thumb, int w, int h, int cell, int gutter, int levels,
+                 PreparedTier &out);
+
+// glClearTexImage when the context has it (GL 4.4 or ARB_clear_texture), else null.
+using ClearTexImageFn = void(QOPENGLF_APIENTRYP)(GLuint, GLint, GLenum, GLenum, const void *);
+ClearTexImageFn clearTexImageFn();
+
 class AtlasPage
 {
 public:
@@ -54,8 +75,9 @@ public:
     int allocate();            // -1 when full
     void release(int cellIdx);
     void releaseAll();
-    // Upload a thumbnail (straight RGBA, w*h*4) into `cellIdx`; fills every mip level.
-    void upload(QOpenGLExtraFunctions *f, int cellIdx, const uint8_t *thumb, int w, int h);
+    // Upload a prepared cell (prepareCell with this page's cell, gutter and levels) into
+    // `cellIdx`; one glTexSubImage2D per mip level, nothing built here.
+    void upload(QOpenGLExtraFunctions *f, int cellIdx, const PreparedTier &tier);
     // Texture coordinates (0..1) of the thumbnail area of a cell holding a w*h thumb.
     void texRect(int cellIdx, int w, int h, float &u0, float &v0, float &u1, float &v1) const;
 
@@ -64,7 +86,6 @@ private:
     QSGTexture *m_sgTexture = nullptr;
     int m_size, m_cell, m_gutter, m_levels, m_cols;
     std::vector<int> m_free;
-    std::vector<uint8_t> m_scratch[8];
 };
 
 } // namespace specto

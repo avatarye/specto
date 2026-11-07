@@ -25,9 +25,12 @@
 //
 // Data path: a worker decodes a thumbnail (uint8 RGBA, HWC) into shared memory; the
 // GUI thread calls pushThumbShm(index, shm name, offset, w, h) (or pushThumb with the
-// bytes), which copies the pixels into a staging queue; the render thread uploads
-// staged tiles into atlas pages in updatePaintNode (GUI blocked, GL context current),
-// building the mip chain and the smaller tiers on the CPU as it goes.
+// bytes), which copies the pixels into a raw queue. The item's own prepare thread turns
+// each into upload-ready cells (SPEC-1): every tier's downsample, its gutter and its mip
+// chain, then asks for a frame. The render thread only uploads prepared cells into
+// atlas pages in updatePaintNode (GUI blocked, GL context current), up to
+// kMaxUploadsPerFrame tiles and kUploadBudgetNs per frame, so a burst of thumbnails
+// spreads over frames instead of stalling one.
 //
 // Tiers: mini (48 px in a 56 px cell, all resident), full (176 px in 192 px, LRU over
 // `fullPages` pages) and large (384 px in 400 px, LRU over `largePages` pages, used when
@@ -52,9 +55,16 @@
 #include <QtGui/QFont>
 #include <QtQuick/QQuickItem>
 
+#include "atlas.h"
+
+#include <array>
 #include <atomic>
+#include <memory>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 #if defined(SPECTONATIVE_BUILD)
@@ -94,6 +104,34 @@ struct StagedThumb {
     int index;
     int w, h;
     std::vector<uint8_t> rgba;   // w*h*4, straight alpha
+    uint32_t generation = 0;     // the collection it was pushed for (clearThumbs bumps it)
+};
+
+// The window's frames as the render thread timed them (SPEC-1). Shared with the
+// render-thread callbacks by shared_ptr, so a callback running while the item is
+// deleted touches only this, never the item; everything under `mutex`.
+struct FrameLog {
+    static constexpr int kMax = 16384;
+    QMutex mutex;
+    // per frame: swap-to-swap, sync-to-swap, sync-to-end-of-render (ms)
+    std::vector<std::array<float, 3>> frames;
+    QElapsedTimer clock;
+    qint64 lastSwapNs = 0, syncStartNs = 0, renderEndNs = 0;
+    void restart()
+    {
+        frames.clear();
+        clock.start();
+        lastSwapNs = syncStartNs = renderEndNs = 0;
+    }
+};
+
+// A staged thumb after the prepare thread (SPEC-1): one upload-ready cell per tier it
+// fills, from `topTier` (by its decoded size) down to mini.
+struct PreparedThumb {
+    int index = -1;
+    int topTier = 0;
+    bool failed = false;
+    specto::PreparedTier tier[TierCount];
 };
 
 class GalleryItem : public QQuickItem
@@ -160,6 +198,9 @@ class GalleryItem : public QQuickItem
     Q_PROPERTY(int drawCalls READ drawCalls NOTIFY statsChanged)
     Q_PROPERTY(int quads READ quads NOTIFY statsChanged)
     Q_PROPERTY(int captions READ captions NOTIFY statsChanged)
+    // the longest sync since resetStats, and atlas pages made (SPEC-1)
+    Q_PROPERTY(double syncMaxMs READ syncMaxMs NOTIFY statsChanged)
+    Q_PROPERTY(int pagesCreated READ pagesCreated NOTIFY statsChanged)
     // -- style tokens (B Calm Canvas; QML sets them from the theme table) --------------
     Q_PROPERTY(QColor selectionColor READ selectionColor WRITE setSelectionColor NOTIFY styleChanged)
     Q_PROPERTY(QColor hoverColor READ hoverColor WRITE setHoverColor NOTIFY styleChanged)
@@ -185,6 +226,8 @@ public:
     static constexpr int kFullCell = 192, kFullGutter = 8, kFullLevels = 4;     // 176 px thumbs
     static constexpr int kLargeCell = 400, kLargeGutter = 8, kLargeLevels = 5;  // 384 px thumbs
     static constexpr int kMaxUploadsPerFrame = 24;
+    // and no more upload time than this in one frame's sync (the first tile always goes)
+    static constexpr qint64 kUploadBudgetNs = 3'000'000;
     // overlay captions (px): padding around the lines inside the band, the inset of the
     // text from the thumb's left edge, and the current item's bar along the bottom edge
     static constexpr qreal kCaptionPad = 4.0, kCaptionInset = 7.0, kCurrentBar = 3.0;
@@ -296,6 +339,8 @@ public:
     int drawCalls() const { return m_statDrawCalls; }
     int quads() const { return m_statQuads; }
     int captions() const { return m_statCaptions; }
+    double syncMaxMs() const { return m_statSyncMaxMs; }
+    int pagesCreated() const { return m_statPagesCreated; }
 
     QColor selectionColor() const { return m_selectionColor; }
     void setSelectionColor(const QColor &c);
@@ -356,11 +401,19 @@ public:
     Q_INVOKABLE void zoomBy(int deltaColumns, qreal ax = -1, qreal ay = -1);
     Q_INVOKABLE void setView(int columns, qreal scrollRows, bool fromUser);
     Q_INVOKABLE void resetStats();
+    // The window's frames since resetStats, timed on the render thread (SPEC-1): each
+    // as [swap-to-swap ms, sync-to-swap ms, sync-to-end-of-render ms], the newest
+    // FrameLog::kMax. No Python runs on the
+    // render thread for it, so a busy interpreter cannot stretch what it measures.
+    Q_INVOKABLE QVariantList frameTimes() const;
+    // thumbs waiting for the prepare thread ("raw") and for an upload ("prepared")
+    Q_INVOKABLE QVariantMap queueSizes();
 
     // render-thread entry points (called from GalleryNode during sync)
     std::vector<TileRec> &tiles() { return m_tiles; }
-    std::deque<StagedThumb> &stagedQueue() { return m_staged; }
+    std::deque<PreparedThumb> &stagedQueue() { return m_staged; }
     QMutex &stagedMutex() { return m_stagedMutex; }
+    void notePageCreated() { ++m_pagesCreatedRt; }
     bool takeResetFlag() { return m_resetAtlas.exchange(false); }
     qint64 nowMs() const { return m_clock.elapsed(); }
     struct Frame {
@@ -432,8 +485,12 @@ protected:
     void focusOutEvent(QFocusEvent *event) override;
     bool event(QEvent *event) override;
     void releaseResources() override;
+    void itemChange(ItemChange change, const ItemChangeData &value) override;
 
 private:
+    void prepareLoop();                                  // the prepare thread
+    void enqueueRaw(StagedThumb &&st);                   // GUI thread
+    static PreparedThumb prepare(const StagedThumb &st); // any thread, CPU only
     qreal targetCellWidth() const;
     qreal targetCellWidth(int cols) const;
     void relayout();
@@ -496,7 +553,14 @@ private:
     qreal m_radius = 8.0, m_borderWidth = 2.0;
 
     std::vector<TileRec> m_tiles;
-    std::deque<StagedThumb> m_staged;
+    // pushed thumbs waiting for the prepare thread, and prepared ones for the render thread
+    std::deque<StagedThumb> m_raw;
+    std::mutex m_rawMutex;
+    std::condition_variable m_rawCv;
+    bool m_prepStop = false;
+    std::thread m_prep;
+    std::atomic<uint32_t> m_generation{0};   // clearThumbs drops what was in flight
+    std::deque<PreparedThumb> m_staged;
     QMutex m_stagedMutex;
     std::atomic<bool> m_resetAtlas{false};
     QElapsedTimer m_clock;
@@ -546,6 +610,13 @@ private:
     double m_statSyncMs = 0;
     qint64 m_statSyncNsAccum = 0;
     int m_statSyncSamples = 0;
+    double m_statSyncMaxMs = 0;
+    qint64 m_statSyncMaxNs = 0;
+    int m_statPagesCreated = 0;
+    int m_pagesCreatedRt = 0;   // render thread; published with the stats
+    // frame timing (render thread writes, frameTimes() copies under the mutex)
+    std::shared_ptr<FrameLog> m_frameLog = std::make_shared<FrameLog>();
+    QMetaObject::Connection m_syncConn, m_renderConn, m_swapConn;
     bool m_statsDirty = false;
     uint32_t m_uploadsSinceAspect = 0;
 };

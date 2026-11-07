@@ -14,9 +14,16 @@ the view auto-scrolls through the grid at --rows-per-second (the wheel scrolls),
 thumbnails are requested continuously while the worker pool decodes them. Measured over the run:
 
 - window frame rate: QQuickWindow.frameSwapped (queued to the GUI thread), count / s
+- frames over 33 ms (more than two vsync intervals at 60 Hz, SPEC-1) and the worst frame:
+  the swap-to-swap interval on the render thread, timed by the item itself
+  (``GalleryItem.frameTimes``: no Python on the render thread), and each frame's sync to
+  swap
 - item frame times: GalleryItem.frames and syncMs (render-thread sync cost per frame)
-- render-thread headroom: wall time from beforeSynchronizing to afterRendering per frame
-  (percentiles), which the vsync-capped frame rate hides
+- render-thread headroom: each frame's sync to the end of its render (the measure before
+  SPEC-1), its sync to swap, and the item's longest sync, which the vsync-capped frame
+  rate hides
+- Python's gen-2 collections on the GUI thread, counted beside the frames over 33 ms,
+  and which long frames they overlapped
 - GUI-thread idle: 100 - time.thread_time() / wall; plus 4 ms timer scheduling latency
 - decode throughput: thumbnails pushed into the item per second, pool size, respawns
 
@@ -27,18 +34,24 @@ cache dir (SPECTO_CACHE_DIR); nothing is written into the image folders.
 writes one: images, videos, pdfs, markdown, json, html, 3D), every file one item.
 ``--behind`` opens the window without the focus, below the user's windows (for
 tools/gpu_guard.py). ``--follow`` moves the current item (a followed time) to another
-visible tile every frame, so its mark and caption rebuild each frame.
+visible tile every frame, so its mark and caption rebuild each frame. ``--trace-stalls``
+watches the GUI thread from a helper thread and records, for every stall over 30 ms, when
+it happened, how long it lasted and the GUI thread's Python stack at the time (``stalls``
+in the JSON), to name what a long frame waited for.
 """
 
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import os
 import platform
 import statistics
 import sys
+import threading
 import time
+import traceback
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -54,6 +67,10 @@ from PySide6.QtGui import QGuiApplication  # noqa: E402
 CAM_A = ga.CAM_A
 CAM_B = ga.CAM_B
 DEFAULT_OUT = ROOT / "out" / "verify" / "m1_5" / "bench_gallery.json"  # git-ignored
+#: a frame longer than two vsync intervals at 60 Hz is a visible hitch (SPEC-1)
+OVER_MS = 33.4
+#: --trace-stalls: a GUI thread silent this long is a stall worth a stack
+STALL_MS = 30.0
 
 
 def percentile(xs: list[float], p: float) -> float:
@@ -109,6 +126,14 @@ def main() -> int:
         help="move the current item (a followed time) to another visible tile every frame; "
         "an item without currentIndex moves its selection instead",
     )
+    ap.add_argument(
+        "--full-pages", type=int, default=0, help="atlas pages for the full tier (0: the item's)"
+    )
+    ap.add_argument(
+        "--trace-stalls",
+        action="store_true",
+        help="record the GUI thread's stack during every stall over 30 ms",
+    )
     args = ap.parse_args()
 
     ga.require_plugin()
@@ -155,6 +180,8 @@ def main() -> int:
     item = win.gallery_item(vid)
     # the zoom level is the tile size; the item derives the columns from its width
     item.setProperty("captionMode", 1)
+    if args.full_pages:
+        item.setProperty("fullPages", int(args.full_pages))
     item.setProperty("tileWidth", float(args.tile_px))
     columns = int(item.property("effectiveColumns"))
     rows = int(item.property("rows"))
@@ -174,21 +201,45 @@ def main() -> int:
 
     win.window.frameSwapped.connect(on_swapped, Qt.ConnectionType.QueuedConnection)
 
-    # frame-time headroom under the vsync cap: the render thread's wall time from the start
-    # of a frame's sync to the end of its render (direct connections, on that thread)
-    rt = {"t0": 0.0}
-    render_ms: list[float] = []
-
-    def on_before_sync() -> None:
-        rt["t0"] = time.perf_counter()
-
-    def on_after_render() -> None:
-        if rt["t0"]:
-            render_ms.append((time.perf_counter() - rt["t0"]) * 1000.0)
-            rt["t0"] = 0.0
-
-    win.window.beforeSynchronizing.connect(on_before_sync, Qt.ConnectionType.DirectConnection)
-    win.window.afterRendering.connect(on_after_render, Qt.ConnectionType.DirectConnection)
+    # The frames as the render thread saw them (SPEC-1): the item times them natively
+    # (GalleryItem.frameTimes: swap-to-swap and sync-to-swap). Python slots on the render
+    # thread used to do it; they waited for the GIL whenever the GUI thread held it,
+    # which stretched the very frames they timed, and deadlocked closing the window.
+    def native_frames() -> tuple[list[float], list[float], list[float], list[dict]]:
+        """Swap-to-swap, sync-to-swap and sync-to-end-of-render per frame (ms), and the
+        frames over 33 ms, each marked with the gen-2 collection it overlapped, if any."""
+        gaps: list[float] = []
+        tails: list[float] = []
+        renders: list[float] = []
+        long: list[dict] = []
+        t = 0.0
+        for frame in item.frameTimes():
+            gap, tail = frame[0], frame[1]
+            render = frame[2] if len(frame) > 2 else 0.0
+            t += gap / 1000.0
+            gaps.append(gap)
+            tails.append(tail)
+            renders.append(render)
+            if gap > OVER_MS:
+                start = t - gap / 1000.0
+                gc2 = next(
+                    (
+                        c
+                        for c in collections
+                        if c["gen"] == 2 and c["t"] < t and c["t"] + c["ms"] / 1000.0 > start
+                    ),
+                    None,
+                )
+                long.append(
+                    {
+                        "t": round(t, 3),
+                        "ms": round(gap, 1),
+                        "sync_to_swap_ms": round(tail, 1),
+                        "render_ms": round(render, 1),
+                        "gen2_gc_ms": gc2["ms"] if gc2 else None,
+                    }
+                )
+        return gaps, tails, renders, long
 
     latency: list[float] = []
     lat = {"last": 0.0}
@@ -199,6 +250,50 @@ def main() -> int:
         if lat["last"]:
             latency.append(max(0.0, now - lat["last"] - LAT_MS))
         lat["last"] = now
+        stall_tick["t"] = time.perf_counter()
+
+    # --trace-stalls: a helper thread notices the GUI thread's 4 ms timer falling silent
+    stall_tick = {"t": time.perf_counter()}
+    stalls: list[dict] = []
+    gui_ident = threading.get_ident()
+    tracing = {"on": False}
+
+    # Python's cyclic collections on the GUI thread, timed (always, from the measure's
+    # start): a gen-2 collection over 13k items holds the GUI thread for tens of ms
+    collections: list[dict] = []
+    gc_t0 = {"t": 0.0}
+    measuring = {"on": False}
+
+    def on_gc(phase: str, info: dict) -> None:
+        if threading.get_ident() != gui_ident or not measuring["on"]:
+            return
+        if phase == "start":
+            gc_t0["t"] = time.perf_counter()
+        elif gc_t0["t"]:
+            ms = (time.perf_counter() - gc_t0["t"]) * 1000.0
+            if ms >= 5.0:
+                t = round(gc_t0["t"] - cpu0["wall"], 3)
+                collections.append({"t": t, "gen": info.get("generation"), "ms": round(ms, 1)})
+            gc_t0["t"] = 0.0
+
+    def watch_stalls() -> None:
+        current: dict | None = None
+        while tracing["on"]:
+            time.sleep(0.002)
+            quiet = (time.perf_counter() - stall_tick["t"]) * 1000.0
+            if quiet > STALL_MS and current is None:
+                frame = sys._current_frames().get(gui_ident)
+                stack = traceback.format_stack(frame)[-12:] if frame is not None else []
+                current = {
+                    "t": round(time.perf_counter() - cpu0["wall"], 3),
+                    "stack": [line.strip().replace("\n    ", " | ") for line in stack],
+                }
+            elif quiet <= STALL_MS and current is not None:
+                current["ms"] = round(
+                    (time.perf_counter() - cpu0["wall"] - current["t"]) * 1000.0 + STALL_MS, 1
+                )
+                stalls.append(current)
+                current = None
 
     lat_timer = QTimer()
     lat_timer.setTimerType(Qt.TimerType.PreciseTimer)
@@ -269,6 +364,8 @@ def main() -> int:
                 "staged": item.property("staged"),
                 "quads": item.property("quads"),
                 "captions": item.property("captions"),
+                "syncMaxMs": item.property("syncMaxMs"),
+                "pagesCreated": item.property("pagesCreated"),
                 "centerY": round(pan["cy"], 2),
             }
         )
@@ -294,7 +391,6 @@ def main() -> int:
         swaps["n"] = 0
         swap_gaps.clear()
         latency.clear()
-        render_ms.clear()
         samples.clear()
         base.update(
             swaps=0,
@@ -304,11 +400,21 @@ def main() -> int:
         )
         cpu0["cpu"] = time.thread_time()
         cpu0["wall"] = time.perf_counter()
+        stalls.clear()
+        collections.clear()
+        if not measuring["on"]:
+            measuring["on"] = True
+            gc.callbacks.append(on_gc)
+        if args.trace_stalls and not tracing["on"]:
+            tracing["on"] = True
+            threading.Thread(target=watch_stalls, name="stall-watch", daemon=True).start()
         sample()
         print(f"[OK] measuring for {args.seconds:.0f} s")
         QTimer.singleShot(int(args.seconds * 1000), finish)
 
     def finish() -> None:
+        tracing["on"] = False
+        measuring["on"] = False
         sample_timer.stop()
         pan_timer.stop()
         lat_timer.stop()
@@ -319,12 +425,17 @@ def main() -> int:
         decoded = host.decoded - base["decoded"]
         uploads = int(item.property("uploads"))
         swapped_fps = swaps["n"] / wall
+        rt_gaps, frame_ms, render_ms, long_frames = native_frames()
+        over_33 = sum(1 for g in rt_gaps if g > OVER_MS)
+        gen2 = [c for c in collections if c["gen"] == 2]
         idle = 100 - 100 * cpu / wall
         criterion = {
             "items_ge_10k": count >= 10_000,
             "swapped_fps_ge_58": swapped_fps >= 58.0,
             "gui_idle_ge_80": idle >= 80.0,
             "decoding_during_pan": decoded > 0 and host.inflight >= 0,
+            # SPEC-1: no frame longer than two vsync intervals
+            "frames_over_33ms_eq_0": over_33 == 0,
         }
         result.update(
             {
@@ -372,7 +483,27 @@ def main() -> int:
                         "p99": round(percentile(swap_gaps, 0.99), 2),
                         "max": round(max(swap_gaps) if swap_gaps else 0.0, 2),
                     },
-                    # sync + render on the render thread: the headroom under the vsync cap
+                    "follow": follow_prop if args.follow else None,
+                    # SPEC-1: frames over two vsync intervals, and the worst one (the
+                    # render thread's swap-to-swap interval, timed natively)
+                    "frame_ms": {
+                        "frames": len(rt_gaps),
+                        "p50": round(percentile(rt_gaps, 0.5), 2),
+                        "p99": round(percentile(rt_gaps, 0.99), 2),
+                        "worst": round(max(rt_gaps) if rt_gaps else 0.0, 2),
+                        "over_33ms": over_33,
+                        "over_50ms": sum(1 for g in rt_gaps if g > 50.0),
+                        # beside them, Python's gen-2 collections on the GUI thread and
+                        # the long frames one overlapped (SPEC-54 tracks those pauses)
+                        "gen2_gc": len(gen2),
+                        "gen2_gc_ms": [c["ms"] for c in gen2],
+                        "over_33ms_with_gen2_gc": sum(
+                            1 for f in long_frames if f["gen2_gc_ms"] is not None
+                        ),
+                        "long": long_frames,
+                    },
+                    # sync to the end of render on the render thread (the measure the
+                    # bench reported before SPEC-1, now timed natively)
                     "render_thread_ms": {
                         "frames": len(render_ms),
                         "p50": round(percentile(render_ms, 0.5), 3),
@@ -380,8 +511,18 @@ def main() -> int:
                         "p99": round(percentile(render_ms, 0.99), 3),
                         "max": round(max(render_ms) if render_ms else 0.0, 3),
                         "mean": round(statistics.fmean(render_ms), 3) if render_ms else 0.0,
+                        "over_33ms": sum(1 for g in render_ms if g > OVER_MS),
                     },
-                    "follow": follow_prop if args.follow else None,
+                    # sync to swap on the render thread: sync, render, the swap itself
+                    # (where the driver's share of an upload lands) and the vsync wait
+                    "sync_to_swap_ms": {
+                        "p50": round(percentile(frame_ms, 0.5), 2),
+                        "p99": round(percentile(frame_ms, 0.99), 2),
+                        "max": round(max(frame_ms) if frame_ms else 0.0, 2),
+                        "over_33ms": sum(1 for g in frame_ms if g > OVER_MS),
+                    },
+                    # the item's own sync (uploads included): the longest one
+                    "item_sync_max_ms": round(float(item.property("syncMaxMs") or 0.0), 2),
                 },
                 "item": {
                     "frames": frames,
@@ -418,6 +559,8 @@ def main() -> int:
                     "mb_per_second": round(host.pushed_bytes / 1e6 / wall, 1),
                 },
                 "samples": samples,
+                "stalls": stalls,
+                "gc_collections": collections,
                 "criterion": criterion,
                 "pass": all(criterion.values()),
             }
@@ -427,6 +570,15 @@ def main() -> int:
         md = args.out.with_suffix(".md")
         md.write_text(summary_md(result), encoding="utf-8")
         print(f"[OK] wrote {args.out} and {md}")
+        fm = result["window"]["frame_ms"]
+        print(
+            f"[{'OK' if fm['over_33ms'] == 0 else 'WARN'}] frames over 33 ms: {fm['over_33ms']} "
+            f"of {fm['frames']} ({fm['over_33ms_with_gen2_gc']} during a gen-2 gc; "
+            f"{fm['gen2_gc']} gen-2 gc in all), worst {fm['worst']} ms, p99 {fm['p99']} ms; "
+            f"render thread max {result['window']['render_thread_ms']['max']} ms, sync to swap "
+            f"max {result['window']['sync_to_swap_ms']['max']} ms, item sync max "
+            f"{result['window']['item_sync_max_ms']} ms"
+        )
         print(
             f"[{'OK' if result['pass'] else 'WARN'}] {count} items: window {swapped_fps:.1f} fps, "
             f"item {frames / wall:.1f} fps, sync {result['item']['sync_ms_mean']:.2f} ms, GUI idle "
@@ -438,7 +590,18 @@ def main() -> int:
             Path(args.snapshot).parent.mkdir(parents=True, exist_ok=True)
             img.save(args.snapshot)
             print(f"[OK] wrote {args.snapshot}")
+        for c in collections:
+            print(f"[..] GUI-thread gc gen {c['gen']} at {c['t']:.2f} s: {c['ms']:.0f} ms")
+        for st in stalls[:20]:
+            print(f"[..] GUI stall at {st['t']:.2f} s, {st.get('ms', 0):.0f} ms:")
+            for line in st["stack"][-4:]:
+                print(f"       {line}")
+        sys.stdout.flush()
         if not args.stay:
+            # a close that never returns ends the run anyway: the numbers are written
+            # (Python slots on the render thread once deadlocked it on the GIL)
+            done = 0 if result["pass"] else 1
+            threading.Timer(20.0, lambda: os._exit(done)).start()
             win.close()
             app.quit()
 
@@ -459,6 +622,15 @@ def summary_md(r: dict) -> str:
     m = r["machine"]
     sg, tl = w["swap_gap_ms"], g["timer_latency_ms"]
     swap_q = f"{sg['p50']} / {sg['p95']} / {sg['p99']} / {sg['max']} ms"
+    item_q = f"{it['fps']} fps, sync {it['sync_ms_mean']} ms mean, {w['item_sync_max_ms']} ms max"
+    ss = w["sync_to_swap_ms"]
+    sync_q = f"{ss['p50']} / {ss['p99']} / {ss['max']} ms"
+    fm = w["frame_ms"]
+    over_q = (
+        f"{fm['over_33ms']} of {fm['frames']} (over 50 ms: {fm['over_50ms']}; "
+        f"{fm['over_33ms_with_gen2_gc']} during a gen-2 gc, {fm['gen2_gc']} gen-2 gc in all); "
+        f"worst {fm['worst']} ms, p99 {fm['p99']} ms"
+    )
     rq = w["render_thread_ms"]
     render_q = f"{rq['p50']} / {rq['p95']} / {rq['p99']} / {rq['max']} ms"
     lat_q = f"{tl['p50']} / {tl['p95']} / {tl['p99']} / {tl['max']} ms"
@@ -486,8 +658,10 @@ def summary_md(r: dict) -> str:
 |---|---|
 | Window frame rate (frameSwapped) | {w["swapped_fps"]} fps ({w["swapped_frames"]} frames) |
 | Swap interval p50 / p95 / p99 / max | {swap_q} |
-| Item frames (render-thread sync) | {it["fps"]} fps, sync {it["sync_ms_mean"]} ms mean |
-| Render thread sync + render p50 / p95 / p99 / max | {render_q} |
+| Frames over 33 ms (render-thread swap interval) | {over_q} |
+| Item frames (render-thread sync) | {item_q} |
+| Render thread sync to end of render p50 / p95 / p99 / max | {render_q} |
+| Render thread sync to swap p50 / p99 / max | {sync_q} |
 | Uploads / evictions during the run | {it["uploads"]} / {it["evictions"]} |
 | Resident tiles at the end (full / mini / large) | {resident} |
 | Captions drawn in the last frame | {it["captions_last"]} |

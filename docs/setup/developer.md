@@ -185,6 +185,12 @@ wheel's `Qt/lib`, never the SDK's, and an exported `CMAKE_PREFIX_PATH` (ROS, con
 ignored. A shell that sourced another stack's environment also leaks `PYTHONPATH` and
 `LD_LIBRARY_PATH` into the venv: unset them first.
 
+Two switches for measuring the gallery (`tools/bench_gallery.py`, SPEC-1):
+`SPECTO_GALLERY_CPU_FILL=1` makes a new atlas page fill on the CPU and upload, as before
+`glClearTexImage` was used (the fallback for contexts without GL 4.4 or
+`ARB_clear_texture`); `SPECTO_WORKER_PRIORITY=normal` keeps the pool's decode workers at
+normal priority instead of below it.
+
 Verified: `[OK] PySide6 Qt 6.12.0; SDK <build root>\Qt\6.12.0\msvc2022_64`,
 installed files `libmpv-2.dll, qmldir, spectoqt.dll, spectoqt.qmltypes, ...`.
 

@@ -8,6 +8,8 @@
 - The worker keeps its shared-memory handle until the parent has attached and sent
   ``release`` (Windows frees a segment once the last handle closes). The parent owns the
   segment from then on: ``SharedResult.release()`` closes and unlinks it.
+- Workers run below normal priority (``lower_priority``; ``SPECTO_WORKER_PRIORITY=normal``
+  keeps them level), so decoding on every core never starves the GUI and render threads.
 - Crash isolation: a worker that dies fails only the job it was running (with the exit
   code in the error) and is respawned in place; ``respawns`` counts them.
 - ``poll()`` drains worker messages and runs ``on_done`` callbacks on the calling thread
@@ -110,8 +112,30 @@ def _export(obj: Any, held: dict[str, shared_memory.SharedMemory]) -> tuple[str,
     return ("value", obj)
 
 
+def lower_priority() -> bool:
+    """Run this process below normal priority (SPEC-1): a pool of decoders on every
+    core must never take the CPU from the GUI and render threads, or scrolling stalls
+    while thumbnails decode. True when it was lowered."""
+    if os.environ.get("SPECTO_WORKER_PRIORITY", "").strip().lower() == "normal":
+        return False
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+            k32 = ctypes.windll.kernel32
+            k32.GetCurrentProcess.restype = ctypes.c_void_p
+            k32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            return bool(k32.SetPriorityClass(k32.GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS))
+        os.nice(5)
+        return True
+    except (OSError, AttributeError):
+        return False
+
+
 def _worker_main(conn: Connection, worker_id: int) -> None:
     held: dict[str, shared_memory.SharedMemory] = {}
+    lower_priority()
     while True:
         try:
             msg = conn.recv()
