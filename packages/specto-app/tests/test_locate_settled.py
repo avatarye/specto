@@ -56,3 +56,11 @@ def test_a_removed_rows_delegate_is_gone_before_the_next_frame(view):
     assert find_item(win.contentItem(), "row:a") is not None  # what the flow saw
     assert find_settled(win, "row:a") is None
     assert find_settled(win, "row:b") is not None
+
+
+def test_a_hidden_window_is_not_settled(view):
+    """A hidden window draws no frame: nothing to settle for, so no polish is forced."""
+    win, root = view
+    win.hide()
+    QMetaObject.invokeMethod(root, "dropFirst", Qt.ConnectionType.DirectConnection)
+    assert find_settled(win, "row:a") is not None  # the removed row, unpolished

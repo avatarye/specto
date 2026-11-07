@@ -115,7 +115,8 @@ class ShellLocateResult(Result):
 @command(
     "shell.locate",
     doc="Where a named shell item is on screen (window pixel rect), for scripted GUI tests "
-    "driving a real mouse; needs the running app.",
+    "driving a real mouse; needs the running app. It forces a polish of every item first, "
+    "so it answers the item tree as the next frame draws it (a list's removed rows gone).",
     read_only=True,
     scope="project",
 )

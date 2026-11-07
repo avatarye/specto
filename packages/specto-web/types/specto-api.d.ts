@@ -537,7 +537,7 @@ step, nothing journaled). */
     "list_commands": { args: ListCommandsArgs; result: ListCommandsResult };
     /** A request from another agent of the user's fleet: it shows in the agent thread as a peer row and runs as an agent turn labelled with the sender (undoable like any turn). It is a request, never the user's approval. The user's Peer requests setting runs it (auto), asks first (ask) or refuses it (off: error code refused). (read_only: false, destructive: false; scope project) */
     "message": { args: MessageArgs; result: MessageResult };
-    /** Where a named shell item is on screen (window pixel rect), for scripted GUI tests driving a real mouse; needs the running app. (read_only: true, destructive: false; scope project) */
+    /** Where a named shell item is on screen (window pixel rect), for scripted GUI tests driving a real mouse; needs the running app. It forces a polish of every item first, so it answers the item tree as the next frame draws it (a list's removed rows gone). (read_only: true, destructive: false; scope project) */
     "shell.locate": { args: ShellLocateArgs; result: ShellLocateResult };
     /** Structured snapshot of a view or the whole canvas (document entry, links in and out with their resolve state, health, on-screen rect, host state), plus an optional PNG and layout text from the running app. (read_only: true, destructive: false; scope project) */
     "snap": { args: SnapArgs; result: SnapResult };

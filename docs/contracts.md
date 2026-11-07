@@ -681,8 +681,9 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   runtime fetches' `{cached, fetching, queued, done, total, error}`), `meta.links` the links in and out
   with their resolve state, `meta.rect` the on-screen rect;
   `layout` one line per view and link) and `shell.locate {name}` (the window rect of a
-  shell item by `objectName`, in the item tree as the next frame draws it: pending
-  polishes are applied first, so a list's removed rows are gone, SPEC-41: `slot:kobi`, `header:kobi`, `close:kobi`,
+  shell item by `objectName`, in the item tree as the next frame draws it: it forces a
+  polish of every item first, so a list's removed rows are gone, SPEC-41: `slot:kobi`,
+  `header:kobi`, `close:kobi`,
   `lock:kobi`, `maximize:kobi`, `resize:kobi:bottom-right`, `treeRow:fege:<path>`,
   `tile:kobi:<key>`, `video:rena:play`, `sort:name:kobi`, `approve:tamu`, `panArea` (the
   empty canvas),

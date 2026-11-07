@@ -98,26 +98,51 @@ def find_item(root: QQuickItem | None, object_name: str) -> QQuickItem | None:
     return None
 
 
-def settle(root: QQuickItem | None) -> None:
-    """Apply every pending polish under ``root`` (``QQuickItem.ensurePolished``), top
-    down, so the item tree is the one the next frame draws: a ListView applies its
-    model's row changes at its polish, and until then a removed row's delegate is still
-    there, visible (SPEC-41). Web views' own children are skipped, as in
-    :func:`find_item`."""
-    if root is None:
-        return
+#: at most this many polish passes in :func:`settle`
+SETTLE_PASSES = 3
+
+
+def _polish_pass(root: QQuickItem) -> tuple[str, ...]:
+    """Force a polish of every item under ``root``, top down, and answer the item tree's
+    shape after it (each item's ``objectName``, in walk order)."""
+    shape: list[str] = []
     stack = [root]
     while stack:
         item = stack.pop()
         item.ensurePolished()  # may add or remove its children: read them after
+        shape.append(item.objectName())
         if not item.metaObject().className().startswith("QQuickWebEngine"):
             stack.extend(item.childItems())
+    return tuple(shape)
+
+
+def settle(root: QQuickItem | None) -> None:
+    """Force a polish of every item under ``root`` (``QQuickItem.ensurePolished`` calls
+    ``updatePolish`` whether or not one is pending), so the item tree is the one the next
+    frame draws: a ListView applies its model's row changes at its polish, and until then
+    a removed row's delegate is still there, visible (SPEC-41). Qt's public API cannot
+    tell which items have a polish pending (``QQuickRenderControl.polishItems`` can, but
+    the app's window, offscreen tier included, has no render control). A polish can make
+    new items that want one of their own, so passes repeat until the tree's shape stops
+    changing, at most :data:`SETTLE_PASSES`. Web views' own children are skipped, as in
+    :func:`find_item`."""
+    if root is None:
+        return
+    shape = _polish_pass(root)
+    for _ in range(SETTLE_PASSES - 1):
+        again = _polish_pass(root)
+        if again == shape:
+            return
+        shape = again
 
 
 def find_settled(win: QQuickWindow, object_name: str) -> QQuickItem | None:
-    """:func:`find_item` in ``win`` once its pending polishes are applied (:func:`settle`):
-    what ``shell.locate`` and the test driver answer, as the next frame shows it."""
-    settle(win.contentItem())
+    """:func:`find_item` in ``win`` after :func:`settle`, when the window shows (a hidden
+    window draws no frame to settle for): what ``shell.locate`` and the test driver
+    answer, as the next frame shows it. Only ``locate`` settles; ``snap`` asks once per
+    view and does not."""
+    if win.isVisible():
+        settle(win.contentItem())
     return find_item(win.contentItem(), object_name)
 
 
@@ -130,7 +155,7 @@ class ShellSnapProvider:
     def _find(self, name: str) -> QQuickItem | None:
         # Loader/Repeater-made items have no QObject parent chain: walk the item tree
         win = self.app.window
-        return find_settled(win, name) if win is not None else None
+        return find_item(win.contentItem(), name) if win is not None else None
 
     def _item(self, oid: str) -> QQuickItem | None:
         if self.app.window is None:
@@ -164,7 +189,7 @@ class ShellSnapProvider:
         win = self.app.window
         if win is None:
             return None
-        item = self._find(name)
+        item = find_settled(win, name)  # as the next frame draws it (SPEC-41)
         if item is None:
             return self._locate_in_host(name)
         return locate_item(win, item)

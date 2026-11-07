@@ -304,7 +304,9 @@ class Api:
 
     def shell_locate(self, *, name: str) -> dict[str, Any]:
         """Where a named shell item is on screen (window pixel rect), for scripted GUI tests
-        driving a real mouse; needs the running app. [read-only]
+        driving a real mouse; needs the running app. It forces a polish of every item first, so
+        it answers the item tree as the next frame draws it (a list's removed rows gone).
+        [read-only]
 
         Args:
             name: str -- objectName of a shell item (slot:kobi, header:kobi, close:kobi,

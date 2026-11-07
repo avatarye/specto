@@ -16,7 +16,7 @@ the release and move on their own schedule.
 ## Unreleased
 
 - `shell.locate` (and the test driver's locate) answers the item tree as the next frame
-  draws it (SPEC-41): it applies pending polishes before it looks. A list applies its
+  draws it (SPEC-41): it forces a polish of every item before it looks. A list applies its
   model's row changes at its polish, so until then a removed row's delegate was still
   found, visible; the offscreen `search` flow failed 2 runs in 5 on it.
 - After a project slash command (`/layout review`), the agent's next turn gets the
