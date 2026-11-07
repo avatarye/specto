@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "project": {"label": "v2-43-proj"},
+  "window_frame": {"rect": {"x": 0, "y": 0, "w": 1600, "h": 900}},
+  "root_view": null,
+  "views": {
+    "fege": {
+      "type": "file_tree",
+      "label": "Files",
+      "layout": {"position": [80, 0], "size": [300, 820]},
+      "params": {},
+      "locked": false
+    },
+    "robo": {
+      "type": "urdf",
+      "label": "Arm",
+      "layout": {"position": [400, 0], "size": [1100, 760]},
+      "params": {},
+      "locked": false
+    }
+  },
+  "links": {
+    "l1": {
+      "kind": "intaker",
+      "label": "project files",
+      "source": {"view": "project", "port": "all_files"},
+      "target": {"view": "fege", "port": "data"},
+      "two_way": false,
+      "params": {"sources": ["."], "watch": true},
+      "summary": {"sentence": "The file tree shows every file in the project folder."}
+    },
+    "l2": {
+      "kind": "intaker",
+      "scope": "selection",
+      "label": "picked robot",
+      "source": {"view": "fege", "port": "selected_files"},
+      "target": {"view": "robo", "port": "data"},
+      "two_way": false,
+      "params": {"screener": ["@urdf"]},
+      "summary": {"sentence": "The urdf view shows the robot picked in the file tree."}
+    }
+  }
+}
