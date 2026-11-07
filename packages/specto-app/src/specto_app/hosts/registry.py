@@ -275,6 +275,10 @@ class HostRegistry(QObject):
             h = self.hosts.get(vid)
             if h is None or getattr(h, "disposed", False):
                 continue
+            manifest = getattr(h, "manifest", None)
+            if manifest is not None and manifest.type != views[vid]["type"]:
+                self._rebuild(vid)  # same id, new type: the new type's host (SPEC-48)
+                continue
             try:
                 h.on_patch(ops, meta)
             except Exception as e:
@@ -347,6 +351,20 @@ class HostRegistry(QObject):
         """Hand each live host the ops under its own view (tests; the registry does this
         itself from the live canvas's patch stream)."""
         self._on_patch(patch, meta)
+
+    def _rebuild(self, view_id: str) -> None:
+        """Replace a view's host with one of its document type: the old host goes, the
+        new one takes its slot and, off screen or collapsed, stays paused."""
+        slot = self._slots.get(view_id)
+        paused = view_id in self._paused
+        why = self.ctx.health_of(view_id).get("message") or "off-screen"
+        self.dispose(view_id)
+        if self.host(view_id) is None:
+            return
+        if slot is not None:
+            self.attach(view_id, slot)
+        if paused:
+            self.pause(view_id, why)
 
     def dispose(self, view_id: str) -> None:
         self._paused.pop(view_id, None)
