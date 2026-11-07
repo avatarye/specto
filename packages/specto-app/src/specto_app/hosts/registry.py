@@ -389,9 +389,9 @@ class HostRegistry(QObject):
         self._paused[view_id].update(self.ctx.health_of(view_id))
         pause = getattr(h, "pause", None)
         try:
+            self._release(view_id, h)  # first: the host's pause sees its item out
             if callable(pause):
                 pause()
-            self._release(view_id, h)
             self.ctx.set_health(view_id, "paused", "off-screen")
         except Exception as e:
             self.ctx.set_health(view_id, "error", f"pause: {type(e).__name__}: {e}")
