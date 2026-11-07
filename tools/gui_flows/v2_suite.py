@@ -973,6 +973,25 @@ def session_cmd(
     return cmd
 
 
+def seed_entry(name: str, entry: dict, project: Path, t0: float) -> str:
+    """Wipe and seed an entry's folder (under the caller's desktop lock): only a folder a
+    GUI session created, which the seed then rebuilds and the mark keeps ours. The
+    failure's text, ``""`` when seeded."""
+    if not gui_scratch.prepare_project(project, fresh=True):
+        return f"{project} is someone's empty folder, not a GUI session's: delete it once"
+    s = entry["seed"]
+    if callable(s):
+        s(project)
+    else:
+        cmd = [a.replace("{project}", str(project)) for a in s]
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+        if r.returncode != 0:
+            return f"seed failed: {r.stdout}{r.stderr}"
+    project.mkdir(parents=True, exist_ok=True)
+    gui_scratch.mark(project)  # the seed may have rebuilt it: ours all the same
+    return ""
+
+
 def run_entry(name: str, entry: dict, work: Path, out: Path) -> list[dict]:
     """Seed and run one entry; one result per flow (``flow``, ``ok``, ``seconds``,
     ``error``), the seed's failure as a result of its own."""
@@ -983,24 +1002,15 @@ def run_entry(name: str, entry: dict, work: Path, out: Path) -> list[dict]:
     # try-it use), and a canvas, picks or settings left by the last run would show. Only a
     # folder a GUI session created (its mark) or an empty one is wiped (SPEC-7)
     try:
-        # under the desktop lock: never a folder a mouse-tier session holding it is using
+        # the wipe and the seed under the desktop lock: never a folder a mouse-tier
+        # session holding it is using; a seed runs only on a folder that is ours (SPEC-7)
         with desktop_lock.held(f"v2-suite-{os.getpid()}"):
-            ours = gui_scratch.prepare_project(project, fresh=True)
+            failure = seed_entry(name, entry, project, t0)
     except SystemExit as e:
-        why = f"{e} (a --work folder from before SPEC-7 carries no mark: delete {project} once)"
-        return [{"entry": name, "flow": "seed", "ok": False, "seconds": 0.0, "error": why}]
-    s = entry["seed"]
-    if callable(s):
-        s(project)
-    else:
-        cmd = [a.replace("{project}", str(project)) for a in s]
-        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
-        if r.returncode != 0:
-            return [{"entry": name, "flow": "seed", "ok": False, "seconds": time.monotonic() - t0,
-                     "error": f"seed failed: {r.stdout}{r.stderr}"}]  # fmt: skip
-    project.mkdir(parents=True, exist_ok=True)
-    if ours:  # created or wiped here; a seed may have rebuilt it: ours all the same
-        gui_scratch.mark(project)
+        failure = f"{e} (a --work folder from before SPEC-7 carries no mark: delete it once)"
+    if failure:
+        return [{"entry": name, "flow": "seed", "ok": False,
+                 "seconds": time.monotonic() - t0, "error": failure}]  # fmt: skip
     results: list[dict] = []
     for i, sess in enumerate(entry["sessions"]):
         cmd = session_cmd(tier, project, out, work, name, i, sess)

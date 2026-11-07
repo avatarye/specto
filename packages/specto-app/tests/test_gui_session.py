@@ -41,131 +41,142 @@ def test_an_explicit_user_dir_wins(tmp_path):
 def lock(tmp_path, monkeypatch):
     path = tmp_path / "desktop.lock"
     monkeypatch.setattr(desktop_lock, "LOCK", path)
+    monkeypatch.setenv("SPECTO_DESKTOP_LOCK", str(path))  # for child processes
     monkeypatch.delenv(desktop_lock.ENV_NAME, raising=False)
     monkeypatch.delenv(desktop_lock.ENV_PRIVATE, raising=False)
     return path
 
 
-def holder(path: Path) -> str | None:
-    try:
-        return json.loads(path.read_text(encoding="utf-8")).get("name")
-    except OSError:
-        return None
+#: a process that holds the desktop lock until ``argv[2]`` appears, saying so in ``argv[1]``
+HOLDER = """
+import os, sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[3])
+import desktop_lock
+f = desktop_lock.acquire("holder", 30)
+Path(sys.argv[1]).write_text("held" if f else "no")
+deadline = time.monotonic() + 60
+while not Path(sys.argv[2]).exists() and time.monotonic() < deadline:
+    time.sleep(0.05)
+"""
+
+
+@pytest.fixture
+def holder_process(lock, tmp_path):
+    """Start a process holding the lock; returns ``(proc, release)``."""
+    started, done = tmp_path / "held.txt", tmp_path / "done.txt"
+    procs: list[subprocess.Popen] = []
+
+    def start() -> subprocess.Popen:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", HOLDER, str(started), str(done), str(_PATH.parent)]
+        )
+        procs.append(proc)
+        assert wait_until(lambda: started.exists())
+        assert started.read_text() == "held"
+        return proc
+
+    yield start, (lambda: done.write_text("x"))
+    for proc in procs:
+        if proc.poll() is None:
+            proc.kill()
 
 
 def test_a_session_takes_the_lock_itself_and_frees_it(lock):
     with desktop_lock.held("gui-session-1", wait_s=0):
-        name = holder(lock)
-        assert name.startswith("gui-session-1-") and len(name) > len("gui-session-1-")  # nonce
-    assert not lock.exists()
+        assert not desktop_lock.is_free()
+        assert desktop_lock.holder_name().startswith("gui-session-1 (pid ")
+        assert os.environ[desktop_lock.ENV_NAME] == "gui-session-1"  # for its children
+    assert desktop_lock.is_free() and desktop_lock.ENV_NAME not in os.environ
 
 
-def test_an_unreadable_lock_is_busy_until_it_has_not_changed_for_the_stale_time(lock):
-    """A holder mid-write leaves an empty or torn file for an instant: a waiter never
-    deletes it then. Only one left unchanged for STALE_S is taken over."""
-    import os
-
-    lock.write_text('{"name": "some', encoding="utf-8")
-    assert not desktop_lock.acquire("me", 0)
-    assert lock.read_text(encoding="utf-8") == '{"name": "some'
-    old = time.time() - desktop_lock.STALE_S - 60
-    os.utime(lock, (old, old))
-    assert desktop_lock.acquire("me", 0) and holder(lock) == "me"
-
-
-def test_a_lock_whose_holder_is_gone_is_stale(lock):
-    gone = subprocess.Popen([sys.executable, "-c", "pass"])
-    gone.wait(30)
-    now = time.time()
-    lock.write_text(
-        json.dumps({"name": "crashed", "pid": gone.pid, "since": now, "beat": now}),
-        encoding="utf-8",
-    )
-    assert desktop_lock.acquire("me", 0) and holder(lock) == "me"
-
-
-def test_the_lock_appears_whole_and_leaves_nothing_behind(lock):
-    assert desktop_lock.acquire("me", 0)
-    assert desktop_lock.read().name == "me" and desktop_lock.read().pid == os.getpid()
-    assert not [f for f in lock.parent.iterdir() if f != lock]  # no temp or aside files
-    desktop_lock.release("me")
-    assert not lock.exists() and not list(lock.parent.iterdir())
-
-
-def test_two_takers_of_one_stale_lock_end_with_one_holder(lock):
-    """Both judged the same stale lock. The first moves it aside and puts its own in
-    place; the second's takeover moves the first's fresh lock aside, sees it is not the
-    one it judged, and puts it back: one holder, never two."""
-    now = time.time()
-    stale = json.dumps({"name": "crashed", "pid": 0, "since": now})
-    lock.write_text(stale, encoding="utf-8")
-    judged = lock.read_text(encoding="utf-8")
-    assert desktop_lock.stale_reason(desktop_lock.LockInfo.parse(judged), now)
-    assert desktop_lock.take_over(judged) and desktop_lock._create("first")
-    assert not desktop_lock.take_over(judged)  # the second taker, late with its judgement
-    assert holder(lock) == "first"
-    assert not desktop_lock._create("second")
-    assert not [f for f in lock.parent.iterdir() if f != lock]
-
-
-def test_a_release_leaves_a_lock_that_is_no_longer_its_own(lock):
-    assert desktop_lock.acquire("me", 0)
-    lock.write_text(json.dumps({"name": "next", "pid": os.getpid(), "since": 1.0}), "utf-8")
-    desktop_lock.release("me")
-    assert holder(lock) == "next"
-
-
-def test_a_failing_beat_says_so_and_keeps_beating(lock, monkeypatch, capsys):
-    monkeypatch.setattr(desktop_lock, "BEAT_S", 0.05)
-    assert desktop_lock.acquire("me", 0)
-    calls = {"n": 0}
-    real_utime = os.utime
-
-    def flaky(path, *a, **kw):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise PermissionError("held open")
-        return real_utime(path, *a, **kw)
-
-    monkeypatch.setattr(desktop_lock.os, "utime", flaky)
-    stop = desktop_lock._beating("me")
-    deadline = time.monotonic() + 5
-    while calls["n"] < 3 and time.monotonic() < deadline:
-        time.sleep(0.02)
-    stop.set()
-    assert calls["n"] >= 3  # it went on after the failure
-    assert "beat for me failed" in capsys.readouterr().out
-
-
-def test_a_session_under_desktop_lock_run_uses_its_lock(lock, monkeypatch):
-    assert desktop_lock.acquire("v2-mouse", 0)
-    monkeypatch.setenv(desktop_lock.ENV_NAME, "v2-mouse")
-    with desktop_lock.held("gui-session-1", wait_s=0):
-        assert holder(lock) == "v2-mouse"
-    assert holder(lock) == "v2-mouse"  # the run's to release, not the session's
-
-
-def test_a_session_refuses_a_desktop_someone_else_holds(lock):
-    assert desktop_lock.acquire("someone", 0)
-    with pytest.raises(SystemExit, match="someone"):
-        with desktop_lock.held("gui-session-1", wait_s=0):
+def test_a_second_process_waits_and_gets_the_lock_when_the_first_exits(lock, holder_process):
+    start, release = holder_process
+    proc = start()
+    assert desktop_lock.acquire("me", 0) is None
+    with pytest.raises(SystemExit, match="holder"):
+        with desktop_lock.held("me", wait_s=0):
             pytest.fail("drove the desktop without the lock")
-    assert holder(lock) == "someone"
+    release()
+    proc.wait(30)
+    f = desktop_lock.acquire("me", 10)
+    assert f is not None
+    desktop_lock.release(f, "me")
 
 
-def test_a_private_display_needs_no_lock(lock, monkeypatch):
-    assert desktop_lock.acquire("someone", 0)
+def test_a_killed_holder_frees_the_lock_at_once(lock, holder_process):
+    start, _ = holder_process
+    proc = start()
+    proc.kill()
+    proc.wait(30)
+    f = desktop_lock.acquire("me", 2)  # no staleness to wait out
+    assert f is not None
+    desktop_lock.release(f, "me")
+
+
+def test_the_sidecar_never_decides(lock):
+    """It names a live holder (this process), but the OS lock is free: the lock is taken."""
+    desktop_lock.sidecar().write_text(
+        json.dumps({"name": "ghost", "pid": os.getpid(), "since": 1.0}), encoding="utf-8"
+    )
+    assert desktop_lock.is_free()
+    f = desktop_lock.acquire("me", 0)
+    assert f is not None and desktop_lock.holder_name().startswith("me ")
+    desktop_lock.release(f, "me")
+
+
+def test_threads_of_one_process_share_one_hold(lock):
+    import threading
+
+    inside, leave = threading.Event(), threading.Event()
+
+    def worker() -> None:
+        with desktop_lock.held("worker", wait_s=5):
+            inside.set()
+            leave.wait(10)
+
+    with desktop_lock.held("main", wait_s=0):
+        thread = threading.Thread(target=worker)
+        thread.start()
+        assert inside.wait(10)  # it shared the hold instead of waiting for it
+    assert not desktop_lock.is_free()  # the worker still holds it
+    leave.set()
+    thread.join(10)
+    assert desktop_lock.is_free()
+
+
+def test_a_child_of_a_holder_passes_through(lock, monkeypatch):
+    f = desktop_lock.acquire("v2-mouse", 0)
+    try:
+        monkeypatch.setenv(desktop_lock.ENV_NAME, "v2-mouse")
+        with desktop_lock.held("gui-session-1", wait_s=0):  # would wait on its parent
+            assert desktop_lock.holder_name().startswith("v2-mouse ")
+    finally:
+        desktop_lock.release(f, "v2-mouse")
+
+
+def test_a_private_display_needs_no_lock(lock, holder_process, monkeypatch):
+    start, _ = holder_process
+    start()
     monkeypatch.setenv(desktop_lock.ENV_PRIVATE, "1")
     with desktop_lock.held("gui-session-1", wait_s=0):
-        assert holder(lock) == "someone"
+        pass
 
 
-def test_desktop_lock_run_tells_its_command_the_lock_name(lock, tmp_path, monkeypatch):
-    monkeypatch.setenv("SPECTO_DESKTOP_LOCK", str(lock))
+def test_desktop_lock_run_tells_its_command_the_lock_name(lock, tmp_path):
     out = tmp_path / "env.txt"
     code = f"import os; open({str(out)!r}, 'w').write(os.environ[{desktop_lock.ENV_NAME!r}])"
     assert desktop_lock.run("v2-mouse", [sys.executable, "-c", code], 0) == 0
-    assert out.read_text(encoding="utf-8") == "v2-mouse" and not lock.exists()
+    assert out.read_text(encoding="utf-8") == "v2-mouse" and desktop_lock.is_free()
+
+
+def test_the_tools_pid_alive_matches_the_core_one():
+    from specto_core.instances import pid_alive as core_pid_alive
+
+    done = subprocess.Popen([sys.executable, "-c", "pass"])
+    done.wait(30)
+    for pid in (os.getpid(), done.pid, 0, -1):
+        assert gui_session.gui_scratch.pid_alive(pid) == core_pid_alive(pid), pid
 
 
 # -- fresh projects ----------------------------------------------------------------------------
@@ -219,13 +230,13 @@ def test_a_copied_marked_folder_is_not_the_copy_s_own(tmp_path):
     assert record.pid == os.getpid() and record.nonce and record.kept is False
 
 
-def test_fresh_waits_for_the_lock_before_it_wipes(tmp_path, lock, monkeypatch):
+def test_fresh_waits_for_the_lock_before_it_wipes(tmp_path, lock, holder_process, monkeypatch):
     """--fresh runs under the desktop lock: while another session holds it, the folder
     it may be using is not touched."""
     project = tmp_path / "proj"
     gui_scratch.prepare_project(project, fresh=False)
     (project / "in-use.txt").write_text("x", encoding="utf-8")
-    assert desktop_lock.acquire("someone", 0)
+    holder_process[0]()
     argv = ["gui_session.py", "--project", str(project), "--out", str(tmp_path / "out")]
     monkeypatch.setattr(sys, "argv", [*argv, "--fresh", "--lock-wait", "0"])
     assert gui_session.main() == 2
@@ -239,13 +250,24 @@ def test_old_session_roots_whose_creator_is_gone_are_swept(tmp_path, monkeypatch
 
     monkeypatch.setattr(gui_scratch.tempfile, "tempdir", str(tmp_path))
     old, mine, young = (gui_scratch.session_root() for _ in range(3))
-    kept = gui_scratch.session_root(kept=True)
-    cases = ((old, 0, 2 * 86400), (mine, os.getpid(), 2 * 86400), (young, 0, 60))
-    for project, pid, age in (*cases, (kept, 0, 2 * 86400)):
-        record = replace(gui_scratch.owner(project), pid=pid, created=time.time() - age)
+    kept_gone, kept_open, kept_unknown = (gui_scratch.session_root(kept=True) for _ in range(3))
+    old_age = 2 * 86400
+    cases = (
+        (old, 0, None, old_age),
+        (mine, os.getpid(), None, old_age),
+        (young, 0, None, 60),
+        (kept_gone, 0, 0, old_age),  # its app is gone too: swept
+        (kept_open, 0, os.getpid(), old_age),  # its app still runs
+        (kept_unknown, 0, None, old_age),  # its app never recorded: left to the user
+    )
+    for project, pid, app_pid, age in cases:
+        record = replace(
+            gui_scratch.owner(project), pid=pid, app_pid=app_pid, created=time.time() - age
+        )
         (project / gui_scratch.MARKER).write_text(json.dumps(asdict(record)), encoding="utf-8")
-    assert gui_scratch.sweep_session_roots() == [old.parent]
-    assert not old.parent.exists() and mine.exists() and young.exists() and kept.exists()
+    swept = gui_scratch.sweep_session_roots()
+    assert sorted(swept) == sorted([old.parent, kept_gone.parent])
+    assert all(p.exists() for p in (mine, young, kept_open, kept_unknown))
 
 
 def test_the_suite_wipes_only_its_own_entry_folders(tmp_path):
@@ -300,11 +322,25 @@ def test_the_suite_and_qtdrive_reseed_under_the_desktop_lock(tmp_path, monkeypat
 
     monkeypatch.setattr(suite.desktop_lock, "held", held)
     monkeypatch.setattr(suite.gui_scratch, "prepare_project", prepare)
-    entry = {"seed": lambda project: None, "sessions": []}
+    entry = {"seed": lambda project: events.append("seed"), "sessions": []}
     assert suite.run_entry("x", entry, tmp_path / "work", tmp_path / "out") == []
-    assert events == ["lock v2", "prepare fresh=True", "unlock"]
+    assert events == ["lock v2", "prepare fresh=True", "seed", "unlock"]  # the seed too
     src = (_PATH.parent / "gui_qtdrive.py").read_text(encoding="utf-8")
-    assert "with desktop_lock.held(" in src.split("def run_session", 1)[1].split("ep_path", 1)[0]
+    assert "gui_scratch.wipe_fresh(" in src.split("def run_session", 1)[1].split("ep_path", 1)[0]
+
+
+def test_the_suite_never_seeds_someone_s_empty_folder(tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "v2_suite_t3", _PATH.parent / "gui_flows" / "v2_suite.py"
+    )
+    suite = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(suite)
+    seeded: list[Path] = []
+    entry = {"seed": seeded.append, "sessions": []}
+    theirs = tmp_path / "work" / "v49-x"
+    theirs.mkdir(parents=True)
+    (result,) = suite.run_entry("x", entry, tmp_path / "work", tmp_path / "out")
+    assert not result["ok"] and seeded == [] and not gui_scratch.is_scratch(theirs)
 
 
 def test_no_project_means_a_per_session_root(tmp_path, monkeypatch):

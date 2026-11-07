@@ -34,21 +34,17 @@ the release and move on their own schedule.
   draws: a list applies its model's row changes at its polish, and until then a removed
   row's delegate was still found, visible (3 runs in 8 on `main`). A normal `shell.locate`
   forces nothing; the fix is in the driver alone.
-- The real-mouse GUI tools cannot collide on a shared desktop (SPEC-7):
+- The real-mouse GUI tools cannot collide on a shared desktop (SPEC-7).
   `tools/gui_session.py` and `gui_drive.py` drive the desktop only while holding the
-  desktop lock (they take it themselves when not run under `desktop_lock.py run`, and
-  refuse a desktop another session holds; `gui_session.py --lock-wait` sets how long it
-  waits). `--fresh` (also in `gui_qtdrive.py` and the suite's reseeding) wipes, under
-  the lock, only a folder a GUI session created; delete a `--work` folder from before
-  this once. A session given no `--project` runs on a folder of its own under the temp
-  dir, and later sessions sweep old ones a killed session left.
-  refuse a desktop another session holds). `--fresh` (also in `gui_qtdrive.py` and the
-  suite's reseeding) wipes only a folder a GUI session created, or an empty one; delete
-  a `--work` folder from before this once. A session given no `--project` runs on a
-  folder of its own under the temp dir.
-  refuse a desktop another session holds). `--fresh` (also in `gui_qtdrive.py`) wipes
-  only a folder a GUI session created, or an empty one. A session given no `--project`
-  runs on a folder of its own under the temp dir.
+  desktop lock, and take it themselves when not run under `desktop_lock.py run`
+  (`gui_session.py --lock-wait` sets how long they wait); a desktop another session
+  holds is refused. The lock is now an OS lock the system frees when its holder process
+  ends, so it never goes stale; `desktop_lock.py` keeps `run` and `status` (`acquire`
+  and `release` are gone), and `--keep` leaves the app open but releases the lock when
+  the session exits. `--fresh` (also in `gui_qtdrive.py` and the suite's reseeding)
+  wipes, under the lock, only a folder a GUI session created; delete a `--work` folder
+  from before this once. A session given no `--project` runs on a folder of its own
+  under the temp dir, and later sessions sweep old ones a killed session left.
 - Paused galleries, images and videos give back their GPU memory (SPEC-3, ADR 0030). A
   paused view is one off-screen, collapsed or behind the overworld. After 3 s paused,
   the view leaves the scene: the gallery's atlas and the video's frame buffer and mpv

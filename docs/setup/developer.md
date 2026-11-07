@@ -409,20 +409,23 @@ uv run python tools/gui_qtdrive.py --project <folder> --out <dir> [--extra "<spe
 ```
 
 The mouse tier is `tools/gui_session.py` and `gui_drive.py` as before. Both drive the
-desktop only while holding the desktop lock: under `desktop_lock.py run` they use its
+desktop only while holding the desktop lock, an OS lock on a file in the temp dir
+(`msvcrt.locking` / `fcntl.flock`) that the OS frees the moment its holder process ends:
+nothing goes stale and nothing needs cleaning up. Under `desktop_lock.py run` they use its
 lock, otherwise they take it themselves (`gui_session.py` waits up to `--lock-wait`
-seconds; `gui_drive.py` up to an hour), and they refuse a desktop another session holds.
-A session ends only the process tree it started. Without `--project` it runs on a folder
-of its own under the temp dir, removed at the end; old ones a killed session left are
-swept (not those kept open with `--keep`). A wipe of a GUI project folder (`--fresh` in
-`gui_session.py` and `gui_qtdrive.py`, the suite reseeding an entry's folder) runs under
-the lock and touches only a folder a GUI session created (its `.specto/gui-scratch` mark
-names that folder); someone's empty folder is used as it is, never marked, and one with
-content is refused. A `--work` folder from before this rule carries no mark: delete it
-once. The flows' seed scripts still delete the folder they are given when run by hand.
-The lock file appears whole; a lock whose holder is gone, or that stopped beating, is
-stale, and nothing deletes or touches a lock it has not just confirmed. `--keep` leaves
-the app open but releases the lock. On Linux,
+seconds; `gui_drive.py` up to an hour), and they refuse a desktop another session holds;
+`desktop_lock.py status` says who holds it. A session ends only the process tree it
+started. Without `--project` it runs on a folder of its own under the temp dir, removed
+at the end; old ones a killed session left are swept (one kept open with `--keep` once
+its app has ended too). A wipe of a GUI project folder (`--fresh` in `gui_session.py`
+and `gui_qtdrive.py`, the suite reseeding an entry's folder, its seed included) runs
+under the lock, so an offscreen `--fresh` run waits behind a mouse-tier session that
+holds it. It touches only a folder a GUI session created (its `.specto/gui-scratch` mark
+names that folder); someone's empty folder is used as it is, never marked or seeded, and
+one with content is refused. A `--work` folder from before this rule carries no mark:
+delete it once. The flows' seed scripts still delete the folder they are given when run
+by hand. `--keep` leaves the app open, but the lock goes when the session process
+exits. On Linux,
 `tools/nested_display.py run -- ...` keeps it on a nested Xephyr display (needs
 `python-xlib` in the pyautogui venv and `xclip`). Do not run it while someone is using the
 desktop: it clicks.

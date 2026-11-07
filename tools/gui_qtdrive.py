@@ -39,7 +39,6 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
-import desktop_lock  # noqa: E402
 import gui_scratch  # noqa: E402
 from console_utf8 import utf8_stdio  # noqa: E402
 from gui_platform import kill_tree, popen_kwargs  # noqa: E402
@@ -936,8 +935,7 @@ def run_session(ns: argparse.Namespace) -> list[dict[str, Any]]:
     # --fresh wipes only a folder a GUI session created, and under the desktop lock, so
     # never one a mouse-tier session holding it is using (SPEC-7)
     if ns.fresh:
-        with desktop_lock.held(f"gui-qtdrive-{os.getpid()}"):
-            gui_scratch.prepare_project(ns.project, fresh=True)
+        gui_scratch.wipe_fresh(ns.project, f"gui-qtdrive-{os.getpid()}")
     else:
         gui_scratch.prepare_project(ns.project, fresh=False)
     ep_path = ns.project / ".specto" / "endpoint.json"

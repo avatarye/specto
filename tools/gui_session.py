@@ -139,10 +139,11 @@ def main() -> int:
     # run with UnicodeEncodeError under a cp1252 default (#147's fix, here too)
     utf8_stdio()
     own_root = ns.project is None
+    ns.own_root = own_root
     if ns.keep:
         print(
-            "[WARN] --keep: the app stays open after the session, but the desktop lock is "
-            "released with it; take the lock before driving that window by hand"
+            "[WARN] --keep: the app stays open, but the desktop lock goes when this session "
+            "process exits; take the lock before driving that window by hand"
         )
     try:
         # under the lock: --fresh never wipes a folder the lock's holder is using
@@ -184,6 +185,9 @@ def session(ns: argparse.Namespace) -> int:
         **popen_kwargs(),
     )
     print(f"[OK] app pid {app.pid}")
+    if ns.keep and getattr(ns, "own_root", False):
+        # the app outlives this session: the sweep waits for it to end (SPEC-7)
+        gui_scratch.mark(ns.project, kept=True, app_pid=app.pid)
     try:
         if ns.welcome:
             welcome(

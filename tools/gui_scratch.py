@@ -38,13 +38,15 @@ SWEEP_AGE_S = 24 * 3600.0
 @dataclass(frozen=True)
 class MarkRecord:
     """What a mark records: the folder it names, its creator and when; ``kept`` for a
-    session folder left open with its app (``--keep``), which is never swept."""
+    session folder left open with its app (``--keep``), swept only once that app
+    (``app_pid``) is gone too."""
 
     path: str
     pid: int
     nonce: str
     created: float
     kept: bool = False
+    app_pid: int | None = None
 
 
 def owner(project: Path) -> MarkRecord | None:
@@ -58,6 +60,7 @@ def owner(project: Path) -> MarkRecord | None:
             nonce=str(raw["nonce"]),
             created=float(raw["created"]),
             kept=bool(raw.get("kept", False)),
+            app_pid=int(raw["app_pid"]) if raw.get("app_pid") is not None else None,
         )
     except (OSError, ValueError, TypeError, KeyError):
         return None
@@ -69,7 +72,7 @@ def is_scratch(project: Path) -> bool:
     return owner(project) is not None
 
 
-def mark(project: Path, *, kept: bool = False) -> None:
+def mark(project: Path, *, kept: bool = False, app_pid: int | None = None) -> None:
     """Mark ``project`` as a GUI session's own: only a folder the session itself created
     or just wiped (never one that was there before it)."""
     project = Path(project)
@@ -81,6 +84,7 @@ def mark(project: Path, *, kept: bool = False) -> None:
         nonce=secrets.token_hex(4),
         created=time.time(),
         kept=kept,
+        app_pid=app_pid,
     )
     marker.write_text(json.dumps(asdict(record)) + "\n", encoding="utf-8")
 
@@ -109,6 +113,15 @@ def prepare_project(project: Path, *, fresh: bool) -> bool:
             "leave --project out for a per-session one), or empty it yourself"
         )
     return False  # someone's empty folder: used as it is, never marked
+
+
+def wipe_fresh(project: Path, lock_name: str) -> bool:
+    """``prepare_project(fresh=True)`` under the desktop lock, so a wipe never touches a
+    folder a mouse-tier session holding it is using (it waits for that session)."""
+    from desktop_lock import held
+
+    with held(lock_name):
+        return prepare_project(project, fresh=True)
 
 
 def session_root(*, kept: bool = False) -> Path:
@@ -142,16 +155,19 @@ def remove_session_root(project: Path) -> None:
 
 
 def sweep_session_roots(max_age_s: float = SWEEP_AGE_S) -> list[Path]:
-    """Remove the per-session roots older than ``max_age_s`` whose creating process is
-    gone and that were not kept open (``--keep``: their app may still run). Returns
-    them."""
+    """Remove the per-session roots older than ``max_age_s`` whose process is gone: the
+    session that made it, or for one kept open with its app (``--keep``) that app.
+    Returns them."""
     swept: list[Path] = []
     now = time.time()
     for root in Path(tempfile.gettempdir()).glob(f"{ROOT_PREFIX}*"):
         record = owner(root / "project")
-        if record is None or record.kept or not root.is_dir():
+        if record is None or not root.is_dir():
             continue
-        if now - record.created < max_age_s or pid_alive(record.pid):
+        if record.kept and record.app_pid is None:
+            continue  # kept, but its app never recorded: leave it to the user
+        keeper = record.app_pid if record.kept and record.app_pid is not None else record.pid
+        if now - record.created < max_age_s or pid_alive(keeper):
             continue
         _rmtree(root)
         if not root.exists():
@@ -169,4 +185,5 @@ __all__ = [
     "remove_session_root",
     "session_root",
     "sweep_session_roots",
+    "wipe_fresh",
 ]
