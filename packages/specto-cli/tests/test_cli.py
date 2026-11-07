@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 from click.testing import CliRunner
@@ -207,18 +208,40 @@ def test_inline_json_accepts_lone_backslashes(text):
     assert JsonParam({"type": "object"}).convert(text, None, None) == SPEC
 
 
-def test_inline_json_spec_via_cli_in_both_quotings(run, ep):
-    # the engine serves intake.preview once specto_intake is imported (its import
-    # registers the intake.* commands); the CLI does not depend on it, the app does
-    pytest.importorskip("specto_intake")
-    info = ep.engine.api_info()
-    cmd = next(c for c in info["commands"] if c["name"] == "intake.preview")
-    assert "spec" in cmd["args_schema"]["properties"]
+class EchoSpecArgs(Args):
+    spec: dict[str, Any]
+    limit: int = 1
+
+
+class EchoSpecRes(Result):
+    spec: dict[str, Any]
+
+
+def registry_with_echoed_spec() -> Registry:
+    """The built-ins plus a stub ``intake.preview`` that returns the spec it got: what
+    the CLI's JSON parsing delivered, with no real intake (specto-cli does not depend on
+    specto-intake, SPEC-29)."""
+    reg = Registry()
+    for spec in default_registry.specs():
+        if spec.name != "intake.preview":
+            reg.register(spec)
+
+    @reg.command("intake.preview", doc="echo the spec", read_only=True)
+    def _echo(ctx: CommandContext, args: EchoSpecArgs) -> EchoSpecRes:
+        return EchoSpecRes(spec=args.spec)
+
+    return reg
+
+
+def test_inline_json_spec_via_cli_in_both_quotings():
+    ep = InProcessEndpoint(Engine(project=None, registry=registry_with_echoed_spec()))
+    runner = CliRunner()
     for text in (json.dumps(SPEC), json.dumps(SPEC).replace("\\\\", "\\")):
-        r = run("--json", "intake", "preview", "--spec", text, "--limit", "1")
+        state = CliState(client_factory=factory(ep))
+        args = ["--json", "intake", "preview", "--spec", text, "--limit", "1"]
+        r = runner.invoke(cli, args, obj=state, catch_exceptions=False)
         assert r.exit_code == 0, r.output
-        out = json.loads(r.output)
-        assert out["key_fields"] == ["frame"] or out["errors"]  # parsed either way
+        assert json.loads(r.output)["spec"] == SPEC  # the same spec in either quoting
 
 
 def test_quotes_stripped_by_powershell_gets_a_fix_it(run):
