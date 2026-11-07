@@ -152,7 +152,7 @@ test("a mesh file loads once, by its ext, and each link that uses it gets a clon
   const loaded = sentOf(page, "loaded");
   assert.equal(loaded.length, 1);
   assert.deepEqual(loaded[0].failed, []);
-  assert.deepEqual(page.health, [], "the host owns the health dot");
+  assert.deepEqual(page.health.map((h) => h[0]), ["loading"], "the page only says loading; the host owns the dot");
 });
 
 test("a missing mesh draws the link's collision primitive as a magenta wire stand-in; an unreadable one a 5 cm box", async () => {
@@ -331,6 +331,7 @@ test("selection both ways: tree rows and picks send `select`, outline the link; 
   const page = await armPage();
   rowEl(page, "link:upper_arm").click();
   assert.deepEqual(sentOf(page, "select").at(-1), { link: "upper_arm", joint: null, add: false });
+  assert.deepEqual(page.params.at(-1), { selected_links: ["upper_arm"] }, "kept in selected_links");
   const cyl = page.one("visual-shape:upper_arm:0");
   assert.equal(cyl.renderOverlay, true);
   assert.equal(cyl.renderOutline, true);
@@ -340,12 +341,17 @@ test("selection both ways: tree rows and picks send `select`, outline the link; 
   // Ctrl adds
   rowEl(page, "link:base_link").dispatchEvent({ type: "click", ctrlKey: true });
   assert.deepEqual(plain(page.last().selected_links), ["upper_arm", "base_link"]);
+  assert.deepEqual(page.params.at(-1), { selected_links: ["upper_arm", "base_link"] });
   // a joint row outlines its child link and shows that joint's axis
   rowEl(page, "joint:elbow").click();
   assert.deepEqual(sentOf(page, "select").at(-1), { link: null, joint: "elbow", add: false });
   assert.deepEqual(plain(page.last().selected_links), ["forearm"]);
   assert.deepEqual(plain(page.last().overlays.axes), ["elbow"]);
   assert.match(page.last().props.join("|"), /typerevolute/);
+  assert.deepEqual(page.params.at(-1), { selected_links: ["forearm"] }, "a joint keeps its child link");
+  // the write coming back as params keeps the joint row's selection
+  page.notify("params", { selected_links: ["forearm"] });
+  assert.deepEqual(plain(page.last().selection), ["joint:elbow"]);
   // from outside: `<item key>#<link>`, no echo
   const before = page.sent.length;
   page.notify("port:selection", { keys: ["robots/arm.urdf#wrist"] });
@@ -365,15 +371,21 @@ test("selection both ways: tree rows and picks send `select`, outline the link; 
   canvas.dispatchEvent({ type: "pointerup", pointerId: 1, button: 0, buttons: 0, clientX: 10, clientY: 10, offsetX: 10, offsetY: 10 });
   assert.deepEqual(sentOf(page, "select").at(-1), { link: null, joint: null, add: false });
   assert.deepEqual(plain(page.last().selection), []);
+  assert.deepEqual(page.params.at(-1), { selected_links: [] });
 });
 
-test("a double-click frames the link and sends `frame`; the `selected` param selects", async () => {
-  const page = await armPage();
+test("a double-click frames the link and sends `frame`; the agent's `selected_links` selects", async () => {
+  const page = await armPage({ selected_links: ["wrist"] });
+  assert.deepEqual(plain(page.last().selected_links), ["wrist"], "kept across a reload");
   rowEl(page, "link:forearm").dispatchEvent({ type: "dblclick" });
   assert.deepEqual(sentOf(page, "frame"), [{ link: "forearm" }]);
-  page.notify("params", { selected: ["tool0"] });
+  rowEl(page, "link:forearm").click();
+  assert.ok(page.last().props.includes("visualpackage://arm_description/meshes/segment.stl ok"), "the mesh's URDF reference");
+  const writes = page.params.length;
+  page.notify("params", { selected_links: ["tool0"] });
   assert.deepEqual(plain(page.last().selected_links), ["tool0"]);
-  // an item key there is not the page's: the selection stays
+  assert.equal(page.params.length, writes, "the agent's selection is not written back");
+  // `selected` is the shown robot's item key: not the page's
   page.notify("params", { selected: "robots/arm.urdf" });
   assert.deepEqual(plain(page.last().selected_links), ["tool0"]);
   assert.equal(page.document.getElementById("frameAll").title.startsWith("Frame"), true);

@@ -34,9 +34,10 @@
  * To Python: `select {link, joint, add}`, `joints {name: value}` (every actuated joint, on
  * a slider's release, a typed value or a reset: one user submit), `frame {link}` (a
  * double-click), `loaded {ms, meshes, failed}`; the camera as a port emit (throttled);
- * view params through Specto.setParams (one user submit each). The host owns the health
- * dot: the page never sets it, shows "loading N parts" on the canvas and reports what
- * its loaders could not read in `loaded`. */
+ * view params through Specto.setParams (one user submit each), the selected links in
+ * `selected_links` among them. The host owns the health dot: the page only says
+ * "loading" while its meshes load and reports what its loaders could not read in
+ * `loaded`, which the host folds into its notes. */
 (function () {
   "use strict";
   const $ = function (id) { return document.getElementById(id); };
@@ -57,7 +58,7 @@
   const DEFAULTS = {
     view_mode: "lit", up: "z", camera_speed: 1, camera_mode: "free",
     environment: ENV_NONE, environment_intensity: 1, environment_background: false, environment_rotation: 0,
-    show_grid: true, show_frames: false, show_joint_axes: false, show_com: false, selected: null,
+    show_grid: true, show_frames: false, show_joint_axes: false, show_com: false, selected_links: [],
   };
 
   let engine = null, scene = null, camera = null, world = null, lights = [];
@@ -467,6 +468,7 @@
   function startLoading(jobs, seq) {
     if (!loading) loadStarted = performance.now();
     setLoading(jobs.length);
+    if (jobs.length) Specto.setHealth("loading", "loading " + jobs.length + " part" + (jobs.length > 1 ? "s" : ""));
     Promise.allSettled(jobs).then(function () {
       setLoading(-jobs.length);
       if (seq !== loadSeq) return;
@@ -983,9 +985,16 @@
       joint: last && last.kind === "joint" ? last.name : null,
       add: !!add,
     });
+    // kept: the links in `selected_links` (one user submit), unless that is what it says
+    const kept = selectedLinks();
+    if (JSON.stringify(kept) !== JSON.stringify(linksParam())) {
+      params = Object.assign({}, params, { selected_links: kept });
+      Specto.setParams({ selected_links: kept });
+    }
     applySelection(true);
   }
-  /** Keys from outside (`<item key>#<link>`) or the `selected` param (a link name or a list). */
+  function linksParam() { return Array.isArray(params.selected_links) ? params.selected_links.map(String) : []; }
+  /** Keys from outside (`<item key>#<link>`) or link names (`selected_links`). */
   function selectionFrom(keys) {
     const out = [];
     (keys || []).forEach(function (k) {
@@ -996,14 +1005,13 @@
     });
     return out;
   }
-  /** `selected` names links (a name or a list); anything else (an item key) is not the
-   * page's and leaves the selection alone. */
+  /** `selected_links` (the agent's, or the page's own write coming back): those links
+   * selected, unless they are the selection already (a joint row keeps its joint).
+   * (`selected` is the shown robot's item key: the host's, not the page's.) */
   function applySelectionParam() {
-    const s = params.selected;
-    if (s === null || s === undefined) return;
-    const picked = selectionFrom(Array.isArray(s) ? s : [s]);
-    if (!picked.length) return;
-    selection = picked;
+    const want = linksParam().filter(function (n) { return links[n]; });
+    if (JSON.stringify(want) === JSON.stringify(selectedLinks())) return;
+    selection = want.map(function (n) { return { kind: "link", name: n }; });
     applySelection(true);
   }
   function applySelection(reveal) {
@@ -1469,7 +1477,8 @@
     if (g.type === "cylinder") return ["cylinder r " + fmt(g.radius) + " l " + fmt(g.length), false];
     if (g.type === "sphere") return ["sphere r " + fmt(g.radius), false];
     const sc = g.scale && g.scale.some(function (x) { return x !== 1; }) ? " x " + vec(g.scale) : "";
-    return g.url ? ["mesh ." + (g.ext || "?") + sc + " ok", false] : ["mesh missing", true];
+    const what = g.uri ? g.uri : "mesh ." + (g.ext || "?");
+    return g.url ? [what + sc + " ok", false] : [what + " missing", true];
   }
   function hex(c) {
     return "#" + c.slice(0, 3).map(function (x) { const h = Math.round(Math.max(0, Math.min(1, x)) * 255).toString(16); return h.length < 2 ? "0" + h : h; }).join("");
@@ -1496,7 +1505,8 @@
         const gt = geometryText(v.geometry);
         const miss = L.broken.find(function (b) { return b.kind === "visual"; });
         const failed = failures.find(function (f) { return f.link === l.name && f.kind === "visual"; });
-        prop("visual" + (l.visuals.length > 1 ? " " + (i + 1) : ""), gt[0] + (miss && gt[1] ? ": " + miss.uri : "") + (failed ? " (unreadable)" : ""), gt[1] || !!failed);
+        const why = miss && gt[1] && !(v.geometry && v.geometry.uri) ? ": " + miss.uri : "";
+        prop("visual" + (l.visuals.length > 1 ? " " + (i + 1) : ""), gt[0] + why + (failed ? " (unreadable)" : ""), gt[1] || !!failed);
         if (v.material) prop("material", (v.material.name || "") + (v.material.color ? " " + hex(v.material.color) : "") + (v.material.texture_url ? " textured" : ""));
       });
       if (!(l.visuals || []).length) prop("visual", "none");
@@ -1677,10 +1687,10 @@
   Specto.on("model", function (m) { buildModel(m); });
   Specto.on("pose", applyPoseMessage);
   Specto.on("params", function (p) {
-    const had = params.selected;
+    const had = linksParam();
     params = Object.assign({}, params, p || {});
     applyParams();
-    if (JSON.stringify(had) !== JSON.stringify(params.selected)) applySelectionParam();
+    if (JSON.stringify(had) !== JSON.stringify(linksParam())) applySelectionParam();
     report();
   });
   Specto.on("port:camera", function (v) { cameraFromPort = true; applyCamera(v); });
