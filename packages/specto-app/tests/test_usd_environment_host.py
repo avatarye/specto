@@ -87,10 +87,30 @@ def cache_sky(cache: Path, name: str) -> None:
     (cache / f"{name}.json").write_text(json.dumps({"files": pins}), encoding="utf-8")
 
 
+def cache_hdri(name: str) -> Path:
+    """A fetched HDRI in the user's folder: the pinned file name and size, fake bytes
+    (the stub source never reads them)."""
+    entry = skies.hdri_entry(name)
+    assert entry is not None
+    path = skies.hdri_dir() / str(entry["url"]).rsplit("/", 1)[-1]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as f:
+        f.truncate(int(entry["size"]))
+    assert skies.hdri_path(name) == path
+    return path
+
+
 @pytest.fixture
 def cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An empty user folder but for the default HDRI (sunny), as fetched; never this
+    machine's: neither its user folder nor a source checkout's web build cache
+    (SPEC-37), and no network (the fetchers are fakes)."""
+    import specto_web
+
     monkeypatch.setenv("SPECTO_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("SPECTO_USER_DIR", str(tmp_path / "user"))
+    monkeypatch.setattr(specto_web, "hdri_source", lambda name, root=None: None)
+    cache_hdri("sunny")
     return tmp_path / "user" / "skies"
 
 
@@ -347,12 +367,8 @@ def test_on_storm_the_hdri_standing_in_for_the_sky_is_shown_and_can_be_picked(
         host.dispose()
 
 
-def test_an_hdri_not_here_is_fetched_and_its_progress_said(
-    cache, fetchers, tmp_path, monkeypatch, qapp, spin
-):
-    import specto_web
-
-    monkeypatch.setattr(specto_web, "hdri_source", lambda name, root=None: None)
+def test_an_hdri_not_here_is_fetched_and_its_progress_said(cache, fetchers, tmp_path, qapp, spin):
+    cache_hdri("sunny").unlink()
     host = make_host(cache, fetchers)
     try:
         loaded(host, tmp_path, spin)
