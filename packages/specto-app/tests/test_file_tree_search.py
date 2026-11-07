@@ -555,3 +555,35 @@ def test_typing_in_the_focused_tree_searches_and_escape_returns_to_the_tree(
         "fege" in app.live.data["views"]
     )  # the shell's Escape did not clear the canvas selection first
     assert caption.property("text").endswith("selected")
+
+
+def test_a_new_query_cancels_the_search_trees_folder_listings_in_flight():
+    """SPEC-40: a folder listing can be slow on a network drive; the next keystroke's
+    search must not wait behind the last query's folder listings on the tree's worker."""
+    from types import SimpleNamespace
+
+    from specto_app.views.tree_search import TreeSearch
+
+    class Worker:
+        def __init__(self) -> None:
+            self.pending: set[int] = set()
+            self.cancelled: list[int] = []
+
+        def submit(self, fn, on_done) -> int:
+            self.pending.add(len(self.pending) + 1)
+            return len(self.pending)
+
+        def is_pending(self, token: int) -> bool:
+            return token in self.pending
+
+        def cancel(self, token: int) -> None:
+            self.cancelled.append(token)
+
+    worker = Worker()
+    host = SimpleNamespace(worker=worker, lister=object(), root="", item=None, _anchor=0)
+    model = SimpleNamespace(set_hits=lambda hits: None)
+    search = TreeSearch(host, model)  # type: ignore[arg-type]
+    search.list_folder("docs")
+    search.list_folder("notes")
+    search.query("")
+    assert sorted(worker.cancelled) == [1, 2]

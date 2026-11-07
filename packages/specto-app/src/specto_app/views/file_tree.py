@@ -138,8 +138,9 @@ class Node:
     children: list[Node] = field(default_factory=list)
     size: int = 0  # a folder: the total of what is under it, once known
     mtime_ns: int = 0  # a folder: the newest file under it, once known
-    #: a folder's own stat (#38), as its parent's listing saw it: the folder's modified
-    #: time; an archive's file size and time. 0 when the listing had none (a tree of
+    #: a folder's own stat (#38), as the listing read it: the folder's modified time
+    #: (one stat of the folder, SPEC-40); an archive's file size and time (from its
+    #: parent's listing). 0 when the listing had none (a tree of
     #: explicit files, a folder on the way to a source, one inside an archive)
     own_size: int = 0
     own_mtime_ns: int = 0
@@ -1026,7 +1027,7 @@ class FileTreeHost(QuickViewHost):
             return
         self._loading.add(path)
         self.worker.submit(
-            lambda cancelled: lister.list_dir(path),
+            lambda cancelled: lister.list_dir(path, cancelled),
             lambda entries, error: self._listed(path, entries, error),
         )
 
@@ -1070,7 +1071,7 @@ class FileTreeHost(QuickViewHost):
             for p in dirs:
                 if cancelled():
                     break
-                out.append((p, lister.list_dir(p)))
+                out.append((p, lister.list_dir(p, cancelled)))
             return out
 
         self._relisting = True

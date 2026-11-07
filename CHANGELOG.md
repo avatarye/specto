@@ -27,6 +27,13 @@ the release and move on their own schedule.
   under `pythonw.exe` relaunches with the `python.exe` beside it. The new window also
   breaks away from its parent's job when the job allows, so it outlives the old window
   even when that one was started by `uv run`.
+- A folder row's modified time is the folder's own (SPEC-40). On Windows the time the
+  listing showed came from the folder's entry in its parent, which falls behind after a
+  change for as long as nothing opens the folder (a file added 5 s after the folder was
+  last opened left the row 5 s behind, and it did not catch up on its own). The listing now stats each folder, about
+  20 us a folder locally and milliseconds over a network drive, and a listing no longer
+  wanted (a new project, a new search) stops between entries. A junction or link the
+  source follows (`follow_links`) shows its target's time.
 - Gallery captions sit on the thumbnails (SPEC-6): each key overlays its tile's bottom
   edge, light text on a dark scrim that reads on light and dark images, and takes no row
   height, so more tiles fit. A time-linked gallery marks its current item (the frame at
@@ -122,8 +129,9 @@ the release and move on their own schedule.
   own modified time, coloured by age like a file's, and once the folder is listed how many
   items it shows (`12 items`, `empty`); an archive shows its file's size; a folder whose
   time is not known yet says `not listed yet`. Every row keeps the one row height. The
-  time comes from the directory entry the listing already read: no walk, and nothing is
-  read under a folder that is not open. Auto-update carries a folder's new time.
+  time comes from one stat of the folder itself (SPEC-40: the copy in its parent's
+  directory entry falls behind on Windows): no walk, and nothing is read under a folder
+  that is not open. Auto-update carries a folder's new time.
 - The file tree's search matches the path, not only the name (#36): every word must occur
   somewhere in the file's path below the project folder (`notes readme` finds
   `docs/notes/readme.md`; `docs/read` and `docs\read` match across the separator), never

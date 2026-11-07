@@ -59,6 +59,9 @@ class TreeSearch:
         self.result: SearchResult | None = None
         self._gen = 0
         self._token: int | None = None
+        #: the search tree's folder listings submitted for this query: a new query
+        #: cancels them, so the next search does not wait behind them (SPEC-40)
+        self._listings: set[int] = set()
         #: the Everything backend to ask (None: the module's; tests inject a fake)
         self.everything: file_search.EverythingSearch | None = None
 
@@ -78,6 +81,9 @@ class TreeSearch:
         if self._token is not None:
             host.worker.cancel(self._token)
             self._token = None
+        for t in self._listings:
+            host.worker.cancel(t)
+        self._listings.clear()
         self._gen += 1
         gen = self._gen
         if not self.active:
@@ -160,7 +166,9 @@ class TreeSearch:
             if entries is not None:
                 self.model.load(path, entries)
 
-        self.host.worker.submit(lambda cancelled: lister.list_dir(path), landed)
+        token = self.host.worker.submit(lambda cancelled: lister.list_dir(path, cancelled), landed)
+        if self.host.worker.is_pending(token):
+            self._listings.add(token)
 
     def stats(self) -> dict[str, tuple[int, int]]:
         """``path -> (size, mtime_ns)`` of the file hits: what a pick of one sends."""

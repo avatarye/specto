@@ -5,7 +5,9 @@ of the whole project.
 ``TreeLister`` takes the same spec an intaker takes (sources with their patterns, depth
 and link policy; the screener with its aliases) and answers two questions:
 
-- ``list_dir(path)``: the entries one level below a tree path, folders first. The root
+- ``list_dir(path, cancelled)``: the entries one level below a tree path, folders
+  first; it checks ``cancelled`` between entries (a folder's stat can cost milliseconds
+  on a network drive). The root
   (``""``) lists the project folder; a source narrowed to a subfolder shows only the
   folders on the way to it; a source outside the project appears under its absolute
   path. An archive is listed as a folder whose members are virtual entries
@@ -203,10 +205,13 @@ class TreeLister:
         return HitFilter(file=self.accepts, folder=self.accepts_dir)
 
     # -- one level ---------------------------------------------------------------------------
-    def list_dir(self, path: str = "") -> list[Entry]:
+    def list_dir(self, path: str = "", cancelled: Callable[[], bool] | None = None) -> list[Entry]:
         """The entries one level below tree path ``path`` (``""``: the root), folders
         first, each group sorted by name case-insensitively. A folder that is not
-        there, or cannot be read, lists nothing."""
+        there, or cannot be read, lists nothing. Stops early, with what it has, once
+        ``cancelled()`` is true: each folder is a stat of its own (SPEC-40), about 20 us
+        on a local disk and milliseconds over SMB, so a level of thousands of folders on
+        a network drive must not hold the worker after its answer is no longer wanted."""
         path = path.strip("/")
         virtual = split_virtual(path)
         if virtual is not None:
@@ -218,14 +223,14 @@ class TreeLister:
         r = self._root_of(path)
         if r is None:
             return self._way_down(path)
-        entries = self._list_folder(r, path)
+        entries = self._list_folder(r, path, cancelled or (lambda: False))
         # a source nested deeper than this one and not on disk under it (another
         # absolute root): also on the way down
         seen = {e.path for e in entries}
         entries.extend(e for e in self._way_down(path) if e.path not in seen)
         return _sorted(entries)
 
-    def _list_folder(self, r: _Root, path: str) -> list[Entry]:
+    def _list_folder(self, r: _Root, path: str, stop: Callable[[], bool]) -> list[Entry]:
         folder = r.abs(path)
         if r.is_file:
             # a single-file source: its folder shows that file alone
@@ -247,11 +252,13 @@ class TreeLister:
         out: list[Entry] = []
         files: list[tuple[str, int, int]] = []
         for e in found:
+            if stop():
+                break
             child = f"{path}/{e.name}" if path else e.name
             try:
                 if e.is_dir(follow_symlinks=r.src.follow_links):
                     if dirs_ok and not (r.inside and _hidden(child)):
-                        mtime_ns = _dir_mtime_ns(e, r.src.follow_links)
+                        mtime_ns = _dir_mtime_ns(e.path, r.src.follow_links)
                         out.append(Entry(child, e.name, True, mtime_ns=mtime_ns))
                     continue
                 if not e.is_file(follow_symlinks=True):
@@ -415,14 +422,15 @@ class TreeLister:
                 stats[child] = (m.size, m.mtime_ns or mtime_ns)
 
 
-def _dir_mtime_ns(e: os.DirEntry, follow_links: bool) -> int:
+def _dir_mtime_ns(path: str, follow_links: bool) -> int:
     """A folder's own modified time (#38): one stat of the folder itself, never of what
     is under it. Not the directory entry's copy (SPEC-40): on Windows the parent's entry
     keeps the time from when the folder was last opened, so a change since leaves it
-    behind, for as long as nothing opens the folder (about 20 us a folder). 0 when it
-    cannot be read (the folder still lists)."""
+    behind, for as long as nothing opens the folder (about 20 us a folder). A link
+    followed (``follow_links``) shows its target's time. 0 when it cannot be read (the
+    folder still lists)."""
     try:
-        return os.stat(e.path, follow_symlinks=follow_links).st_mtime_ns
+        return os.stat(path, follow_symlinks=follow_links).st_mtime_ns
     except OSError:
         return 0
 

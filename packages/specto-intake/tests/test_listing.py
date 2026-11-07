@@ -91,6 +91,27 @@ def test_a_folder_carries_its_own_modified_time_not_a_stale_copy(root: Path):
     assert notes.mtime_ns == (root / "notes").stat().st_mtime_ns
 
 
+def test_a_listing_no_longer_wanted_stops_between_entries(root: Path, monkeypatch):
+    """Each folder is a stat of its own (SPEC-40), slow over a network drive: once
+    ``cancelled()`` is true the listing stops, with what it has."""
+    from specto_intake import listing
+
+    folders: list[str] = []  # the folders stat'ed one by one
+    real = os.stat
+
+    def stat(path, *a, **k):
+        if Path(path).parent == root:
+            folders.append(Path(path).name)
+        return real(path, *a, **k)
+
+    monkeypatch.setattr(listing.os, "stat", stat)
+    assert len(TreeLister(root).list_dir("", lambda: bool(folders))) == 1
+    assert len(folders) == 1
+    folders.clear()
+    assert len(TreeLister(root).list_dir("", lambda: False)) == 4  # empty, notes, runs, top
+    assert sorted(folders) == ["empty", "notes", "runs"]
+
+
 def test_an_archive_lists_its_members_one_level_at_a_time(root: Path):
     lister = TreeLister(root)
     assert names(lister.list_dir("runs/drive.zip")) == [
