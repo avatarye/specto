@@ -420,7 +420,11 @@ before. Thumbnails and posters never open an audio device.
   importing ovrtx and ovstage in a child Python), and `describe view:<type>` reports them.
   Test-only: `SPECTO_DISABLE_CAPABILITIES` (comma-separated) makes capabilities absent
   without detecting them, `SPECTO_FAKE_CAPABILITIES` present (the usd view then runs the
-  stub USD source in the faked renderer's place); a name in both is disabled. Data kinds: `image2d image_seq video_ref pointcloud mesh splat usd_stage_ref
+  stub USD source in the faked renderer's place); a name in both is disabled. A usd view
+  that falls back to the stub because this machine has neither renderer
+  (`usd_view.stub_reason`, SPEC-26) keeps health `ok`, but its health hint (the status
+  line) and `snap`'s `fallback` name what is missing, and one notice says so. A disabled
+  or faked capability is a fallback someone asked for: it says nothing. Data kinds: `image2d image_seq video_ref pointcloud mesh splat usd_stage_ref
   geojson json text markdown table message_stream pose_track joint_track`. `joint_track`
   (`specto_readers.joint_track`): a CSV or Parquet table, one time column plus one column
   per joint, located as a track only when its header (or schema) has a numeric time

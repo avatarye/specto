@@ -144,6 +144,12 @@ def _env_names(env: str) -> set[str]:
     return {n.strip() for n in os.environ.get(env, "").split(",") if n.strip()}
 
 
+def disabled() -> set[str]:
+    """The capabilities named in ``SPECTO_DISABLE_CAPABILITIES`` (comma-separated): absent
+    because a test or scripted flow asked, not because this machine lacks them."""
+    return _env_names(DISABLE_ENV)
+
+
 def faked() -> set[str]:
     """The capabilities named in ``SPECTO_FAKE_CAPABILITIES`` (comma-separated, test-only)
     and not in ``SPECTO_DISABLE_CAPABILITIES`` (disabled wins): present for every choice

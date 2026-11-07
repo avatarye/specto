@@ -100,7 +100,7 @@ from specto_core.contents import ContentEntry, ContentValue
 from specto_core.errors import SpectoError
 from specto_core.kinds import Item, ViewManifest
 from specto_core.links import CameraValue, Collection, Selection, TimeValue
-from specto_core.machine import faked, openusd_prefix, usd_renderer
+from specto_core.machine import disabled, faked, openusd_prefix, rtx_first, usd_renderer
 from specto_core.timebase import OWN_TIMELINE
 
 from ..theme import COLORS
@@ -314,6 +314,32 @@ def source_command(view: dict[str, Any], caps: Capabilities, width: int, height:
     if capability in faked():
         return [*stub_launcher(width, height), "--renderer", renderer]
     return launcher(width, height)
+
+
+def stub_reason(view: dict[str, Any], caps: Capabilities) -> str:
+    """Why :func:`source_command` falls back to the stub USD source for ``view``: what is
+    missing on this machine, from the capability detection (SPEC-26). Empty when a real
+    renderer runs, when the view asks for rtx (it never falls back; its health says why it
+    cannot start), and when the fallback was asked for: a capability disabled
+    (``SPECTO_DISABLE_CAPABILITIES``) or faked by a test or scripted flow."""
+    params = view.get("params") or {}
+    asked = params.get("renderer") or "auto"
+    if asked == "rtx":
+        return ""
+    found = caps()
+    if usd_renderer(params, found) != "storm":
+        return ""
+    storm = found.get("storm")
+    if getattr(storm, "present", False):
+        return ""
+    names = ["storm"]
+    if asked == "auto" and rtx_first():
+        names.insert(0, "ovrtx")
+    if (disabled() | faked()) & set(names):
+        return ""
+    labels = {"ovrtx": "RTX", "storm": "Storm"}
+    missing = [f"{labels[n]}: {getattr(found.get(n), 'reason', '') or 'not found'}" for n in names]
+    return "no USD renderer, showing the test pattern; " + "; ".join(missing)
 
 
 def usd_part(item: Item) -> str | None:
@@ -910,6 +936,10 @@ class UsdHost(Stepping, QuickViewHost):
         #: the source died on its own (#155): {reason, cause, errors, log, retry, storm}
         self.failure: dict[str, Any] | None = None
         self._renderer_kind = ""  # the renderer the source runs, from its command line
+        # why the source is the stub (no renderer on this machine, SPEC-26): the hint health
+        # carries while the view shows the test pattern; told once in a notice
+        self.fallback = ""
+        self._fallback_told = False
         #: the loading label (#156): {file, phase} from the open or reload until the new
         #: stage's first complete frame is on screen; None: the picture shows
         self.cover: dict[str, str] | None = None
@@ -1119,8 +1149,19 @@ class UsdHost(Stepping, QuickViewHost):
         self._set_failure(None)
         self._begin_cover(COVER_PHASES["starting"])
         try:
-            argv = self.source_command(self.view, lambda: self.ctx.engine.capabilities, *self.size)
+
+            def caps() -> Mapping[str, Any]:
+                return self.ctx.engine.capabilities
+
+            argv = self.source_command(self.view, caps, *self.size)
             self._renderer_kind = argv[argv.index("--renderer") + 1] if "--renderer" in argv else ""
+            # a stand-in command (tests) is not this machine's choice: nothing to explain
+            self.fallback = (
+                stub_reason(self.view, caps) if self.source_command is source_command else ""
+            )
+            if self.fallback and not self._fallback_told:
+                self._fallback_told = True
+                self.ctx.inform(f"{self.view_id}: {self.fallback}")
             self.source = FrameSourceProcess.spawn(argv)
         except OSError as e:
             self.source = None
@@ -1535,6 +1576,13 @@ class UsdHost(Stepping, QuickViewHost):
             self.set_health("loading", f"{words} {message}".strip())
             if self.cover is not None:
                 self._cover_phase(cover_words(state, message))
+
+    def set_health(self, status: str, message: str = "") -> None:
+        """Health with the fallback's hint (SPEC-26) while the stub's test pattern shows:
+        the status stays what it is, the status line and ``snap`` say what is missing."""
+        hint = self.fallback if status in ("ok", "loading") else ""
+        self.ctx.set_health(self.view_id, status, message, hint)
+        self.healthChanged.emit(status, message)
 
     def _ok_message(self) -> str:
         """Health's message while the stage renders: its file, then the last error the
@@ -2372,6 +2420,7 @@ class UsdHost(Stepping, QuickViewHost):
             "path": self.path,
             "renderer": str(self.stage.get("renderer", "")),
             "renderer_note": str(self.stage.get("renderer_note", "")),
+            "fallback": self.fallback,
             "renderer_warnings": list(self.stage.get("warnings") or []),
             "up_axis": self.stage.get("up_axis"),
             "bounds": self.stage.get("bounds"),
