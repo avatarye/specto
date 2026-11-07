@@ -492,3 +492,47 @@ def test_sound_plays_only_during_normal_playback(engine: Engine, tmp_path: Path)
     host._on_audio_track()
     assert host.has_audio and host.bridge.hasAudio
     host.dispose()
+
+
+def test_a_resumed_video_lands_back_on_the_frame_it_showed(engine: Engine, tmp_path: Path):
+    """SPEC-3: paused, the video's item leaves the scene and its node frees mpv's render
+    context; the context made again on resume gets a freshly decoded frame, one past the
+    one shown, so resume seeks back to the frame shown (followed: emitted once on
+    landing, never the frame in between)."""
+    submit_video(engine)
+    ctx = HostContext(engine, None)
+    host = VideoHost(ctx, "rena", VIDEO_MANIFEST, headless=True)
+    assert host.release_when_paused
+    mpv = FakeMpv()
+    host.mpv = mpv  # type: ignore[assignment]
+    host.receive("data", Collection(items=video_items(tmp_path / "video", "cam-a")))
+    host._on_loaded()
+    mpv.props["position"] = host.timemap.pts[4]
+    host._on_position()
+    assert host.frame == 4
+
+    host.pause()
+    mpv.writes.clear()
+    host.resume()
+    assert ("seek", host.timemap.pts[4]) in mpv.writes and host._following
+    # the fresh frame after the render context came back is not emitted
+    mpv.props["position"] = host.timemap.pts[5]
+    host._on_position()
+    assert emitted(ctx, "rena", "time") == TimeValue(t=FRAME_4, timeline="stamp")
+
+
+def test_a_video_playing_when_paused_plays_on_when_resumed(engine: Engine, tmp_path: Path):
+    submit_video(engine)
+    ctx = HostContext(engine, None)
+    host = VideoHost(ctx, "rena", VIDEO_MANIFEST, headless=True)
+    mpv = FakeMpv()
+    host.mpv = mpv  # type: ignore[assignment]
+    host.receive("data", Collection(items=video_items(tmp_path / "video", "cam-a")))
+    host._on_loaded()
+    mpv.props["paused"] = False
+    host._on_paused()
+    host.pause()
+    assert mpv.writes[-1] == ("pause", True)
+    mpv.writes.clear()
+    host.resume()
+    assert mpv.writes == [("pause", False)]

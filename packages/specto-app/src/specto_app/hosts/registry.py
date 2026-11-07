@@ -79,6 +79,8 @@ class HostRegistry(QObject):
         # view id -> health before the pause (status, message, hint); the registry owns
         # the pause bookkeeping
         self._paused: dict[str, dict[str, str]] = {}
+        # paused views whose item is out of the scene, its GPU memory freed (SPEC-3)
+        self._released: set[str] = set()
         self._off_patch = ctx.live.on_patch(self._on_patch)
         self._off_events = ctx.live.events.subscribe(self._on_event)
         ctx.health_listeners.append(self.healthChanged.emit)
@@ -335,6 +337,7 @@ class HostRegistry(QObject):
 
     def dispose(self, view_id: str) -> None:
         self._paused.pop(view_id, None)
+        self._released.discard(view_id)
         h = self.hosts.pop(view_id, None)
         self.ctx.links.detach(view_id)
         self._slots.pop(view_id, None)
@@ -388,6 +391,7 @@ class HostRegistry(QObject):
         try:
             if callable(pause):
                 pause()
+            self._release(view_id, h)
             self.ctx.set_health(view_id, "paused", "off-screen")
         except Exception as e:
             self.ctx.set_health(view_id, "error", f"pause: {type(e).__name__}: {e}")
@@ -400,6 +404,7 @@ class HostRegistry(QObject):
             return False
         resume = getattr(h, "resume", None)
         try:
+            self._restore(view_id, h)
             if callable(resume):
                 resume()
             # the health from before the pause, the empty-state hint with it (#91)
@@ -410,6 +415,32 @@ class HostRegistry(QObject):
 
     def is_paused(self, view_id: str) -> bool:
         return view_id in self._paused
+
+    def is_released(self, view_id: str) -> bool:
+        """True while a paused view's item is out of the scene (``release_when_paused``)."""
+        return view_id in self._released
+
+    def _release(self, view_id: str, host: Any) -> None:
+        """A paused host that asks for it (``release_when_paused``) has its item taken out
+        of the scene: the window deletes the item's scene-graph nodes on its next frame,
+        and with them their textures, atlases and render targets (SPEC-3). The item and
+        its state (scroll, zoom, selection) stay; ``_restore`` puts it back."""
+        item = getattr(host, "item", None)
+        if item is None or not getattr(host, "release_when_paused", False):
+            return
+        if item.parentItem() is not self._slots.get(view_id):
+            return  # not in a slot (headless, or the slot is being rebuilt)
+        self._released.add(view_id)
+        item.setParentItem(None)
+
+    def _restore(self, view_id: str, host: Any) -> None:
+        if view_id not in self._released:
+            return
+        self._released.discard(view_id)
+        slot = self._slots.get(view_id)
+        item = getattr(host, "item", None)
+        if slot is not None and item is not None:
+            self._place(item, slot)
 
     def snapshot_image(self, view_id: str) -> Any:
         """The host's own image, or None (the shell then crops a window grab)."""
@@ -435,12 +466,6 @@ class HostRegistry(QObject):
         if item is None:
             return False
         self._slots[view_id] = slot
-        item.setParentItem(slot)
-        item.setX(0)
-        item.setY(0)
-        item.setWidth(slot.width())
-        item.setHeight(slot.height())
-        item.setVisible(True)
 
         def fit() -> None:
             if item.parentItem() is slot:
@@ -449,7 +474,18 @@ class HostRegistry(QObject):
 
         slot.widthChanged.connect(fit)
         slot.heightChanged.connect(fit)
+        if view_id not in self._released:  # a released item waits for its resume
+            self._place(item, slot)
         return True
+
+    @staticmethod
+    def _place(item: QQuickItem, slot: QQuickItem) -> None:
+        item.setParentItem(slot)
+        item.setX(0)
+        item.setY(0)
+        item.setWidth(slot.width())
+        item.setHeight(slot.height())
+        item.setVisible(True)
 
     @Slot(str, QQuickItem)
     def detach(self, view_id: str, slot: QQuickItem) -> None:

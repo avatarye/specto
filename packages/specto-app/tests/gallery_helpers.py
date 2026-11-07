@@ -76,6 +76,7 @@ class FakeGallery:
         self.on_gesture_ended: Callable[[], None] | None = None
         self.on_wanted_changed: Callable[[], None] | None = None
         self.on_drag: Callable[[int, int], None] | None = None
+        self._after_frame: list[Callable[[], None]] = []
 
     # -- item API ----------------------------------------------------------------------
     def set_count(self, n: int) -> None:
@@ -174,6 +175,21 @@ class FakeGallery:
 
     def set_caption(self, text: str) -> None:
         self.caption = text
+
+    def after_frame(self, fn: Callable[[], None]) -> None:
+        self._after_frame.append(fn)
+
+    # -- test drivers (what the scene does) -------------------------------------------
+    def drop_atlas(self) -> None:
+        """The item left the scene: its atlas went with its scene-graph node."""
+        self.pushed.clear()
+        self.pixels.clear()
+
+    def frame(self) -> None:
+        """The item drew a frame (``after_frame`` callbacks run once)."""
+        pending, self._after_frame = self._after_frame, []
+        for fn in pending:
+            fn()
 
     # -- test drivers (what a user would do) ----------------------------------------
     def user_click(self, index: int) -> None:

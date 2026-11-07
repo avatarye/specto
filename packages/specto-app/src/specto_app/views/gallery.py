@@ -126,6 +126,7 @@ class GalleryItemLike(Protocol):
     def cell_aspect(self) -> float: ...
     def stats(self) -> dict[str, Any]: ...
     def set_caption(self, text: str) -> None: ...
+    def after_frame(self, fn: Callable[[], None]) -> None: ...
 
     # callbacks the host installs; the adapter wires them to the item's signals
     on_selected: Callable[[int, int], None] | None
@@ -345,6 +346,21 @@ class NativeGallery:
     def set_caption(self, text: str) -> None:
         self.root.setProperty("caption", text)
 
+    def after_frame(self, fn: Callable[[], None]) -> None:
+        """Call ``fn`` once, after the item's next frame (its stats land on the GUI thread
+        after each one); a report from a frame drawn before this call does not count."""
+        item = self.item
+        before = int(item.property("frames"))
+
+        def once() -> None:
+            if int(item.property("frames")) <= before:
+                return
+            with contextlib.suppress(RuntimeError, TypeError):
+                item.statsChanged.disconnect(once)
+            fn()
+
+        item.statsChanged.connect(once)
+
     def cell_rect(self, index: int) -> Any:
         """The tile's cell in scene coordinates (``QRectF``), empty when scrolled out."""
         r = self.item.cellRectOf(int(index))
@@ -353,6 +369,9 @@ class NativeGallery:
 
 class GalleryHost(QuickViewHost):
     """One live gallery view; see the module docstring."""
+
+    #: paused, the item leaves the scene and its atlas goes with its node (SPEC-3)
+    release_when_paused = True
 
     def __init__(
         self,
@@ -1080,6 +1099,14 @@ class GalleryHost(QuickViewHost):
             },
             "stats": stats,
         }
+
+    # -- pause / resume (contracts section 16) ---------------------------------------------
+    def resume(self) -> None:
+        """Back on screen. A released item (``release_when_paused``) went back into the
+        scene with an empty atlas: its first frame there finds nothing resident, so the
+        pump decodes what the view shows again once that frame is drawn."""
+        super().resume()
+        self.gallery.after_frame(self.schedule_pump)
 
     def dispose(self) -> None:
         if self.disposed:

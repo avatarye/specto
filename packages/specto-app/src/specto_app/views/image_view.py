@@ -247,6 +247,20 @@ class ImageHost(Stepping, QuickViewHost):
             meta={"crop": rect, "size": size, "rendered": True},
         )
 
+    # -- pause / resume (contracts section 16) --------------------------------------------
+    def pause(self) -> None:
+        """Off screen: the item lets go of the decoded image, and with it the texture the
+        scene graph keeps for it as long as the image is held (SPEC-3)."""
+        super().pause()
+        if self.item is not None:
+            self.item.setProperty("released", True)
+
+    def resume(self) -> None:
+        """Back on screen: the same file decodes again; zoom and centre stay."""
+        super().resume()
+        if self.item is not None:
+            self.item.setProperty("released", False)
+
     # -- showing -----------------------------------------------------------------------
     def _show(self, index: int) -> None:
         self.index = index if 0 <= index < len(self.items) else -1
