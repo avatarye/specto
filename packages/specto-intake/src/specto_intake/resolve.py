@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Any
 
 from specto_core.contents import ContentValue, format_for, read_entry
-from specto_core.errors import SpectoError
 from specto_core.links import (
     Collection,
     FilesValue,
@@ -43,7 +42,7 @@ from .scene3d import attach_scenes
 from .screener import Screener, glob_to_regex
 from .sources import FoundFile, relative_to_source, resolve_root, walk_source
 from .spec import IntakeSpec
-from .watch_listing import intaker_listing
+from .watch_listing import intaker_listing, watch_intaker
 
 SPECTO_DIR = ".specto"
 #: the view types whose intakers prepare 3D parts at resolve (the 3D view, and the
@@ -199,31 +198,6 @@ def resolve_intaker(
     if progress:
         progress(1.0, f"{len(items)} items")
     return Collection(items=items, root=str(base))
-
-
-def watch_intaker(
-    link: dict[str, Any], value: Any, *, root: str, env: dict[str, Any]
-) -> dict[str, str]:
-    spec = intake_spec(link.get("params") or {})
-    base = Path(root) if root else Path.cwd()
-    files = value if isinstance(value, FilesValue) else FilesValue.model_validate(value)
-    if files.root:
-        base = Path(files.root)
-    base_posix = str(base).replace("\\", "/").rstrip("/") + "/"
-    table: dict[str, str] = {}
-    for i, src in enumerate(spec.sources):
-        try:
-            for f in walk_source(i, src, base, expand_containers=False):
-                full = f"{f.root}/{f.rel}"
-                rel_proj = (
-                    full[len(base_posix) :] if full.lower().startswith(base_posix.lower()) else ""
-                )
-                if _hidden(rel_proj):
-                    continue
-                table[f"{i}:{f.rel}"] = f"{f.size}:{f.mtime_ns}"
-        except SpectoError as e:  # a source that is not there (yet) is an entry too
-            table[f"{i}:"] = f"missing:{e.message}"
-    return table
 
 
 register_resolver("intaker", resolve_intaker)

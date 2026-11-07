@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -48,7 +48,13 @@ def _posix(p: Path | str) -> str:
 
 
 def walk_source(
-    index: int, src: SourceSpec, base: Path, *, expand_containers: bool = True
+    index: int,
+    src: SourceSpec,
+    base: Path,
+    *,
+    expand_containers: bool = True,
+    links: list[str] | None = None,
+    skip: Callable[[str], bool] | None = None,
 ) -> Iterator[FoundFile]:
     root = resolve_root(src, base)
     if not root.exists():
@@ -72,7 +78,9 @@ def walk_source(
             yield found
         return
     root_posix = _posix(root)
-    yield from _walk_dir(index, root, root_posix, "", 0, src, pattern, expand_containers)
+    yield from walk_dir(
+        index, root, root_posix, "", 0, src, pattern, expand_containers, links, skip
+    )
 
 
 def _expand(archive: FoundFile, pattern: re.Pattern[str] | None) -> Iterator[FoundFile]:
@@ -97,7 +105,7 @@ def _expand(archive: FoundFile, pattern: re.Pattern[str] | None) -> Iterator[Fou
         )
 
 
-def _walk_dir(
+def walk_dir(
     index: int,
     directory: Path,
     root_posix: str,
@@ -106,7 +114,13 @@ def _walk_dir(
     src: SourceSpec,
     pattern: re.Pattern[str] | None,
     expand_containers: bool = True,
+    links: list[str] | None = None,
+    skip: Callable[[str], bool] | None = None,
 ) -> Iterator[FoundFile]:
+    """The files under ``directory`` (``prefix`` its path below the source root,
+    ``depth`` its depth), as ``walk_source`` finds them. ``links`` collects the folders
+    descended into through a symbolic link or a junction (no change notices come from
+    inside them); ``skip(name)`` leaves files out by name."""
     try:
         with os.scandir(directory) as it:
             entries = sorted(it, key=lambda e: e.name)
@@ -119,6 +133,10 @@ def _walk_dir(
             if e.is_dir(follow_symlinks=src.follow_links):
                 if src.depth is None or depth < src.depth:
                     subdirs.append((rel + "/", Path(e.path)))
+                    if links is not None and (e.is_symlink() or e.is_junction()):
+                        links.append(rel)
+                continue
+            if skip is not None and skip(e.name):
                 continue
             if not e.is_file(follow_symlinks=True):
                 continue
@@ -134,8 +152,17 @@ def _walk_dir(
         else:
             yield found
     for sub_prefix, sub in subdirs:
-        yield from _walk_dir(
-            index, sub, root_posix, sub_prefix, depth + 1, src, pattern, expand_containers
+        yield from walk_dir(
+            index,
+            sub,
+            root_posix,
+            sub_prefix,
+            depth + 1,
+            src,
+            pattern,
+            expand_containers,
+            links,
+            skip,
         )
 
 

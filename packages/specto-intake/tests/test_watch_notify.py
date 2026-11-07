@@ -59,12 +59,14 @@ def test_an_arrival_lands_from_a_notice_without_listing_the_sources_again(
     status = links.watch_status("l2")
     assert status["mode"] == "notify" and status["reason"] == ""
     polls = status["polls"]
+    steps = len(engine.live.history_summaries())
 
     drip(project.root / "drops", 3, 2)
 
     assert pump_until(engine, jobs, lambda: items_of(engine) == 5, timeout=10)
     after = links.watch_status("l2")
     assert after["polls"] == polls  # no listing: the notices named the files
+    assert len(engine.live.history_summaries()) == steps  # an arrival is no undo step
     assert after["notices"] >= 1
     assert sum(a["added"] for a in arrivals) >= 4 and arrivals[0]["link"] == "l2"
     engine.close()
@@ -141,7 +143,7 @@ def test_a_notice_the_system_dropped_is_caught_by_the_next_full_listing(
     monkeypatch.delenv("SPECTO_WATCH", raising=False)
     monkeypatch.setattr(links_mod, "RELIST_S", 0.5)
     monkeypatch.setattr(links_mod, "RELIST_FACTOR", 0.0)
-    monkeypatch.setattr(fswatch._Handler, "dispatch", lambda self, event: None)  # all lost
+    monkeypatch.setattr(fswatch._Shared, "dispatch", lambda self, event: None)  # all lost
     engine, jobs = start_watching(project)
     links = engine.links
     assert pump_until(engine, jobs, lambda: links.watch_status("l2")["mode"] == "notify")
@@ -161,10 +163,11 @@ def test_lost_notices_make_the_watcher_list_everything(project: Project, monkeyp
     monkeypatch.delenv("SPECTO_WATCH", raising=False)
 
     def every_read_overflows(self, event):
-        if self.on_lost is not None:
-            self.on_lost()
+        for n in list(self.subscribers):
+            if n.on_lost is not None:
+                n.on_lost()
 
-    monkeypatch.setattr(fswatch._Handler, "dispatch", every_read_overflows)
+    monkeypatch.setattr(fswatch._Shared, "dispatch", every_read_overflows)
     engine, jobs = start_watching(project)
     links = engine.links
     assert pump_until(engine, jobs, lambda: links.watch_status("l2")["mode"] == "notify")
@@ -346,3 +349,204 @@ def test_a_burst_of_notices_is_counted_once_per_file(tmp_path: Path):
     assert counts == (1, 0, 0)
     time.sleep(0.01)
     assert listing.apply(table, [str(p)]) == (0, 0, 0)
+
+
+# -- review follow-ups (PR 59) --------------------------------------------------------------
+
+
+def test_the_windows_observer_falls_back_when_watchdogs_internals_moved(monkeypatch):
+    if os.name != "nt":
+        pytest.skip("ReadDirectoryChangesW only")
+    from watchdog.observers import winapi
+
+    monkeypatch.delattr(winapi, "_parse_event_buffer")
+    assert fswatch._windows_observer() is None
+    cls, why = fswatch._observer_cls.__wrapped__()
+    assert why is None and cls.__name__ == "WindowsApiObserver"  # watchdog's own
+
+
+def test_the_listing_says_when_a_source_is_missing_and_what_only_the_relist_covers(
+    tmp_path: Path,
+):
+    root = make_tree(tmp_path, {"data/1.txt": "1"})
+    listing, _, table = listing_for(root, {"sources": ["data", "later"]})
+    assert listing.source_missing(table)
+    listing2, _, table2 = listing_for(root, {"sources": ["data"]})
+    assert not listing2.source_missing(table2) and listing2.note() == ""
+
+
+def test_writers_temporaries_are_not_arrivals(tmp_path: Path):
+    root = make_tree(tmp_path, {"data/1.txt": "1"})
+    listing, link, table = listing_for(root, {"sources": ["data"]})
+    tmp = root / "data" / ".mesh.glb.4242.tmp"
+    tmp.write_text("half", encoding="utf-8")
+    part = root / "data" / ".frame.jpg.part"
+    part.write_text("half", encoding="utf-8")
+
+    assert listing.apply(table, [str(tmp), str(part)]) == (0, 0, 0)
+    assert table == fresh(root, link)  # the full listing leaves them out too
+    tmp.replace(root / "data" / "mesh.glb")  # the rename into place is the arrival
+    assert listing.apply(table, [str(tmp), str(root / "data" / "mesh.glb")]) == (1, 0, 0)
+
+
+def test_a_rename_that_only_changes_case_is_a_change_not_an_arrival(tmp_path: Path):
+    root = make_tree(tmp_path, {"data/a.txt": "1", "data/b.txt": "2"})
+    if not fswatch.case_insensitive(str(root / "data")):
+        pytest.skip("a case-sensitive file system: two names, two files")
+    listing, link, table = listing_for(root, {"sources": ["data"]})
+    os.rename(root / "data" / "a.txt", root / "data" / "A.txt")
+
+    counts = listing.apply(table, [str(root / "data" / "a.txt"), str(root / "data" / "A.txt")])
+
+    assert counts == (0, 0, 1)
+    assert table == fresh(root, link)
+
+
+def test_a_folder_reached_through_a_junction_is_named_in_the_note(tmp_path: Path):
+    import subprocess
+
+    root = make_tree(tmp_path, {"data/1.txt": "1", "elsewhere/2.txt": "2"})
+    link_dir = root / "data" / "linked"
+    if os.name == "nt":
+        made = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link_dir), str(root / "elsewhere")],
+            capture_output=True,
+        )
+        if made.returncode != 0:
+            pytest.skip("no junction")
+    else:
+        os.symlink(root / "elsewhere", link_dir, target_is_directory=True)
+    params = {"sources": [{"root": "data", "follow_links": True}]}
+    listing = IntakerListing(
+        {"kind": "intaker", "params": params}, FilesValue(root=str(root)), root=str(root), env={}
+    )
+    table = listing.full()
+    assert "0:linked/2.txt" in table
+    assert listing.note() == "1 folder reached through links covered by the periodic listing only"
+    if os.name == "nt":
+        os.rmdir(link_dir)  # the junction alone, never its target
+
+
+def test_links_watching_one_folder_share_one_watch(tmp_path: Path):
+    root = make_tree(tmp_path, {"data/1.txt": "1"})
+    seen: list[list[str]] = [[], []]
+    before = fswatch.watched_folders()
+    a = fswatch.Notifier([(str(root / "data"), True)], seen[0].extend).start()
+    b = fswatch.Notifier([(str(root / "data"), True)], seen[1].extend).start()
+    try:
+        assert fswatch.watched_folders() == before + 1
+        deadline = time.monotonic() + 10
+        i = 0
+        while not (seen[0] and seen[1]) and time.monotonic() < deadline:
+            (root / "data" / f"n{i}.txt").write_text("n", encoding="utf-8")
+            i += 1
+            time.sleep(0.05)
+        assert seen[0] and seen[1]  # one notice, both subscribers
+    finally:
+        a.stop()
+        b.stop()
+    assert fswatch.watched_folders() == before
+
+
+def test_a_remote_drive_is_relisted_at_most_every_30_s():
+    w = links_mod.LinkWatch(
+        "lx", lambda *a, **k: {}, {}, None, root="", env={}, changes=None, interval_s=1.0
+    )
+    w._remote, w._list_s = True, 5.0  # a 5 s listing: 50 of them would be 250 s
+    assert w._relist_gap() == links_mod.RELIST_REMOTE_MAX_S
+    w._remote = False
+    assert w._relist_gap() == 250.0
+
+
+@needs_testdata
+def test_a_write_storm_is_listed_once_it_settles_not_per_batch(project: Project, monkeypatch):
+    monkeypatch.delenv("SPECTO_WATCH", raising=False)
+    monkeypatch.setattr(links_mod, "BURST_PATHS", 3)
+    monkeypatch.setattr(links_mod, "SETTLE_S", 0.6)
+    monkeypatch.setattr(links_mod, "STORM_MIN_S", 30.0)
+    engine, jobs = start_watching(project)
+    links = engine.links
+    assert pump_until(engine, jobs, lambda: links.watch_status("l2")["mode"] == "notify")
+    polls = links.watch_status("l2")["polls"]
+    drops = project.root / "drops"
+
+    end = time.monotonic() + 2.5  # batches of 4 files every 0.1 s: each one a burst
+    n = 0
+    while time.monotonic() < end:
+        for _ in range(4):
+            (drops / f"storm_{n:04d}.txt").write_text("s", encoding="utf-8")
+            n += 1
+        jobs.poll()
+        engine.links.poll()
+        time.sleep(0.1)
+    during = links.watch_status("l2")["polls"] - polls
+
+    assert during <= 1  # not a listing per batch (it was one each 0.1-0.5 s)
+    assert pump_until(
+        engine, jobs, lambda: links.watch_status("l2")["polls"] > polls + during, timeout=10
+    )  # once it settled
+    engine.close()
+    jobs.shutdown()
+
+
+@needs_testdata
+def test_a_watched_folder_renamed_away_is_armed_again_on_its_path(project: Project, monkeypatch):
+    monkeypatch.delenv("SPECTO_WATCH", raising=False)
+    engine, jobs = start_watching(project)
+    links = engine.links
+    assert pump_until(engine, jobs, lambda: links.watch_status("l2")["mode"] == "notify")
+    drops = project.root / "drops"
+    os.rename(drops, project.root / "drops-old")  # the handle follows this one
+    copy_frames(drops, 2, "cam-a")  # a new folder under the old name
+
+    assert pump_until(engine, jobs, lambda: items_of(engine) == 2, timeout=10)
+    assert links.watch_status("l2")["mode"] == "notify"
+    polls = links.watch_status("l2")["polls"]
+    drip(drops, 5, 1)  # notices from the new folder now
+    assert pump_until(engine, jobs, lambda: items_of(engine) == 3, timeout=10)
+    assert links.watch_status("l2")["polls"] == polls
+    engine.close()
+    jobs.shutdown()
+
+
+@needs_testdata
+def test_a_drive_that_sends_no_notices_is_polled(project: Project, monkeypatch):
+    monkeypatch.delenv("SPECTO_WATCH", raising=False)
+    monkeypatch.setattr(links_mod, "RELIST_S", 0.4)
+    monkeypatch.setattr(links_mod, "RELIST_FACTOR", 0.0)
+    monkeypatch.setattr(fswatch._Shared, "dispatch", lambda self, event: None)  # silent
+    engine, jobs = start_watching(project)
+    links = engine.links
+    assert pump_until(engine, jobs, lambda: links.watch_status("l2")["mode"] == "notify")
+
+    for k in range(4):  # changes the relists find and no notice reported
+        drip(project.root / "drops", 3 + k, 1)
+        pump_until(engine, jobs, lambda: False, timeout=0.6)
+        if links.watch_status("l2")["mode"] == "poll":
+            break
+
+    status = links.watch_status("l2")
+    assert status["mode"] == "poll"
+    assert status["reason"] == "polling: this drive sends no change notices"
+    engine.close()
+    jobs.shutdown()
+
+
+@needs_testdata
+def test_notifications_that_come_back_are_followed_again(project: Project, monkeypatch):
+    monkeypatch.delenv("SPECTO_WATCH", raising=False)
+    monkeypatch.setattr(links_mod, "RETRY_MIN_S", 0.5)
+    engine, jobs = start_watching(project)
+    links = engine.links
+    assert pump_until(engine, jobs, lambda: links.watch_status("l2")["mode"] == "notify")
+    with pytest.MonkeyPatch.context() as blip:
+        blip.setattr(fswatch.Notifier, "alive", property(lambda self: False))
+        assert pump_until(
+            engine, jobs, lambda: links.watch_status("l2")["mode"] == "poll", timeout=5
+        )
+    # the share is back: after the retry gap the watcher follows notices again
+    assert pump_until(
+        engine, jobs, lambda: links.watch_status("l2")["mode"] == "notify", timeout=10
+    )
+    engine.close()
+    jobs.shutdown()

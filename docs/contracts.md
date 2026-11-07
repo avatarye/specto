@@ -304,11 +304,15 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   the watchers. ADR 0027 (SPEC-8): a kind that registers a `WatchListing` beside its
   watcher (`register_watcher(kind, fn, listing=...)`; the intaker's is
   `specto_intake.watch_listing.IntakerListing`) is followed through change notifications
-  (`specto_core.fswatch`, watchdog): the watcher lists everything once, then applies only
-  the paths the notices name, and lists everything again every `RELIST_S` (30 s; 10 s on
-  a network drive; at least 50 listing durations apart), after a burst or a lost-notice
-  report, or when a source root itself changed. Where notifications cannot start or stop
-  coming, it lists every `watch_interval_s` as before. `links.watch_status(id)` reports
+  (`specto_core.fswatch`, watchdog; one watch per folder per process): the watcher
+  lists everything once, then applies only the paths the notices name, and lists
+  everything again every `RELIST_S` (30 s, at least 50 listing durations apart; 10 to
+  30 s on a network drive), once a storm of notices settled, after a lost-notice report,
+  when a source root itself changed, and when a watched folder was renamed or replaced
+  (armed again first). Where notifications cannot start, stop, or never come (two
+  safety-net listings in a row finding unreported changes), it lists every
+  `watch_interval_s` as before, trying notifications again at a doubling gap up to
+  5 minutes. `links.watch_status(id)` reports
   `{running, polls, interval_s, mode: notify|poll, reason, notices}`; the event
   `link.watching {link, target, mode, reason}` fires when a watcher settles on its mode
   and when it changes, and `links.watch_note(view)` is the status bar's note after

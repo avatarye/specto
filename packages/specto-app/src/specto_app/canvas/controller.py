@@ -370,6 +370,12 @@ class CanvasController(QObject):
         self._nav_timer.setSingleShot(True)
         self._nav_timer.setInterval(NAV_SETTLE_MS)
         self._nav_timer.timeout.connect(self.flush_navigation)
+        # watchers settling on how they follow their folders (SPEC-8): one rebuild for a
+        # burst of ``link.watching`` events, as many watchers start together on load
+        self._watch_timer = QTimer(self)
+        self._watch_timer.setSingleShot(True)
+        self._watch_timer.setInterval(0)
+        self._watch_timer.timeout.connect(self._rebuild_views)
         self._off_patch = self.live.on_patch(self._on_patch)
         # the scratch pad's steps share Ctrl+Z with the canvas's (#184); ``_redo_order``
         # remembers which stack each undo took, so redo walks back the same way
@@ -388,6 +394,7 @@ class CanvasController(QObject):
 
     def close(self) -> None:
         self._nav_timer.stop()
+        self._watch_timer.stop()
         self._off_patch()
         self._off_events()
         self._off_scratch()
@@ -399,7 +406,7 @@ class CanvasController(QObject):
 
     def _on_event(self, ev: Any) -> None:
         if ev.kind == "link.watching":
-            self._rebuild_views()  # the status bar says when a view is polled (SPEC-8)
+            self._watch_timer.start()  # the status bar says when a view is polled (SPEC-8)
             return
         if ev.kind != "link.resolved":
             return
@@ -1042,7 +1049,7 @@ class CanvasController(QObject):
 
     def _watch_note(self, view_id: str) -> str:
         # never builds the runtime: no runtime yet means no watcher to speak of
-        links = getattr(self.engine, "built_links", None)
+        links = self.engine.built_links
         return links.watch_note(view_id) if links is not None else ""
 
     def _rebuild_views(self) -> None:
