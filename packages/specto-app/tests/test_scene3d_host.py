@@ -210,6 +210,8 @@ def test_robot_meshes_load_through_babylon_and_the_dae_through_its_glb(
     # what Babylon's OBJ loader asks for next to .../obj/@root/scans/meshes/panel.obj; the
     # browser has resolved the ../ before the request
     obj = "/l2/meshes%2Fpanel/obj"
+    # the OBJ itself, at the URL the page fetches it by (panel["url"])
+    assert served(f"{obj}/@root/scans/meshes/panel.obj") == (scans / "meshes/panel.obj").resolve()
     assert served(f"{obj}/@root/scans/meshes/panel.mtl") == (scans / "meshes/panel.mtl").resolve()
     assert served(f"{obj}/@root/scans/textures/skin.png") == (scans / "textures/skin.png").resolve()
     # nothing outside the project, nothing without the anchor's root
@@ -219,6 +221,7 @@ def test_robot_meshes_load_through_babylon_and_the_dae_through_its_glb(
     assert served(f"{obj}/@root") is None
     # only what an OBJ names: its MTL and images, never another file in the project
     assert served(f"{obj}/@root/scans/link.stl") is None
+    assert served("/l2/link/stl/@root/scans/meshes/panel.obj") is None  # not link's own part
     assert served(f"{obj}/@root/scans/robot.dae") is None
 
 

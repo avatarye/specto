@@ -275,11 +275,13 @@ ROOT_SUFFIXES = frozenset(
 
 def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Path | None:
     """``rel`` resolved next to ``part`` (a note's image), or, when it starts with
-    ``@root/``, under ``root``; ``None`` when it escapes that folder, there is no root, or
-    it is not a file."""
+    ``@root/``, under ``root``: the part itself (the page fetches an OBJ by that path) or
+    what it may name (``ROOT_SUFFIXES``); ``None`` when it escapes that folder, there is no
+    root, it names anything else, or it is not a file."""
     head, _, rest = rel.partition("/")
-    if head == ROOT_ANCHOR:
-        if root is None or not rest or Path(rest).suffix.lower() not in ROOT_SUFFIXES:
+    anchored = head == ROOT_ANCHOR
+    if anchored:
+        if root is None or not rest:
             return None
         base, rel = Path(root).resolve(), rest
     else:
@@ -288,6 +290,8 @@ def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Pa
     try:
         candidate.relative_to(base)
     except ValueError:
+        return None
+    if anchored and candidate.suffix.lower() not in ROOT_SUFFIXES and candidate != part.resolve():
         return None
     return candidate if candidate.is_file() else None
 
