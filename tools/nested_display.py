@@ -47,8 +47,12 @@ def wait_ready(display: str, server: subprocess.Popen, timeout: float = 15.0) ->
         if server.poll() is not None:
             raise SystemExit(f"[ERROR] Xephyr exited with {server.returncode}")
         if probe:
-            ok = subprocess.call([probe], env=env, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL) == 0
+            ok = (
+                subprocess.call(
+                    [probe], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                )
+                == 0
+            )
         else:
             ok = Path(f"/tmp/.X11-unix/X{display.lstrip(':')}").exists()
         if ok:
@@ -70,7 +74,9 @@ def run(cmd: list[str], size: str) -> int:
     try:
         wait_ready(display, server)
         print(f"[OK] nested display {display} ({size})", flush=True)
-        return subprocess.call(cmd, env={**os.environ, "DISPLAY": display})
+        # a display of its own: the desktop lock does not apply (desktop_lock.held)
+        env = {**os.environ, "DISPLAY": display, "SPECTO_PRIVATE_DISPLAY": "1"}
+        return subprocess.call(cmd, env=env)
     finally:
         server.terminate()
         try:

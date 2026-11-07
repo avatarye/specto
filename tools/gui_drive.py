@@ -451,9 +451,7 @@ class Driver:
         if not words or words[0].startswith("#"):
             return
         while words and words[0] in ("win:", "posix:", "mouse:", "driver:"):
-            if words[0] in ("win:", "posix:") and (words[0] == "win:") != (
-                sys.platform == "win32"
-            ):
+            if words[0] in ("win:", "posix:") and (words[0] == "win:") != (sys.platform == "win32"):
                 return
             if words[0] == "driver:":  # the Qt driver's line, not this executor's
                 return
@@ -889,12 +887,16 @@ class Driver:
 
 
 def main() -> None:
+    import desktop_lock
+
     utf8_stdio()
     project, out, script = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
     title = sys.argv[4] if len(sys.argv) > 4 else "Specto"
-    d = Driver(project, out, title)
-    for line in script.read_text(encoding="utf-8").splitlines():
-        d.run(line.strip())
+    # it clicks: only while holding the desktop lock (SPEC-7)
+    with desktop_lock.held(f"gui-drive-{os.getpid()}"):
+        d = Driver(project, out, title)
+        for line in script.read_text(encoding="utf-8").splitlines():
+            d.run(line.strip())
     print("[OK] script done")
 
 

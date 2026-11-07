@@ -34,6 +34,12 @@ the release and move on their own schedule.
   draws: a list applies its model's row changes at its polish, and until then a removed
   row's delegate was still found, visible (3 runs in 8 on `main`). A normal `shell.locate`
   forces nothing; the fix is in the driver alone.
+- The real-mouse GUI tools cannot collide on a shared desktop (SPEC-7):
+  `tools/gui_session.py` and `gui_drive.py` drive the desktop only while holding the
+  desktop lock (they take it themselves when not run under `desktop_lock.py run`, and
+  refuse a desktop another session holds). `--fresh` (also in `gui_qtdrive.py`) wipes
+  only a folder a GUI session created, or an empty one. A session given no `--project`
+  runs on a folder of its own under the temp dir.
 - Paused galleries, images and videos give back their GPU memory (SPEC-3, ADR 0030). A
   paused view is one off-screen, collapsed or behind the overworld. After 3 s paused,
   the view leaves the scene: the gallery's atlas and the video's frame buffer and mpv
