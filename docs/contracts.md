@@ -80,7 +80,8 @@ remove `.specto/`); there is no migration (ADR 0017).
   is the id, so patch paths are stable. `source.view` may be `project` (the project source, port `all_files`), the one link
   source that is not a view; `project` is never a view key. Every view must be
   reachable from `project` by links (ADR 0018 amendment, #83).
-- View types: `file_tree`, `gallery`, `image`, `video`, `json`, `markdown`, `map`, `3d`
+- View types: `file_tree`, `gallery`, `image`, `video`, `json`, `markdown`, `map`, `3d`,
+  `html`, `pdf`, `preview`, `usd`, `scratch`, `text`, `urdf`
   (`specto_core.ports.VIEW_TYPES`). `params` is a free dict per type; the manifest's
   `defaults` and `describe view:<type>` document the keys. `params.selected` (gallery:
   the picked key; file tree: the picked rows; video: the selected item) is written by
@@ -222,6 +223,7 @@ Two-way links only on `time` and `selection`. Per view type (`VIEW_PORTS`):
 | `preview` | `data`, `selection` | `selection` | |
 | `scratch` | `selection` | `items: collection`, `selection` | |
 | `text` | `data` | | |
+| `urdf` | `data`, `joints: collection`, `time`, `camera`, `selection` | `camera`, `selection`, `content` | `data, selection -> selection, content`, `camera -> camera` |
 
 The project source `project` has one output, `all_files: files` (the whole folder). The
 intaker from it into a file tree is never walked (#231, ADR 0022): the tree receives a
@@ -582,6 +584,18 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   The prompt bar's agent has seven scratch tools (`specto_app.prompt.scratch`:
   `scratch_read`, `scratch_append`, `scratch_write`, and four for pages); the MCP tool
   set is unchanged.
+- URDF view (SPEC-43, ADR 0028, `specto_app.views.urdf_view`): `UrdfHost` is a web host
+  (`urdf/index.html`, Babylon.js) for one robot. It parses the shown `.urdf` item on the
+  job manager (`specto_readers.urdf.build_robot(path, package_paths, search_roots,
+  environ) -> {model, files, packages, actuated, parse_ms}`; yourdfpy parse-only, the
+  package resolver, `missing_notes` for health), serves the robot's files as extra roles
+  of its item (`.m0`, `.m1`, ...; `RobotMeshes`, first in the runtime's item resolvers,
+  so `specto://items/<link>/<key>/m<n>/<file name>`), and speaks ADR 0028's messages:
+  `model {generation, model}`, `pose {joints, source}`, `params` and the `camera` and
+  `selection` ports out; `select`, `joints` (one user submit of `params.joints`,
+  clamped), `camera`, `panels`, `frame` and `step` in. Selection keys are
+  `<item key>#<link name>`; content is the selected link's or joint's properties. Health
+  is `warn` while meshes are missing or `params.joints` names joints the robot lacks.
 - Context menu (#154, `specto_app.menu`): the shell has one (`Main.qml` `contextMenu`, a
   `PopMenu`; rows `menu:<entry id>`). A view contributes two things:
   - **its target**: `context_target(hit) -> MenuTarget | None` on the host says what is
@@ -754,7 +768,7 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
 
 ## 14. Web views (`specto_app.web`; on ports per ADR 0014)
 
-Every web view (`json`, `markdown`, `map`, `3d`, `html`) runs under an explicit grant list
+Every web view (`json`, `markdown`, `map`, `3d`, `html`, `urdf`) runs under an explicit grant list
 built by the app from the view's type and the links feeding it, never from the page (a
 `preview` showing a web kind runs that kind's page under that kind's grants, #106); the
 view's `network: false` param drops its `net:` grants (params narrow, never widen):
@@ -763,7 +777,7 @@ view's `network: false` param drops its `net:` grants (params narrow, never wide
 |---|---|---|
 | `read:link:<id>` | fetch the bytes behind the value that link delivered, over `specto://items/<link>/<key>/<role>` | every link into one of the view's input ports |
 | `emit:<port>` | emit on that output port through `Specto.emit` | the type's output ports (`VIEW_PORTS`) |
-| `params:<key>` | write that key of the view's own params through `Specto.setParams` (one user submit) | `json`: `wrap`; `markdown`: `panels`; `map`: `layers`, `basemap`, `panels`, `limit` (Load more, #181); `3d`: `point_size`, `up` (`panels` = `{<panel>: {collapsed, width}}`, the side panels' state, #130) |
+| `params:<key>` | write that key of the view's own params through `Specto.setParams` (one user submit) | `json`: `wrap`; `markdown`: `panels`; `map`: `layers`, `basemap`, `panels`, `limit` (Load more, #181); `3d`: `point_size`, `up` (`panels` = `{<panel>: {collapsed, width}}`, the side panels' state, #130); `urdf`: its VIEW panel's and footer's keys, never `joints` or `package_paths` (the pose goes through the host's `joints` message, ADR 0028) |
 | `cmd:<name>` | call that command through the bridge | `describe`, `vocabulary` always |
 | `net:tiles` | raster basemap tiles from `TILE_HOSTS`: the hosts of the basemap providers in `specto_app/web/basemaps.py` (OSM, Esri World Imagery; `params.basemap` = `none` \| `osm` \| `satellite`, #157) | `map` only |
 | `net:web` | any http(s) request from the page's frames, http(s) navigations of its frames (never the main frame) | `html`, unless `network: false` (ADR 0019) |

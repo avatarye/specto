@@ -143,6 +143,10 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 | numpy | BSD-3-Clause (with 0BSD, MIT, Zlib and CC0 parts) | Image buffers, the usd source's frames. |
 | scipy | BSD-3-Clause; its wheels bundle Qhull (Qhull licence), OpenBLAS and LAPACK (BSD-3-Clause variants) and the GCC runtime (GPL-3.0 with the GCC Runtime Library Exception) | Convex hulls (Qhull) for the usd view's collision view. |
 | pillow | MIT-CMU | Image decoding and thumbnails. |
+| yourdfpy | MIT | The urdf view parses URDF files with it, parse only (no meshes loaded, no scene graph; ADR 0028). |
+| lxml | BSD-3-Clause; its binary wheels bundle libxml2, libxslt and libexslt (MIT), zlib (zlib licence) and **libiconv (LGPL-2.1)** | yourdfpy's XML parser. Used as the unmodified PyPI wheel, never redistributed by Specto. |
+| trimesh | MIT | Pulled in by yourdfpy, without its extras (`[tool.uv] override-dependencies` replaces yourdfpy's `trimesh[easy]`); Specto loads no mesh with it. |
+| six | MIT | Pulled in by yourdfpy. |
 | PyOpenGL | BSD-3-Clause | The usd view's Storm source draws offscreen with it. |
 | platformdirs | MIT | User and cache directories. |
 | click | BSD-3-Clause | The `specto` CLI. |
