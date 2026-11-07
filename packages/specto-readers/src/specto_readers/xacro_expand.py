@@ -61,6 +61,7 @@ import io
 import json
 import os
 import pickle
+import re
 import stat
 import sys
 import tempfile
@@ -528,6 +529,117 @@ def _cause(e: BaseException) -> BaseException:
     return e
 
 
+# -- the literal package scan (the one Approve card) ---------------------------------------
+
+_LITERAL_FIND = re.compile(r"\$\(find\s+([A-Za-z0-9_\-]+)\s*\)")
+_ANY_FIND = re.compile(r"\$\(find\s")
+_INCLUDE = re.compile(r"<[\w.-]+:include\b[^>]*?\bfilename\s*=\s*(\"([^\"]*)\"|'([^']*)')", re.S)
+#: the most files one scan reads (a robot description is a handful)
+SCAN_MAX_FILES = 500
+
+
+@dataclass
+class PackageScan:
+    """What :func:`literal_packages` found: ``packages`` (name -> resolved folder, in the
+    order met), ``missing`` (literal names the resolver did not find), ``refused``
+    (name -> why its folder is refused), ``dynamic`` (a ``$(find)`` or an include built
+    at expansion time: the expansion asks for those one card at a time) and ``files``
+    (every file read)."""
+
+    packages: dict[str, str] = field(default_factory=dict)
+    missing: list[str] = field(default_factory=list)
+    refused: dict[str, str] = field(default_factory=dict)
+    dynamic: bool = False
+    files: list[str] = field(default_factory=list)
+
+    def hashes(self, root_approval: str) -> dict[str, str]:
+        """Each package's :func:`package_hash` under the root's approval: what the one
+        Approve card records."""
+        return {name: package_hash(root_approval, name, f) for name, f in self.packages.items()}
+
+
+def literal_packages(
+    path: str | Path,
+    *,
+    find_package: FindPackage,
+    roots: Iterable[str | Path] = (),
+) -> PackageScan:
+    """Every literal ``$(find name)`` in the xacro root and the files it reaches through
+    literal includes, resolved with ``find_package`` (design amendment 16: one Approve
+    card lists them all before the run). Text only, never evaluated: an include whose
+    filename is built at expansion time (``${...}``, ``$(arg)``, a glob, a non-literal
+    ``$(find)``) is not followed and marks the scan ``dynamic``. Reads go through the
+    same checks as the expansion (``_read_checked``: the root's folder, ``roots`` and the
+    found package folders; device and network paths refused); a file that cannot be read
+    is skipped, the expansion reports it."""
+    given = Path(os.path.abspath(os.fspath(path)))
+    allowed = [*_both(given.parent)]
+    for r in roots:
+        allowed.extend(_both(r))
+    scan = PackageScan()
+    queue: list[tuple[Path, bool]] = [(given, True)]
+    seen: set[str] = set()
+    while queue and len(scan.files) < SCAN_MAX_FILES:
+        asked, is_root = queue.pop(0)
+        try:
+            final, raw = _read_checked(asked, allowed, is_root=is_root)
+        except (OSError, XacroError):
+            continue
+        if str(final) in seen:
+            continue
+        seen.add(str(final))
+        scan.files.append(str(final))
+        if is_root:
+            allowed.append(final.parent)
+        text = raw.decode("utf-8", "replace")
+        for name in _LITERAL_FIND.findall(text):
+            _resolve_into(scan, name, find_package, allowed)
+        if len(_ANY_FIND.findall(text)) > len(_LITERAL_FIND.findall(text)):
+            scan.dynamic = True
+        for m in _INCLUDE.finditer(text):
+            target = _literal_target(
+                m.group(2) if m.group(2) is not None else m.group(3), final, scan
+            )
+            if target is None:
+                scan.dynamic = True
+            elif target is not False:
+                queue.append((target, False))
+    return scan
+
+
+def _resolve_into(
+    scan: PackageScan, name: str, find_package: FindPackage, allowed: list[Path]
+) -> None:
+    if name in scan.packages or name in scan.missing or name in scan.refused:
+        return
+    hit = find_package(name)
+    if hit is None:
+        scan.missing.append(name)
+        return
+    folder = Path(os.path.abspath(os.fspath(hit)))
+    if _unsafe(str(folder)):
+        scan.refused[name] = "its folder has a quote, $, backtick or brace in its path"
+        return
+    scan.packages[name] = str(folder)
+    allowed.extend(_both(folder))
+
+
+def _literal_target(spec: str, current: Path, scan: PackageScan) -> Path | bool | None:
+    """Where a literal include leads: a path; None when it is built at expansion time; False
+    when its package is not (yet) resolved."""
+    spec = spec.strip()
+    m = re.match(r"^\$\(find\s+([A-Za-z0-9_\-]+)\s*\)(.*)$", spec)
+    if m:
+        folder = scan.packages.get(m.group(1))
+        if folder is None:
+            return False
+        spec = folder + m.group(2)
+    if "$" in spec or any(c in spec for c in "*?["):
+        return None
+    target = Path(spec)
+    return target if target.is_absolute() else current.parent / target
+
+
 # -- out of process -----------------------------------------------------------------------
 
 
@@ -628,13 +740,16 @@ __all__ = [
     "MAX_FILE_BYTES",
     "OUT_CAP",
     "RUNNER",
+    "SCAN_MAX_FILES",
     "FindPackage",
+    "PackageScan",
     "XacroError",
     "XacroNeedsApproval",
     "XacroResult",
     "approval_hash",
     "effective_args",
     "expand_xacro",
+    "literal_packages",
     "package_hash",
     "submit_xacro",
     "xacro_task",

@@ -307,3 +307,24 @@ def test_an_empty_first_time_cell_does_not_refuse_a_track(tmp_path: Path):
     p = _csv(tmp_path, "time,j\n,0.5\n0.1,0.6\n0.2,0.7\n", name="gap.csv")
     assert joint_track_problem(str(p)) is None
     assert _decode(p).sample(TimeValue(t=0.1)) == {"j": 0.6}
+
+
+def test_the_pose_is_the_track_at_t_then_params_then_zero():
+    from specto_readers.joint_track import resolve_pose
+
+    actuated = ["shoulder", "elbow", "wrist"]
+    # a track drives: its joints, params fill what it does not carry, then zero
+    joints, source = resolve_pose(
+        actuated, {"shoulder": 0.5, "other_robot": 9.0}, {"elbow": 1.0, "shoulder": -1.0}
+    )
+    assert source == "track"
+    assert joints == {"shoulder": 0.5, "elbow": 1.0, "wrist": 0.0}
+    # no track (or no sample on this timeline): params, then zero
+    assert resolve_pose(actuated, None, {"elbow": 1.0}) == (
+        {"shoulder": 0.0, "elbow": 1.0, "wrist": 0.0},
+        "params",
+    )
+    assert resolve_pose(actuated, None, None) == ({j: 0.0 for j in actuated}, "zero")
+    # a track that names none of this robot's joints does not drive it
+    assert resolve_pose(actuated, {"arm/shoulder": 1.0}, {})[1] == "zero"
+    assert resolve_pose(actuated, {}, {"bogus": 1.0})[1] == "zero"

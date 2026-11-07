@@ -36,8 +36,9 @@ from __future__ import annotations
 import csv
 import io
 import re
+from collections.abc import Iterable, Mapping
 from pathlib import PurePath
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -353,6 +354,29 @@ __all__ = [
     "JointTrack",
     "JointTrackDecoder",
     "JointTrackLocator",
+    "PoseSource",
     "joint_track_problem",
+    "resolve_pose",
     "time_column_of",
 ]
+
+
+PoseSource = Literal["track", "params", "zero"]
+
+
+def resolve_pose(
+    actuated: Iterable[str],
+    track_sample: Mapping[str, float] | None,
+    params_joints: Mapping[str, float] | None,
+) -> tuple[dict[str, float], PoseSource]:
+    """The pose the urdf view shows (design section 6): per actuated joint, the track's
+    sample at ``t`` first, then ``params.joints``, then zero. ``source`` is the first of
+    those that sets any of this robot's joints: ``track`` (the sliders lock and follow
+    it), else ``params``, else ``zero``. Names the robot does not have are ignored here
+    (the health note counts a track's, :meth:`JointTrack.unmatched`)."""
+    names = list(actuated)
+    track = {n: float(v) for n, v in (track_sample or {}).items() if n in names}
+    params = {n: float(v) for n, v in (params_joints or {}).items() if n in names}
+    joints = {n: track.get(n, params.get(n, 0.0)) for n in names}
+    source: PoseSource = "track" if track else "params" if params else "zero"
+    return joints, source
