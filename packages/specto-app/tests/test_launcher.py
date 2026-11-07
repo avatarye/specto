@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,13 @@ pytest.importorskip("PySide6.QtQuick")
 from app_doc_helpers import pin
 
 from specto_app import recents
-from specto_app.launcher import WelcomeController, open_project, relaunch_argv, resolve_folder
+from specto_app.launcher import (
+    WelcomeController,
+    open_project,
+    relaunch,
+    relaunch_argv,
+    resolve_folder,
+)
 
 
 def test_recents_remember_forget_and_missing(tmp_path):
@@ -70,6 +77,36 @@ def test_open_project_and_relaunch_argv(tmp_path):
     assert argv[1:3] == ["-m", "specto_app"] and argv[3:5] == ["--project", str(p.root)]
     assert argv[-2:] == ["--inline-jobs", "--no-web"]
     assert resolve_folder("") is None and resolve_folder('"C:/x"') == Path("C:/x")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows process creation flags")
+def test_relaunch_starts_the_app_with_a_hidden_console(tmp_path, monkeypatch):
+    """SPEC-28: a relaunched app gets a hidden console (``CREATE_NO_WINDOW``), never
+    none (``DETACHED_PROCESS``): under a console-less app every console child spawned
+    without flags (the agent CLI, the workers) opens a visible console window."""
+    import subprocess
+
+    from specto_core import detached
+
+    calls: list[dict] = []
+
+    class FakePopen:
+        pid = 4242
+        _handle = None
+        returncode = None
+
+        def __init__(self, argv, **kw):
+            calls.append({"argv": argv, **kw})
+
+    monkeypatch.setattr(detached.subprocess, "Popen", FakePopen)
+    monkeypatch.setenv("SPECTO_PROJECT", str(tmp_path / "elsewhere"))
+    assert relaunch(tmp_path, ["--no-web"]) == 4242
+    (call,) = calls
+    flags = call["creationflags"]
+    assert flags & subprocess.CREATE_NO_WINDOW and flags & subprocess.CREATE_NEW_PROCESS_GROUP
+    assert not flags & subprocess.DETACHED_PROCESS
+    assert call["argv"] == relaunch_argv(tmp_path, ["--no-web"])
+    assert "SPECTO_PROJECT" not in call["env"]  # the child serves the project it is given
 
 
 def test_a_project_opened_from_the_welcome_answers_its_prompt_bar(tmp_path, qapp, spin):

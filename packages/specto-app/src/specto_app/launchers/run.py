@@ -5,58 +5,24 @@ launcher file. No Qt here; ``LauncherBook`` takes these as defaults and tests sw
 
 from __future__ import annotations
 
-import contextlib
 import os
 import subprocess
 import sys
 from collections.abc import Sequence
 
-#: Windows process creation flags (``subprocess`` has the first three as constants)
-CREATE_NEW_PROCESS_GROUP = 0x00000200
-CREATE_NO_WINDOW = 0x08000000
-CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+from specto_core import detached
 
 
 def spawn_detached(argv: Sequence[str], cwd: str = "", env: dict[str, str] | None = None) -> int:
     """Start ``argv`` (a list: no shell reads it) on its own: no console window, no
     pipes, its own process group, out of Specto's job when the job allows, and no handle
-    kept, so closing Specto leaves it running. Returns its pid; ``OSError`` when it
-    cannot start."""
+    kept, so closing Specto leaves it running (``specto_core.detached``). ``env`` adds to
+    ours. Returns its pid; ``OSError`` when it cannot start."""
     full_env = None
     if env:
         full_env = dict(os.environ)
         full_env.update(env)
-    kw: dict[str, object] = {
-        "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
-        "close_fds": True,
-        "cwd": cwd or None,
-        "env": full_env,
-    }
-    if sys.platform == "win32":
-        flags = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-        try:
-            proc = subprocess.Popen(
-                list(argv), creationflags=flags | CREATE_BREAKAWAY_FROM_JOB, **kw
-            )
-        except PermissionError:  # the job Specto runs in forbids breaking away
-            proc = subprocess.Popen(list(argv), creationflags=flags, **kw)
-    else:
-        proc = subprocess.Popen(list(argv), start_new_session=True, **kw)
-    pid = proc.pid
-    _let_go(proc)
-    return pid
-
-
-def _let_go(proc: subprocess.Popen[bytes]) -> None:
-    """Drop the process's handle now (Windows) and keep ``Popen.__del__`` from warning
-    that it still runs: Specto never waits for a launched program."""
-    handle = getattr(proc, "_handle", None)
-    if handle is not None:
-        with contextlib.suppress(OSError):
-            handle.Close()
-    proc.returncode = 0
+    return detached.spawn_detached(argv, cwd=cwd or None, env=full_env)
 
 
 def start_file(path: str) -> None:
@@ -83,12 +49,12 @@ def reveal(paths: Sequence[str]) -> None:
         explorer = os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "explorer.exe")
         proc = subprocess.Popen(
             f'"{explorer}" /select,"{path}"',
-            creationflags=CREATE_NEW_PROCESS_GROUP,
+            creationflags=detached.CREATE_NEW_PROCESS_GROUP,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        _let_go(proc)
+        detached.let_go(proc)
         return
     if sys.platform == "darwin":
         spawn_detached(["open", "-R", path])

@@ -9,7 +9,9 @@ detached, and say which instance it became. Qt-free; the app is another process.
   output appended to a log, in its own process group and with no console window
   (Windows: ``CREATE_NO_WINDOW``, a hidden console the app's own console children
   inherit, so neither closing the terminal nor the agent subprocess pops a window;
-  elsewhere ``start_new_session``), and drops the handle: the CLI returns at once.
+  elsewhere ``start_new_session``), and drops the handle: the CLI returns at once. The
+  helper is ``specto_core.detached.spawn_detached``, shared with the app's project
+  switch (SPEC-28).
 - ``wait_for_instance`` watches the instance registry (``specto_core.instances``) for
   the new process's entry, so the CLI can print the instance name.
 """
@@ -19,23 +21,19 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from specto_core.detached import spawn_detached
 from specto_core.errors import SpectoError
 from specto_core.instances import Instance, list_instances, pid_alive, project_key, user_dir
 
 ENV_APP_HOME = "SPECTO_APP_HOME"
 CLI_SETTINGS = "cli.json"
 LAUNCH_LOG = "launch.log"
-#: Windows process creation flags (``subprocess`` has the first as a constant)
-CREATE_NEW_PROCESS_GROUP = 0x00000200
-CREATE_NO_WINDOW = 0x08000000
-CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 SETUP_FIX = (
     "run `specto setup-cli <specto checkout>` once (the checkout holds packages/specto-app "
     f"and a synced .venv), or set {ENV_APP_HOME}=<checkout>"
@@ -166,52 +164,9 @@ def child_env(environ: dict[str, str] | None = None) -> dict[str, str]:
     return env
 
 
-def spawn_detached(
-    argv: list[str], *, log_path: Path, cwd: Path | None = None, env: dict[str, str] | None = None
-) -> int:
-    """Start ``argv`` so it outlives this process and shows no console: stdout/stderr
-    appended to ``log_path``, stdin closed, its own process group. Windows: a hidden
-    console (``CREATE_NO_WINDOW``) rather than none (``DETACHED_PROCESS``), because the
-    app's console children (workers, the agent CLI) inherit a hidden console but would
-    each open a visible one under a console-less parent; out of the caller's job when
-    the job allows (``uv run`` and the tool shim keep a kill-on-close job). Linux and
-    macOS: ``start_new_session``. Returns the pid; ``OSError`` when it cannot start."""
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(log_path, "ab") as log:
-        kw: dict[str, Any] = {
-            "stdin": subprocess.DEVNULL,
-            "stdout": log,
-            "stderr": log,
-            "close_fds": True,
-            "cwd": str(cwd) if cwd else None,
-            "env": env,
-        }
-        if sys.platform == "win32":
-            flags = CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-            try:
-                proc = subprocess.Popen(argv, creationflags=flags | CREATE_BREAKAWAY_FROM_JOB, **kw)
-            except PermissionError:  # the job we run in forbids breaking away
-                proc = subprocess.Popen(argv, creationflags=flags, **kw)
-        else:
-            proc = subprocess.Popen(argv, start_new_session=True, **kw)
-    pid = proc.pid
-    _let_go(proc)
-    return pid
-
-
-def _let_go(proc: subprocess.Popen[bytes]) -> None:
-    """Drop the process handle now (Windows) and keep ``Popen.__del__`` from warning that
-    it still runs: the CLI never waits for the app."""
-    handle = getattr(proc, "_handle", None)
-    if handle is not None:
-        with contextlib.suppress(OSError):
-            handle.Close()
-    proc.returncode = 0
-
-
 def _child_alive(pid: int) -> bool:
     """Whether the app this process launched still runs. On Linux and macOS an exited child
-    stays a zombie until reaped (``_let_go`` keeps no handle to wait on), and a zombie
+    stays a zombie until reaped (``spawn_detached`` keeps no handle to wait on), and a zombie
     answers ``kill(pid, 0)``: reap it first. Not our child (Windows, a venv launcher's
     interpreter): :func:`pid_alive`."""
     if sys.platform != "win32":

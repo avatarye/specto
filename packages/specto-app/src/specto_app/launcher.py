@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -22,6 +21,7 @@ from typing import Any
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
 
 from specto_core import Project
+from specto_core.detached import spawn_detached
 from specto_core.errors import SpectoError
 
 from . import recents
@@ -208,22 +208,16 @@ def relaunch_argv(root: Path | str, flags: list[str] | None = None) -> list[str]
 
 
 def relaunch(root: Path | str, flags: list[str] | None = None) -> int:
-    """Start ``specto-app --project root`` detached from this process. Returns the pid."""
+    """Start ``specto-app --project root`` detached from this process, the way ``specto
+    open`` does (``specto_core.detached``: a hidden console, so the new app's agent and
+    workers pop no console window, SPEC-28). Returns the pid."""
     argv = relaunch_argv(root, flags)
     log_path = recents.user_data_dir() / "launch.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log = open(log_path, "ab")  # noqa: SIM115  (the child owns it)
-    kw: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log}
-    if sys.platform == "win32":
-        kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-    else:
-        kw["start_new_session"] = True
     env = dict(os.environ)
     env.pop("SPECTO_PROJECT", None)
-    proc = subprocess.Popen(argv, env=env, close_fds=True, **kw)
-    log.close()
-    print(f"[OK] relaunching on {root} (pid {proc.pid}); log {log_path}")
-    return proc.pid
+    pid = spawn_detached(argv, log_path=log_path, env=env)
+    print(f"[OK] relaunching on {root} (pid {pid}); log {log_path}")
+    return pid
 
 
 __all__ = [

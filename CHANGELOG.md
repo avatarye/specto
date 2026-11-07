@@ -15,6 +15,10 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Switching projects from the app no longer risks a console window popping up when the
+  new window's agent or workers start (SPEC-28). The project switch now starts the new
+  app the way `specto open` does, with a hidden console rather than none, through one
+  shared helper (`specto_core.detached`) that the launchers use too.
 - Gallery captions sit on the thumbnails (SPEC-6): each key overlays its tile's bottom
   edge, light text on a dark scrim that reads on light and dark images, and takes no row
   height, so more tiles fit. A time-linked gallery marks its current item (the frame at
