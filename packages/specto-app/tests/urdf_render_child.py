@@ -62,7 +62,9 @@ window.Specto = {
   config: null,
 };
 window.__fire = function (k, p) { (window.__handlers[k] || []).forEach(function (fn) { fn(p); }); };
-window.onerror = function (msg, src, line) { window.__jsError = msg + " (" + src + ":" + line + ")"; };
+window.onerror = function (msg, src, line) {
+  window.__jsError = msg + " (" + src + ":" + line + ")";
+};
 """
 
 
@@ -83,8 +85,11 @@ def page_html() -> str:
 
 
 class Page(QWebEnginePage):
-    def javaScriptConsoleMessage(self, level, msg, line, src):  # noqa: N802 (Qt's name)
-        if os.environ.get("SPECTO_RENDER_DEBUG") or level == QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel:
+    def javaScriptConsoleMessage(self, level, msg, line, src):
+        if (
+            os.environ.get("SPECTO_RENDER_DEBUG")
+            or level == QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel
+        ):
             print(f"JS {msg} ({src}:{line})", flush=True)
 
 

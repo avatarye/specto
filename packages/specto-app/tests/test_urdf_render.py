@@ -25,7 +25,9 @@ import specto_web
 CHILD = Path(__file__).with_name("urdf_render_child.py")
 WEB = specto_web.find_web_root()
 STUDIO = specto_web.environment_file("studio")
-ARM = Path(__file__).resolve().parents[2] / "specto-web" / "tests" / "fixtures" / "urdf" / "arm.json"
+ARM = (
+    Path(__file__).resolve().parents[2] / "specto-web" / "tests" / "fixtures" / "urdf" / "arm.json"
+)
 # the usd view's first two collision tints (specto_app/usd/collision.py TINTS): base_link,
 # upper_arm, as 8-bit colours (StandardMaterial emissive, no lighting)
 TINT_BASE = (51, 204, 115)
@@ -51,7 +53,16 @@ def box_triangles(lo: tuple[float, float, float], hi: tuple[float, float, float]
     """The 12 outward triangles of an axis-aligned box, counter-clockwise from outside."""
     x0, y0, z0 = lo
     x1, y1, z1 = hi
-    v = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0), (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+    v = [
+        (x0, y0, z0),
+        (x1, y0, z0),
+        (x1, y1, z0),
+        (x0, y1, z0),
+        (x0, y0, z1),
+        (x1, y0, z1),
+        (x1, y1, z1),
+        (x0, y1, z1),
+    ]
     quads = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (2, 3, 7, 6), (1, 2, 6, 5), (0, 4, 7, 3)]
     tris = []
     for a, b, c, d in quads:
@@ -68,7 +79,9 @@ def write_stl(path: Path, lo, hi) -> Path:
 
 def write_obj(path: Path, lo, hi) -> Path:
     v, quads, _ = box_triangles(lo, hi)
-    lines = [f"v {x} {y} {z}" for x, y, z in v] + [f"f {a + 1} {b + 1} {c + 1} {d + 1}" for a, b, c, d in quads]
+    lines = [f"v {x} {y} {z}" for x, y, z in v] + [
+        f"f {a + 1} {b + 1} {c + 1} {d + 1}" for a, b, c, d in quads
+    ]
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
     return path
 
@@ -78,7 +91,9 @@ def model_for(tmp: Path) -> dict:
     OBJ reaching 0.3 m along its X, the collision STL a thinner copy."""
     m = json.loads(ARM.read_text(encoding="utf-8"))
     stl = write_stl(tmp / "segment.stl", (-0.03, -0.03, 0.0), (0.03, 0.03, 0.3)).as_uri()
-    col = write_stl(tmp / "segment_collision.stl", (-0.025, -0.025, 0.0), (0.025, 0.025, 0.3)).as_uri()
+    col = write_stl(
+        tmp / "segment_collision.stl", (-0.025, -0.025, 0.0), (0.025, 0.025, 0.3)
+    ).as_uri()
     obj = write_obj(tmp / "reach.obj", (0.0, -0.02, -0.02), (0.3, 0.02, 0.02)).as_uri()
     for link in m["links"]:
         for part in link["visuals"] + link["collisions"]:
@@ -86,7 +101,12 @@ def model_for(tmp: Path) -> dict:
             if g["type"] == "mesh" and g["url"]:
                 g["url"] = col if "collision" in g["url"] else stl
         if link["name"] == "wrist":
-            link["visuals"][0]["geometry"] = {"type": "mesh", "url": obj, "ext": "obj", "scale": [1, 1, 1]}
+            link["visuals"][0]["geometry"] = {
+                "type": "mesh",
+                "url": obj,
+                "ext": "obj",
+                "scale": [1, 1, 1],
+            }
     return m
 
 
@@ -109,7 +129,11 @@ def count_near(img: QImage, box, rgb, tol: int = 18) -> int:
     for y in range(y0, y0 + h, 2):
         for x in range(x0, x0 + w, 2):
             c = img.pixelColor(x, y)
-            if abs(c.red() - rgb[0]) <= tol and abs(c.green() - rgb[1]) <= tol and abs(c.blue() - rgb[2]) <= tol:
+            if (
+                abs(c.red() - rgb[0]) <= tol
+                and abs(c.green() - rgb[1]) <= tol
+                and abs(c.blue() - rgb[2]) <= tol
+            ):
                 n += 1
     return n
 
@@ -158,7 +182,9 @@ def test_meshes_keep_the_robots_frame(renders):
     assert abs(hi[0] - 0.3) < 0.02, f"the OBJ reaches +X: {r['bounds']}"
     assert abs(lo[0] + 0.15) < 0.02, f"nothing flipped to -X: {r['bounds']}"
     assert lo[2] > -0.16 and hi[2] < 0.16, f"nothing sticks out along Babylon Z: {r['bounds']}"
-    assert abs(lo[1]) < 0.01 and 0.95 < hi[1] < 1.0, f"the arm stands up from the ground: {r['bounds']}"
+    assert abs(lo[1]) < 0.01 and 0.95 < hi[1] < 1.0, (
+        f"the arm stands up from the ground: {r['bounds']}"
+    )
 
 
 def test_collision_draws_each_link_in_its_tint_and_no_visual(renders):
@@ -197,9 +223,14 @@ def test_the_studio_hdri_lights_the_robot_with_the_lights_off(renders):
     for y in range(y0, y0 + h, 2):
         for x in range(x0, x0 + w, 2):
             a, b = img0.pixelColor(x, y), img1.pixelColor(x, y)
-            if abs(a.red() - bg.red()) + abs(a.green() - bg.green()) + abs(a.blue() - bg.blue()) < 30:
+            if (
+                abs(a.red() - bg.red()) + abs(a.green() - bg.green()) + abs(a.blue() - bg.blue())
+                < 30
+            ):
                 continue
-            total += (abs(a.red() - b.red()) + abs(a.green() - b.green()) + abs(a.blue() - b.blue())) / 3
+            total += (
+                abs(a.red() - b.red()) + abs(a.green() - b.green()) + abs(a.blue() - b.blue())
+            ) / 3
             n += 1
     assert n > 500, f"the robot covers {n} sampled pixels"
     assert total / n > 4, f"the HDRI changes the robot by {total / n:.1f} levels on average"
