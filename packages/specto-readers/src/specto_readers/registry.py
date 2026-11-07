@@ -84,14 +84,16 @@ class ReaderRegistry:
         raises ``NotFound``: the joint-track locator), and the next one is tried. None
         when no part resolves: the view lists the item as skipped."""
         wanted = set(accepts) if accepts is not None else None
-        cands: list[tuple[int, Locator]] = []
+        cands: dict[str, tuple[int, Locator]] = {}  # one try per locator, at its best part
         for path in item.parts.values():
             for lo in self.locators_for(path):
                 kinds = list(getattr(lo, "kinds", []))
                 if wanted is not None and not (wanted & set(kinds)):
                     continue
-                cands.append((lo.can_handle(path), lo))
-        for _prio, lo in sorted(cands, key=lambda c: -c[0]):
+                prio = lo.can_handle(path)
+                if lo.name not in cands or prio > cands[lo.name][0]:
+                    cands[lo.name] = (prio, lo)
+        for _prio, lo in sorted(cands.values(), key=lambda c: -c[0]):
             try:
                 return lo.locate(item)
             except NotFound:

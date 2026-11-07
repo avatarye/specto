@@ -57,6 +57,8 @@ PARQUET_EXTS = (".parquet",)
 #: the largest table the decoder takes, in cells (rows x columns): 400 MB as float64
 MAX_CELLS = 50_000_000
 _SNIFF_BYTES = 64 * 1024
+#: the CSV rows the content check reads after the header
+SNIFF_ROWS = 5
 
 
 def _split_unit(name: str) -> tuple[str, str | None]:
@@ -93,32 +95,39 @@ def _is_number(text: str) -> bool:
 def joint_track_problem(path: str, time_column: str | None = None) -> str | None:
     """Why ``path`` is not a joint track, or None when it looks like one: a numeric time
     column plus at least one other numeric column, from the CSV header and first row or
-    the Parquet schema (cheap: never the whole table)."""
+    the Parquet schema (cheap: never the whole table; a Parquet file is read at its footer
+    only). A CSV column counts as numeric when any of its first ``SNIFF_ROWS`` cells is a
+    number, so an empty first cell does not refuse a track."""
     try:
         with open_source(path) as f:
-            head = f.read() if _is_parquet(path) else f.read(_SNIFF_BYTES)
+            if _is_parquet(path):
+                import pyarrow as pa
+                import pyarrow.parquet as pq
+
+                try:
+                    schema = pq.ParquetFile(f).schema_arrow  # the footer, never the data
+                except (pa.ArrowException, ValueError, OSError) as e:
+                    return f"not a Parquet table: {e}"
+                names = [str(n) for n in schema.names]
+                numeric = {
+                    n
+                    for n, t in zip(names, schema.types, strict=True)
+                    if pa.types.is_integer(t) or pa.types.is_floating(t)
+                }
+            else:
+                head = f.read(_SNIFF_BYTES)
+                rows = list(csv.reader(io.StringIO(head.decode("utf-8", "replace"))))
+                if len(rows) < 2:
+                    return "no header and data row"
+                names = rows[0]
+                numeric = {
+                    n
+                    for row in rows[1 : 1 + SNIFF_ROWS]
+                    for n, v in zip(names, row, strict=False)
+                    if _is_number(v)
+                }
     except (OSError, SpectoError) as e:
         return f"cannot read it: {e}"
-    if _is_parquet(path):
-        import pyarrow as pa
-        import pyarrow.parquet as pq
-
-        try:
-            schema = pq.read_schema(pa.BufferReader(head))
-        except (pa.ArrowException, ValueError) as e:
-            return f"not a Parquet table: {e}"
-        names = [str(n) for n in schema.names]
-        numeric = {
-            n
-            for n, t in zip(names, schema.types, strict=True)
-            if pa.types.is_integer(t) or pa.types.is_floating(t)
-        }
-    else:
-        rows = list(csv.reader(io.StringIO(head.decode("utf-8", "replace"))))[:2]
-        if len(rows) < 2:
-            return "no header and data row"
-        names, first = rows[0], rows[1]
-        numeric = {n for n, v in zip(names, first, strict=False) if _is_number(v)}
     time_name = time_column_of(names, time_column)
     if time_name is None:
         return f"no time column {time_column!r}" if time_column else "no columns"

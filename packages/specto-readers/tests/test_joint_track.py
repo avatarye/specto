@@ -245,3 +245,65 @@ def test_a_huge_table_is_refused_with_the_fix(tmp_path: Path, monkeypatch):
 def test_a_float_time_column_of_epoch_ms_reads_by_magnitude(tmp_path: Path):
     p = _csv(tmp_path, "stamp,j\n1700000000000.0,1\n1700000000500.0,2\n")
     assert _decode(p).range() == pytest.approx((1_700_000_000.0, 1_700_000_000.5))
+
+
+class _Counting:
+    """A file wrapper counting the bytes read through it."""
+
+    def __init__(self, f) -> None:
+        self._f = f
+        self.read_bytes = 0
+
+    def read(self, n=-1):
+        data = self._f.read(n)
+        self.read_bytes += len(data)
+        return data
+
+    def readinto(self, buf):
+        n = self._f.readinto(buf)
+        self.read_bytes += n or 0
+        return n
+
+    def __getattr__(self, name):
+        return getattr(self._f, name)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._f.close()
+
+
+def test_the_parquet_check_reads_the_footer_not_the_table(tmp_path: Path, monkeypatch):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from specto_readers import joint_track
+
+    n = 2_000_000
+    rng = np.random.default_rng(0)
+    p = tmp_path / "big.parquet"
+    pq.write_table(
+        pa.table({"t": np.arange(n, dtype=np.float64), "j": rng.random(n)}),
+        p,
+        compression="none",
+    )
+    assert p.stat().st_size > 20_000_000
+    opened: list[_Counting] = []
+
+    def counting_open(path):
+        w = _Counting(open(path, "rb"))
+        opened.append(w)
+        return w
+
+    monkeypatch.setattr(joint_track, "open_source", counting_open)
+    assert joint_track.joint_track_problem(str(p)) is None
+    assert opened and opened[0].read_bytes < 1_000_000
+
+
+def test_an_empty_first_time_cell_does_not_refuse_a_track(tmp_path: Path):
+    from specto_readers.joint_track import joint_track_problem
+
+    p = _csv(tmp_path, "time,j\n,0.5\n0.1,0.6\n0.2,0.7\n", name="gap.csv")
+    assert joint_track_problem(str(p)) is None
+    assert _decode(p).sample(TimeValue(t=0.1)) == {"j": 0.6}
