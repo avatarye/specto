@@ -46,6 +46,9 @@ function rig(opts = {}) {
     frame() { log.frames += 1; },
     click(x, y) { log.clicks.push([x, y]); },
     changed() {},
+    // orbit mode (SPEC-43.2) only when a test asks for it: the 3d view passes no mode
+    mode: opts.mode ? () => opts.mode : undefined,
+    anchor: opts.anchor ? () => opts.anchor : undefined,
   });
   const fire = (type, o = {}) => el.dispatchEvent({ type, pointerId: 1, ...o });
   const at = (x, y, buttons, extra = {}) => ({ clientX: x, clientY: y, offsetX: x, offsetY: y, buttons, ...extra });
@@ -227,4 +230,50 @@ test("F frames; the right button's menu never opens; a lost focus drops the held
   r.el.dispatchEvent({ type: "blur" });
   assert.equal(r.nav.tick(0.1), false);
   assert.deepEqual(JSON.parse(JSON.stringify(r.nav.state())), { mode: null, flying: false, keys: [] });
+});
+
+test("orbit mode: LMB orbits the pivot, RMB and the wheel close on it, Alt changes nothing", () => {
+  const m = NavLib.modeOf;
+  assert.equal(m(1, false, "orbit"), "orbit");
+  assert.equal(m(1, true, "orbit"), "orbit", "Alt changes nothing");
+  assert.equal(m(2, false, "orbit"), "zoom");
+  assert.equal(m(4, false, "orbit"), "pan");
+  assert.equal(m(3, false, "orbit"), "pan");
+
+  // LMB: the eye swings around the pivot at its distance; the target moves to its depth
+  const r = rig({ mode: "orbit", pivot: [0, 1, 0] });
+  r.fire("pointerdown", r.at(100, 100, 1, { button: 0 }));
+  r.fire("pointermove", r.at(105, 100, 1));
+  r.fire("pointermove", r.at(100 + Math.round(Math.PI / 2 / R.ROTATE), 100, 1));
+  r.fire("pointerup", r.at(0, 0, 0));
+  assert.ok(Math.abs(dist(r.cam.position, [0, 1, 0]) - 10) < 1e-9, "the distance to the pivot stays");
+  assert.ok(close(r.cam.target, [0, 1, 0], 1e-9), "the target sits at the pivot");
+  assert.ok(r.log.pivots.length === 1, "the pivot is taken once, at the press");
+  assert.equal(r.log.clicks.length, 0);
+  // a plain click still picks
+  r.drag(1, 50, 50, 50, 50);
+  assert.equal(r.log.clicks.length, 1);
+
+  // RMB: right or up closes on the pivot, never past MIN_RADIUS; nothing flies
+  const z = rig({ mode: "orbit", pivot: [0, 1, 0] });
+  z.drag(2, 100, 100, 150, 100);
+  assert.ok(close(z.cam.position, [0, 1, 10 - 50 * R.DOLLY * 10]));
+  z.fire("pointerdown", z.at(100, 100, 2, { button: 2 }));
+  z.key("keydown", "w");
+  assert.equal(z.nav.tick(0.1), false, "RMB flies nothing in orbit mode");
+  z.fire("pointerup", z.at(100, 100, 0));
+  z.key("keyup", "w");
+  z.drag(2, 100, 100, 100000, 100);
+  assert.ok(Math.abs(dist(z.cam.position, [0, 1, 0]) - R.MIN_RADIUS) < 1e-9);
+
+  // the wheel closes on the anchor (the selection) without a press, and never sets the speed
+  const w = rig({ mode: "orbit", anchor: [0, 1, 4] });
+  w.fire("pointerdown", w.at(100, 100, 2, { button: 2 }));
+  w.el.dispatchEvent({ type: "wheel", deltaY: -120, deltaMode: 0 });
+  w.fire("pointerup", w.at(100, 100, 0));
+  assert.equal(w.log.speeds.length, 0);
+  const before = dist(w.cam.position, [0, 1, 4]);
+  w.el.dispatchEvent({ type: "wheel", deltaY: -120, deltaMode: 0 });
+  assert.ok(dist(w.cam.position, [0, 1, 4]) < before, "away closes on the anchor");
+  assert.deepEqual(JSON.parse(JSON.stringify(w.nav.state())).camera_mode, "orbit");
 });

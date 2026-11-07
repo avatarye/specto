@@ -1,0 +1,130 @@
+/* URDF view (SPEC-43.2): the VIEW panel, the Babylon.js canvas and the ROBOT panel in a
+ * row over the footer (urdf-view-design.md section 4); the panels are the side panel
+ * standard (sidepanel.js, style.css), the controls the 3d view's (3d/scene3d.css). */
+.body { flex: 1; min-height: 0; display: flex; position: relative; }
+.stage { flex: 1; min-width: 0; position: relative; display: flex; }
+#c { flex: 1; min-width: 0; width: 100%; height: 100%; outline: none; display: block; background: var(--color-surface-alt); touch-action: none; }
+.overlay {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  padding: 6px 12px; border-radius: var(--metric-radius-pill);
+  background: var(--color-surface); color: var(--color-text-muted);
+  border: 1px solid var(--color-border); font-size: var(--metric-font-px-small);
+  pointer-events: none;
+}
+.overlay.hidden, .hover.hidden { display: none; }
+/* collision modes: what is under the cursor, "upper_arm · cylinder" */
+.hover {
+  position: absolute; pointer-events: none; z-index: 5;
+  padding: 2px 8px; border-radius: 4px; white-space: nowrap;
+  background: var(--color-surface); color: var(--color-text);
+  border: 1px solid var(--color-border-strong);
+  font-family: var(--font-mono), Consolas, monospace; font-size: var(--metric-font-px-small);
+}
+
+/* ---- the VIEW panel ------------------------------------------------------------------- */
+.control { padding: 6px 8px 4px; }
+.control + .control { border-top: 1px solid var(--color-border); }
+.control-label { display: block; color: var(--color-text); font-size: var(--metric-font-px-small); margin-bottom: 4px; }
+.speed-row { display: flex; align-items: center; gap: 6px; }
+.speed-row input[type=range] { flex: 1; min-width: 0; margin: 0; height: 10px; accent-color: var(--color-accent); }
+.speed-value { color: var(--color-text-muted); font-family: var(--font-mono), Consolas, monospace; font-size: var(--metric-font-px-small); }
+.speed-row .speed-value { width: 34px; text-align: right; }
+button.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 4px 0 0; padding: 3px 10px;
+  font: inherit; font-size: var(--metric-font-px-small); color: var(--color-text);
+  background: var(--color-surface); border: 1px solid var(--color-border-strong);
+  border-radius: var(--metric-radius-pill); cursor: pointer;
+}
+button.pill:hover { background: var(--color-bg); }
+button.pill svg { width: 12px; height: 12px; }
+.pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg-row { display: flex; align-items: center; gap: 6px; margin-top: 6px; color: var(--color-text-muted); font-size: var(--metric-font-px-small); }
+.seg button.quiet { font-size: var(--metric-font-px-small); padding: 1px 8px; }
+.env-row { margin: 6px 0; }
+.env-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+.env-name { color: var(--color-text-muted); font-size: var(--metric-font-px-small); }
+.env-row input[type=range] { width: 100%; margin: 0; height: 10px; accent-color: var(--color-accent); }
+.env-row select { width: 100%; font: inherit; font-size: var(--metric-font-px-small); }
+.check-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; color: var(--color-text); font-size: var(--metric-font-px-small); cursor: pointer; }
+.check-row input { margin: 0; accent-color: var(--color-accent); }
+.control input:disabled, .control select:disabled, .check-row input:disabled + span { opacity: 0.45; }
+
+/* ---- the ROBOT panel: search, the tree, JOINTS and PROPERTIES ------------------------- */
+#robot .panel-body { gap: 0; overflow: hidden; }
+.search { flex: none; padding: 4px 6px; }
+.search input {
+  width: 100%; box-sizing: border-box; padding: 2px 6px;
+  font: inherit; font-size: var(--metric-font-px-small); color: var(--color-text);
+  background: var(--color-surface); border: 1px solid var(--color-border-strong); border-radius: 4px;
+}
+.tree { flex: 1 1 40%; min-height: 60px; overflow: auto; padding-bottom: 4px; }
+.section-head {
+  flex: none; display: flex; align-items: center; gap: 6px; height: 22px; padding: 0 4px 0 8px;
+  border-top: 1px solid var(--color-border); color: var(--color-text-muted);
+  font-size: var(--metric-font-px-small); letter-spacing: 0.04em;
+}
+.section-head .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.section-head button.quiet { font-size: var(--metric-font-px-small); padding: 0 6px; }
+.joints { flex: 0 1 auto; max-height: 38%; overflow: auto; padding-bottom: 4px; }
+.props { flex: 0 1 auto; max-height: 30%; overflow: auto; padding: 2px 8px 6px; }
+
+.tree-row { display: flex; align-items: center; gap: 4px; height: 20px; padding-right: 6px; cursor: pointer; white-space: nowrap; }
+.tree-row:hover { background: var(--color-surface-hover, #f6f1e8); }
+.tree-row.selected { background: var(--color-accent-soft); }
+.tree-row .chev { flex: none; width: 12px; text-align: center; color: var(--color-text-muted); font-size: 9px; }
+.tree-row .glyph { flex: none; width: 18px; text-align: center; color: var(--color-text-muted); font-family: var(--font-mono), Consolas, monospace; font-size: 10px; }
+.tree-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--color-text); font-family: var(--font-mono), Consolas, monospace; font-size: var(--metric-font-px-small); }
+.tree-row.joint .name { color: var(--color-text-muted); }
+.tree-row .type { flex: none; color: var(--color-text-faint); font-family: var(--font-mono), Consolas, monospace; font-size: 10px; }
+.tree-row.broken .name { color: var(--color-removed); }
+.tree-row.match .name { font-weight: 600; }
+
+.joint-row { padding: 3px 8px 2px; }
+.joint-row .head { display: flex; align-items: baseline; gap: 6px; }
+.joint-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-text); font-family: var(--font-mono), Consolas, monospace; font-size: var(--metric-font-px-small); }
+.joint-row .type { color: var(--color-text-faint); font-family: var(--font-mono), Consolas, monospace; font-size: 10px; }
+.joint-row .value {
+  color: var(--color-text-muted); font-family: var(--font-mono), Consolas, monospace; font-size: var(--metric-font-px-small);
+  cursor: text; border-radius: 3px; padding: 0 2px;
+}
+.joint-row .value:hover { background: var(--color-bg); }
+.joint-row input.typed { width: 64px; font: inherit; font-family: var(--font-mono), Consolas, monospace; font-size: var(--metric-font-px-small); padding: 0 2px; }
+.joint-row input[type=range] { width: 100%; margin: 2px 0 0; height: 10px; accent-color: var(--color-accent); }
+.joint-row.mimic .name, .joint-row.mimic .value { color: var(--color-text-faint); }
+.joint-row.mimic .value { cursor: default; }
+.joint-row.mimic .value:hover { background: transparent; }
+.joint-row.locked input[type=range] { opacity: 0.55; }
+.joint-row.selected { background: var(--color-accent-soft); }
+.following { padding: 2px 8px; color: var(--color-accent); font-size: var(--metric-font-px-small); }
+.following.hidden { display: none; }
+
+.prop { display: flex; gap: 6px; font-size: var(--metric-font-px-small); line-height: 1.5; }
+.prop .k { flex: none; width: 64px; color: var(--color-text-muted); }
+.prop .v { flex: 1; min-width: 0; color: var(--color-text); font-family: var(--font-mono), Consolas, monospace; overflow-wrap: anywhere; }
+.prop .v.bad { color: var(--color-removed); }
+.props .empty { color: var(--color-text-faint); font-size: var(--metric-font-px-small); }
+
+/* ---- the footer: the view mode pill and its menu (the 3d view's, #153 #158) ----------- */
+.footer-robot { color: var(--color-text-muted); flex: none; margin-left: 8px; white-space: nowrap; }
+.footer-source { color: var(--color-text-muted); flex: none; white-space: nowrap; margin-left: 4px; }
+button.mode-pill {
+  font: inherit; font-size: var(--metric-font-px-small); color: var(--color-text-muted);
+  background: transparent; border: 1px solid transparent; border-radius: var(--metric-radius-pill);
+  padding: 1px 8px; margin-right: 4px; cursor: pointer;
+}
+button.mode-pill:hover { background: var(--color-bg); }
+button.mode-pill.on { color: var(--color-accent); background: var(--color-accent-soft); }
+.mode-menu {
+  position: fixed; right: 30px; bottom: calc(var(--metric-footer-h, 24px) + 4px); z-index: 10;
+  display: flex; flex-direction: column; min-width: 130px; padding: 4px;
+  background: var(--color-surface); border: 1px solid var(--color-border-strong);
+  border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+.mode-menu.hidden { display: none; }
+.mode-item {
+  text-align: left; font: inherit; font-size: var(--metric-font-px-small); color: var(--color-text);
+  background: transparent; border: 0; border-radius: 4px; padding: 3px 8px; cursor: pointer;
+}
+.mode-item:hover { background: var(--color-bg); }
+.mode-item.on { color: var(--color-accent); }

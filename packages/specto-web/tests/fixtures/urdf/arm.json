@@ -1,0 +1,91 @@
+{
+  "about": "A hand-written urdf view model (backlog/docs/urdf-view-design.md section 11): a small arm with every joint type the page draws a slider for, a mimic finger, primitives, one STL shared by two links, a missing mesh and mesh colliders.",
+  "name": "arm",
+  "root": "base_link",
+  "links": [
+    {
+      "name": "base_link",
+      "visuals": [
+        {"origin": {"xyz": [0, 0, 0.05], "rpy": [0, 0, 0]}, "geometry": {"type": "box", "size": [0.3, 0.3, 0.1]}, "material": {"name": "grey", "color": [0.54, 0.54, 0.54, 1], "texture_url": null}}
+      ],
+      "collisions": [
+        {"origin": {"xyz": [0, 0, 0.05], "rpy": [0, 0, 0]}, "geometry": {"type": "box", "size": [0.3, 0.3, 0.1]}}
+      ],
+      "inertial": {"origin": {"xyz": [0, 0, 0.05], "rpy": [0, 0, 0]}, "mass": 8.0, "inertia": {"ixx": 0.07, "ixy": 0, "ixz": 0, "iyy": 0.07, "iyz": 0, "izz": 0.12}}
+    },
+    {
+      "name": "upper_arm",
+      "visuals": [
+        {"origin": {"xyz": [0, 0, 0.21], "rpy": [0, 0, 0]}, "geometry": {"type": "cylinder", "radius": 0.06, "length": 0.42}, "material": {"name": "grey", "color": [0.54, 0.54, 0.54, 1], "texture_url": null}}
+      ],
+      "collisions": [
+        {"origin": {"xyz": [0, 0, 0.21], "rpy": [0, 0, 0]}, "geometry": {"type": "cylinder", "radius": 0.06, "length": 0.42}}
+      ],
+      "inertial": {"origin": {"xyz": [0, 0, 0.21], "rpy": [0, 0, 0]}, "mass": 3.42, "inertia": {"ixx": 0.05, "ixy": 0, "ixz": 0, "iyy": 0.05, "iyz": 0, "izz": 0.006}}
+    },
+    {
+      "name": "forearm",
+      "visuals": [
+        {"origin": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]}, "geometry": {"type": "mesh", "url": "/items/arm/meshes/segment.stl", "ext": "stl", "scale": [1, 1, 1]}, "material": {"name": null, "color": [0.9, 0.5, 0.1, 1], "texture_url": null}}
+      ],
+      "collisions": [
+        {"origin": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]}, "geometry": {"type": "mesh", "url": "/items/arm/meshes/segment_collision.stl", "ext": "stl", "scale": [1, 1, 1]}}
+      ],
+      "inertial": {"origin": {"xyz": [0, 0, 0.15], "rpy": [0, 0, 0]}, "mass": 2.1, "inertia": {"ixx": 0.02, "ixy": 0, "ixz": 0, "iyy": 0.02, "iyz": 0, "izz": 0.003}}
+    },
+    {
+      "name": "wrist",
+      "visuals": [
+        {"origin": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]}, "geometry": {"type": "mesh", "url": "/items/arm/meshes/segment.stl", "ext": "stl", "scale": [0.5, 0.5, 0.5]}, "material": {"name": null, "color": null, "texture_url": null}}
+      ],
+      "collisions": [
+        {"origin": {"xyz": [0, 0, 0.04], "rpy": [0, 0, 0]}, "geometry": {"type": "sphere", "radius": 0.05}}
+      ],
+      "inertial": null
+    },
+    {
+      "name": "gripper",
+      "visuals": [
+        {"origin": {"xyz": [0, 0, 0], "rpy": [0, 0, 0]}, "geometry": {"type": "mesh", "url": null, "ext": null, "scale": [1, 1, 1]}, "material": null}
+      ],
+      "collisions": [
+        {"origin": {"xyz": [0, 0, 0.02], "rpy": [0, 0, 0]}, "geometry": {"type": "box", "size": [0.08, 0.04, 0.04]}}
+      ],
+      "inertial": {"origin": {"xyz": [0, 0, 0.02], "rpy": [0, 0, 0]}, "mass": 0.4, "inertia": {"ixx": 0.0001, "ixy": 0, "ixz": 0, "iyy": 0.0001, "iyz": 0, "izz": 0.0001}}
+    },
+    {
+      "name": "finger_a",
+      "visuals": [
+        {"origin": {"xyz": [0, 0, 0.02], "rpy": [0, 0, 0]}, "geometry": {"type": "box", "size": [0.01, 0.02, 0.04]}, "material": {"name": "dark", "color": [0.1, 0.1, 0.1, 1], "texture_url": null}}
+      ],
+      "collisions": [],
+      "inertial": null
+    },
+    {
+      "name": "finger_b",
+      "visuals": [
+        {"origin": {"xyz": [0, 0, 0.02], "rpy": [0, 0, 0]}, "geometry": {"type": "box", "size": [0.01, 0.02, 0.04]}, "material": {"name": "dark", "color": [0.1, 0.1, 0.1, 1], "texture_url": null}}
+      ],
+      "collisions": [],
+      "inertial": null
+    },
+    {
+      "name": "tool0",
+      "visuals": [],
+      "collisions": [],
+      "inertial": null
+    }
+  ],
+  "joints": [
+    {"name": "shoulder", "type": "revolute", "parent": "base_link", "child": "upper_arm", "origin": {"xyz": [0, 0, 0.1], "rpy": [0, 0, 0]}, "axis": [0, 1, 0], "limit": {"lower": -2.4435, "upper": 2.4435, "effort": 150, "velocity": 3.14}, "mimic": null, "dynamics": {"damping": 0.5, "friction": 0.1}},
+    {"name": "elbow", "type": "revolute", "parent": "upper_arm", "child": "forearm", "origin": {"xyz": [0, 0, 0.42], "rpy": [0, 0, 0]}, "axis": [0, 1, 0], "limit": {"lower": -2.4435, "upper": 2.4435, "effort": 100, "velocity": 3.14}, "mimic": null, "dynamics": null},
+    {"name": "wrist_1", "type": "continuous", "parent": "forearm", "child": "wrist", "origin": {"xyz": [0, 0, 0.3], "rpy": [0, 0, 0]}, "axis": [0, 0, 1], "limit": null, "mimic": null, "dynamics": null},
+    {"name": "wrist_fix", "type": "fixed", "parent": "wrist", "child": "gripper", "origin": {"xyz": [0, 0, 0.08], "rpy": [0, 0, 0]}, "axis": [1, 0, 0], "limit": null, "mimic": null, "dynamics": null},
+    {"name": "gripper_joint", "type": "prismatic", "parent": "gripper", "child": "finger_a", "origin": {"xyz": [0.01, 0, 0.04], "rpy": [0, 0, 0]}, "axis": [1, 0, 0], "limit": {"lower": 0, "upper": 0.04, "effort": 20, "velocity": 0.1}, "mimic": null, "dynamics": null},
+    {"name": "finger_mimic", "type": "prismatic", "parent": "gripper", "child": "finger_b", "origin": {"xyz": [-0.01, 0, 0.04], "rpy": [0, 0, 3.14159265]}, "axis": [1, 0, 0], "limit": {"lower": 0, "upper": 0.04, "effort": 20, "velocity": 0.1}, "mimic": {"joint": "gripper_joint", "multiplier": 1, "offset": 0}, "dynamics": null},
+    {"name": "tool_fix", "type": "fixed", "parent": "gripper", "child": "tool0", "origin": {"xyz": [0, 0, 0.1], "rpy": [0, 0, 0]}, "axis": [1, 0, 0], "limit": null, "mimic": null, "dynamics": null}
+  ],
+  "missing": [
+    {"link": "gripper", "kind": "visual", "uri": "package://arm_description/meshes/gripper.dae", "cause": "package `arm_description` not found; set `params.package_paths`"}
+  ]
+}

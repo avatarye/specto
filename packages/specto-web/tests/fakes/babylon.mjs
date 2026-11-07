@@ -28,6 +28,11 @@ export class Color3 {
   static White() { return new Color3(1, 1, 1); }
 }
 export class Color4 { constructor(r, g, b, a) { this.r = r; this.g = g; this.b = b; this.a = a; } }
+// the urdf page (SPEC-43.2) sets rotations as quaternions: kept as given, no arithmetic
+export class Quaternion {
+  constructor(x = 0, y = 0, z = 0, w = 1) { this.x = x; this.y = y; this.z = z; this.w = w; }
+  asArray() { return [this.x, this.y, this.z, this.w]; }
+}
 
 const observable = () => ({ add() {} });
 
@@ -84,8 +89,29 @@ export function makeBabylon() {
       if (p) p.children.push(this);
     }
     setEnabled(v) { this.enabled = !!v; }
-    isEnabled() { return this.enabled; }
-    getChildMeshes() { return this.children; }
+    // with ancestors (Babylon's isEnabled(true)): off when any parent is off
+    isEnabled(checkAncestors) { return this.enabled && (!checkAncestors || !this._parent || this._parent.isEnabled(true)); }
+    isDisposed() { return this.disposed; }
+    // every descendant, or only the direct children with directOnly
+    getChildMeshes(directOnly) {
+      if (directOnly !== false) return this.children;
+      return this.children.flatMap((c) => [c, ...c.getChildMeshes(false)]);
+    }
+    computeWorldMatrix() { return {}; }
+    getAbsolutePosition() { return this.position.clone(); }
+    // Babylon's clone: the subtree again under newParent; a mesh clone shares its geometry
+    clone(name, newParent) {
+      const copy = new this.constructor(name);
+      copy.cloneOf = this;
+      copy.geometry = this.geometry;
+      copy.material = this.material;
+      copy.scaling = this.scaling.clone();
+      copy.position = this.position.clone();
+      copy.metadata = this.metadata ? { ...this.metadata } : null;
+      copy.parent = newParent || null;
+      this.children.forEach((c, i) => c.clone(name + "." + i, copy));
+      return copy;
+    }
     // every item spans -1..1 unless a test sets `bounds` = {min, max} on its node
     getHierarchyBoundingVectors() { return this.bounds ? { min: this.bounds.min.clone(), max: this.bounds.max.clone() } : { min: new Vector3(-1, -1, -1), max: new Vector3(1, 1, 1) }; }
     dispose(_recursive, materialsAndTextures) {
@@ -105,6 +131,9 @@ export function makeBabylon() {
       this.visibility = 1;
     }
     setVerticesBuffer(b) { this.buffers.push(b); }
+    getTotalVertices() { return this.vertices === undefined ? 24 : this.vertices; }
+    enableEdgesRendering(epsilon) { this.edges = { epsilon }; }
+    disableEdgesRendering() { this.edges = null; }
     setBoundingInfo() {}
     dispose(recursive, materialsAndTextures) {
       this.buffers.forEach((b) => b.dispose());
@@ -200,7 +229,15 @@ export function makeBabylon() {
     BoundingBox: class { constructor(min, max) { this.min = min; this.max = max; } },
     PointerEventTypes: { POINTERDOWN: 1, POINTERUP: 2, POINTERDOUBLETAP: 3 },
     Tools: { ScriptBaseUrl: "" },
-    MeshBuilder: { CreateSphere(name) { return new Mesh(name); } },
+    // what the page built and with which options (`builder`); line systems keep their lines
+    MeshBuilder: {
+      CreateSphere(name, opts) { const m = new Mesh(name); m.builder = { shape: "sphere", ...(opts || {}) }; return m; },
+      CreateBox(name, opts) { const m = new Mesh(name); m.builder = { shape: "box", ...(opts || {}) }; return m; },
+      CreateCylinder(name, opts) { const m = new Mesh(name); m.builder = { shape: "cylinder", ...(opts || {}) }; return m; },
+      CreateLineSystem(name, opts) { const m = new Mesh(name); m.builder = { shape: "lines", ...(opts || {}) }; return m; },
+    },
+    Quaternion,
+    Texture: class { constructor(url) { this.url = url; created.push(this); } dispose() { this.disposed = true; } },
     Engine: class {
       constructor() {}
       runRenderLoop(fn) { loop.fn = fn; }
