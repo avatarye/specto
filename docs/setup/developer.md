@@ -407,7 +407,13 @@ uv run python tools/gui_qtdrive.py --project <folder> --out <dir> [--extra "<spe
     [--welcome [--welcome-recent]] [--platform offscreen|window] flow1.txt [flow2.txt ...]
 ```
 
-The mouse tier is `tools/gui_session.py` and `gui_drive.py` as before. On Linux,
+The mouse tier is `tools/gui_session.py` and `gui_drive.py` as before. Both drive the
+desktop only while holding the desktop lock: under `desktop_lock.py run` they use its
+lock, otherwise they take it themselves (`gui_session.py --lock-wait`), and they refuse
+a desktop another session holds. A session ends only the process tree it started.
+Without `--project` it runs on a folder of its own under the temp dir, removed at the
+end; `--fresh` (here and in `gui_qtdrive.py`) wipes only a folder a GUI session created
+or an empty one, and refuses any other. On Linux,
 `tools/nested_display.py run -- ...` keeps it on a nested Xephyr display (needs
 `python-xlib` in the pyautogui venv and `xclip`). Do not run it while someone is using the
 desktop: it clicks.
