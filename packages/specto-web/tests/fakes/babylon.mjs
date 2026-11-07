@@ -106,6 +106,7 @@ export function makeBabylon() {
     }
     setVerticesBuffer(b) { this.buffers.push(b); }
     setBoundingInfo() {}
+    getTotalVertices() { return this.vertices || 0; }
     dispose(recursive, materialsAndTextures) {
       this.buffers.forEach((b) => b.dispose());
       super.dispose(recursive, materialsAndTextures);
@@ -201,6 +202,8 @@ export function makeBabylon() {
     PointerEventTypes: { POINTERDOWN: 1, POINTERUP: 2, POINTERDOUBLETAP: 3 },
     Tools: { ScriptBaseUrl: "" },
     MeshBuilder: { CreateSphere(name) { return new Mesh(name); } },
+    // the loaders' static switches the page sets (SPEC-42)
+    STLFileLoader: { DO_NOT_ALTER_FILE_COORDINATES: false },
     Engine: class {
       constructor() {}
       runRenderLoop(fn) { loop.fn = fn; }
@@ -214,10 +217,11 @@ export function makeBabylon() {
       imports.push({
         url: (options.rootUrl || "") + file,
         options,
-        // parts: [{name, material: "pbr" | "standard"}] makes those meshes instead of one
+        // parts: [{name, material: "pbr" | "standard", vertices}] makes those meshes instead of one
         resolve(parts) {
           const meshes = (parts || [{ name: "imported:" + file }]).map((p) => {
             const m = new Mesh(p.name);
+            m.vertices = p.vertices || 0;
             if (p.material) m.material = p.material === "pbr" ? new PBRMaterial(p.name + ":mat") : new StandardMaterial(p.name + ":mat");
             return m;
           });

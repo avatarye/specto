@@ -124,7 +124,7 @@ test("switching source A -> B leaves only B's items, A's buffers and materials d
   await settle();
   assert.deepEqual(liveItems(page.scene), ["x", "y"]);
   // everything created so far except the page's own scene root and pick marker
-  const own = new Set(["pick", "pickMat", "root"]);
+  const own = new Set(["pick", "pickMat", "root", "root:y", "root:z"]);
   const aMeshes = page.created.filter((o) => o.name && !own.has(o.name));
   const aBuffers = page.created.filter((o) => o.kind === "position" || o.kind === "color");
   assert.equal(aBuffers.length, 2);
@@ -295,6 +295,29 @@ test("a row's check hides its item; a click elsewhere on the row picks it", asyn
   assert.deepEqual(page.sent.filter((m) => m[0] === "select"), [], "the check does not pick");
   row.querySelector(".name").click();
   assert.deepEqual(page.sent.filter((m) => m[0] === "select").map((m) => m[1].item), ["y"]);
+});
+
+test("robot meshes: an STL keeps its coordinates and draws grey; a converted DAE hangs where up does not turn it (SPEC-42)", async () => {
+  const page = bootPage();
+  assert.equal(page.babylon.STLFileLoader.DO_NOT_ALTER_FILE_COORDINATES, true, "no y/z swap: a mirror in this right-handed scene");
+  const stl = { id: "link", index: 0, kind: "mesh", label: "link.stl", url: "specto://items/l2/link/stl", ext: ".stl", count: 36, bounds: [[0, 0, 0], [1, 1, 1]] };
+  const arm = { ...glb("arm"), label: "arm.dae", up: "y" };
+  page.notify("scene", { ...scenePayload([stl, arm]), params: { point_size: 2, up: "z" } });
+  await settle();
+  assert.equal(page.imports[0].options.pluginExtension, ".stl");
+  const [linkMesh] = page.imports[0].resolve([{ name: "stlmesh", vertices: 36 }]);
+  const [armMesh] = page.imports[1].resolve([{ name: "box", material: "pbr", vertices: 24 }]);
+  await settle();
+  // an STL comes with no material: the item's own grey one, not Babylon's white default
+  assert.ok(linkMesh.material, "a material");
+  assert.equal(linkMesh.material.name, "plainMat:link");
+  assert.equal(armMesh.material.name, "box:mat", "a file's own material is kept");
+  // the STL follows the view's up param (the root turns), the DAE declared y up
+  const holder = (id) => page.scene.meshes.find((m) => m.name === "item:" + id);
+  assert.equal(holder("link").parent.name, "root");
+  assert.equal(holder("arm").parent.name, "root:y");
+  assert.equal(holder("link").parent.rotation.x, -Math.PI / 2);
+  assert.equal(holder("arm").parent.rotation.x, 0);
 });
 
 test("None hides every item and All shows them again", async () => {
