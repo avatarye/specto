@@ -493,18 +493,32 @@ def _joint(el: ET.Element) -> dict[str, Any]:
     }
 
 
-def parse_urdf(source: str | Path | bytes) -> dict[str, Any]:
-    """A URDF (a path, or its bytes) as the contract's model, files unresolved: mesh
-    geometries carry ``uri`` and ``url: None``, materials their ``texture`` filename;
-    ``missing`` is empty. Raises ``UrdfError`` for anything that is not a readable URDF:
-    not XML, a DOCTYPE or entity, no ``<robot>``, a nameless or duplicate link or joint,
-    a joint of an unknown type or between links the robot does not have, a mimic of a
-    joint it does not have, a number that is not one."""
+def parse_urdf(
+    source: str | Path | bytes | None = None,
+    *,
+    text: str | bytes | None = None,
+    label: str | None = None,
+) -> dict[str, Any]:
+    """A URDF as the contract's model, files unresolved: mesh geometries carry ``uri``
+    and ``url: None``, materials their ``texture`` filename; ``missing`` is empty.
+    ``source`` is a path or the file's bytes; ``text`` is the XML itself (xacro's output,
+    SPEC-43.3), through the same DOCTYPE and entity refusal; ``label`` names it in
+    errors (default: the path's name, else "the URDF"). Raises ``UrdfError`` for anything
+    that is not a readable URDF: not XML, a DOCTYPE or entity, no ``<robot>``, a nameless
+    or duplicate link or joint, a joint of an unknown type or between links the robot
+    does not have, a mimic of a joint it does not have, a number that is not one."""
+    if text is not None:
+        source = text.encode("utf-8") if isinstance(text, str) else text
+    if source is None:
+        raise UrdfError("no URDF given (a path, its bytes or text=)")
     if isinstance(source, bytes):
-        data, label = source, "the URDF"
+        data = source
+        label = label or "the URDF"
+        if len(data) > MAX_BYTES:
+            raise UrdfError(f"{label} is over {MAX_BYTES // (1024 * 1024)} MB; not a URDF")
     else:
         path = Path(source)
-        label = path.name
+        label = label or path.name
         try:
             if path.stat().st_size > MAX_BYTES:
                 raise UrdfError(f"{label} is over {MAX_BYTES // (1024 * 1024)} MB; not a URDF")
@@ -606,15 +620,18 @@ def build_robot(
     package_paths: Mapping[str, str] | Iterable[str] | None = None,
     search_roots: Iterable[str | Path] = (),
     environ: Mapping[str, str] | None = None,
+    text: str | bytes | None = None,
     progress: Any = None,
 ) -> dict[str, Any]:
     """Parse ``path`` and resolve its files: ``{model, files, packages, actuated,
-    parse_ms}`` (module docstring). Raises ``UrdfError`` for a file that is not a
-    readable URDF."""
+    parse_ms}`` (module docstring). With ``text`` (xacro's expanded URDF, SPEC-43.3) the
+    XML is that text, and ``path`` (the file it came from) still anchors relative mesh
+    paths and the walk up to the nearest package.xml. Raises ``UrdfError`` for anything
+    that is not a readable URDF."""
     start = time.perf_counter()
     if progress:
         progress(0.0, "parsing")
-    model = parse_urdf(path)
+    model = parse_urdf(text=text, label=Path(path).name) if text is not None else parse_urdf(path)
     resolver = PackageResolver(
         path, package_paths=package_paths, search_roots=search_roots, environ=environ
     )

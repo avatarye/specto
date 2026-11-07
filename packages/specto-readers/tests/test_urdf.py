@@ -636,3 +636,25 @@ def test_the_resolvers_folder_is_picklable_for_xacros_child_process(tmp_path: Pa
     again = pickle.loads(pickle.dumps(folder))
     assert again("arm_description") == str(pkg.resolve())
     assert again("nope") is None
+
+
+def test_xml_text_parses_with_the_same_refusals_and_resolves_next_to_its_file(tmp_path: Path):
+    """xacro's output (SPEC-43.3) arrives as text: parse_urdf(text=...) runs the same
+    pre-pass, and build_robot(path, text=...) resolves meshes next to ``path``."""
+    model = parse_urdf(text='<robot name="t"><link name="a"/></robot>')
+    assert model["name"] == "t" and model["root"] == "a"
+    with pytest.raises(UrdfError, match=r"arm.urdf.xacro declares a DOCTYPE"):
+        parse_urdf(text='<!DOCTYPE r><robot name="r"/>', label="arm.urdf.xacro")
+    with pytest.raises(UrdfError, match="no URDF given"):
+        parse_urdf()
+    xacro = write(tmp_path / "robots" / "arm.urdf.xacro", "<!-- the xacro source -->")
+    stl(tmp_path / "robots" / "meshes" / "a.stl")
+    expanded = (
+        '<robot name="x"><link name="a"><visual><geometry>'
+        '<mesh filename="meshes/a.stl"/></geometry></visual></link></robot>'
+    )
+    robot = build_robot(xacro, text=expanded, environ={})
+    assert robot["model"]["name"] == "x" and robot["model"]["missing"] == []
+    assert robot["files"]["m0"] == str((tmp_path / "robots" / "meshes" / "a.stl").resolve())
+    with pytest.raises(UrdfError, match=r"arm.urdf.xacro is not well-formed"):
+        build_robot(xacro, text="<robot", environ={})
