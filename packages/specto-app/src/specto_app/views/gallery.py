@@ -204,6 +204,7 @@ class NativeGallery:
         self.on_gesture_ended: Callable[[], None] | None = None
         self.on_wanted_changed: Callable[[], None] | None = None
         self.on_drag: Callable[[int, int], None] | None = None
+        self._after_frame: Callable[[], None] | None = None  # the pending after_frame
         g.userSelected.connect(self._selected)
         g.activated.connect(self._activated)
         g.quickLook.connect(self._quick_look)
@@ -351,15 +352,22 @@ class NativeGallery:
         after each one); a report from a frame drawn before this call does not count."""
         item = self.item
         before = int(item.property("frames"))
+        self._drop_after_frame()  # a call not yet run gives way to this one
 
         def once() -> None:
             if int(item.property("frames")) <= before:
                 return
-            with contextlib.suppress(RuntimeError, TypeError):
-                item.statsChanged.disconnect(once)
+            self._drop_after_frame()
             fn()
 
+        self._after_frame = once
         item.statsChanged.connect(once)
+
+    def _drop_after_frame(self) -> None:
+        once, self._after_frame = self._after_frame, None
+        if once is not None:
+            with contextlib.suppress(RuntimeError, TypeError):
+                self.item.statsChanged.disconnect(once)
 
     def cell_rect(self, index: int) -> Any:
         """The tile's cell in scene coordinates (``QRectF``), empty when scrolled out."""
@@ -1100,12 +1108,11 @@ class GalleryHost(QuickViewHost):
             "stats": stats,
         }
 
-    # -- pause / resume (contracts section 16) ---------------------------------------------
-    def resume(self) -> None:
-        """Back on screen. A released item (``release_when_paused``) went back into the
-        scene with an empty atlas: its first frame there finds nothing resident, so the
-        pump decodes what the view shows again once that frame is drawn."""
-        super().resume()
+    # -- pause / resume (contracts sections 11, 12) ----------------------------------------
+    def on_restore(self) -> None:
+        """Released, the item went back into the scene with an empty atlas: its first
+        frame there finds nothing resident, so the pump decodes what the view shows again
+        once that frame is drawn."""
         self.gallery.after_frame(self.schedule_pump)
 
     def dispose(self) -> None:

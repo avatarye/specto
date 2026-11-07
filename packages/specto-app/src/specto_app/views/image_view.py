@@ -111,6 +111,9 @@ class ImageBridge(QObject):
 class ImageHost(Stepping, QuickViewHost):
     """One live image view; see the module docstring."""
 
+    #: released, the item leaves the scene and lets go of its decoded picture (SPEC-3)
+    release_when_paused = True
+
     def __init__(
         self,
         ctx: HostContext,
@@ -247,17 +250,15 @@ class ImageHost(Stepping, QuickViewHost):
             meta={"crop": rect, "size": size, "rendered": True},
         )
 
-    # -- pause / resume (contracts section 16) --------------------------------------------
-    def pause(self) -> None:
-        """Off screen: the item lets go of the decoded image, and with it the texture the
-        scene graph keeps for it as long as the image is held (SPEC-3)."""
-        super().pause()
+    # -- pause / resume (contracts sections 11, 12) ---------------------------------------
+    def on_release(self) -> None:
+        """Released: the item lets go of the decoded image too, and with it the texture
+        Qt Quick keeps for it as long as the image is held, in the scene or not (SPEC-3)."""
         if self.item is not None:
             self.item.setProperty("released", True)
 
-    def resume(self) -> None:
-        """Back on screen: the same file decodes again; zoom and centre stay."""
-        super().resume()
+    def on_restore(self) -> None:
+        """Back: the same file decodes again; zoom and centre come back with it."""
         if self.item is not None:
             self.item.setProperty("released", False)
 

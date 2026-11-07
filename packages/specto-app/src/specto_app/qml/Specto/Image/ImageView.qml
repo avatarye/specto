@@ -29,13 +29,17 @@ Item {
     // paused (SPEC-3): the Image lets go of its picture and its texture; zoom, centre,
     // crop and the reported status stay until it is shown again and decodes anew
     property bool released: false
-    property bool letGo: false  // follows `released`, once the view as it was is kept
     onReleasedChanged: {
-        // the view as it was comes back through the restore path once the picture is ready
-        if (released && img.status === Image.Ready) {
-            navZoom = zoom; navCx = centerX(); navCy = centerY(); navFit = fit; navPending = true
+        if (released) {
+            // the view as it was comes back through the restore path once ready again
+            if (img.status === Image.Ready) {
+                navZoom = zoom; navCx = centerX(); navCy = centerY(); navFit = fit
+                navPending = true
+            }
+            img.source = ""
+        } else {
+            img.source = Qt.binding(function () { return root.source })
         }
-        letGo = released
     }
     property string caption: ""
     // where the view is in its collection (hosts.stepping sets them)
@@ -57,7 +61,10 @@ Item {
     // the crop (#185): a rectangle of the image in its own pixels; empty: none
     property rect crop: Qt.rect(0, 0, 0, 0)
     readonly property bool hasCrop: crop.width >= 1 && crop.height >= 1
-    onSourceChanged: crop = Qt.rect(0, 0, 0, 0)
+    onSourceChanged: {
+        crop = Qt.rect(0, 0, 0, 0)
+        if (released) navPending = false  // another picture: it opens as a new one would
+    }
     // a viewport point in image pixels (unclamped)
     function imageX(vx) { return (vx - img.x) / root.zoom }
     function imageY(vy) { return (vy - img.y) / root.zoom }
@@ -190,7 +197,7 @@ Item {
         Image {
             id: img
             objectName: "image"
-            source: root.letGo ? "" : root.source
+            source: root.source
             asynchronous: true
             cache: false
             autoTransform: true
@@ -202,7 +209,7 @@ Item {
             // the shader draws it while channels show (its texture stays the source)
             opacity: root.channelFx ? 0 : 1
             onStatusChanged: {
-                if (root.letGo) return  // let go while paused: nothing to report
+                if (root.released) return  // let go while paused: nothing to report
                 if (status === Image.Ready) {
                     if (root.navPending) root.applyNav()
                     else if (root.fit) root.fitImage()
