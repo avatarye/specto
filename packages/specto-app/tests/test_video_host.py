@@ -494,11 +494,15 @@ def test_sound_plays_only_during_normal_playback(engine: Engine, tmp_path: Path)
     host.dispose()
 
 
-def test_a_resumed_video_lands_back_on_the_frame_it_showed(engine: Engine, tmp_path: Path):
-    """SPEC-3: paused, the video's item leaves the scene and its node frees mpv's render
-    context; the context made again on resume gets a freshly decoded frame, one past the
-    one shown, so resume seeks back to the frame shown (followed: emitted once on
-    landing, never the frame in between)."""
+def test_a_released_video_shows_the_same_frame_after_its_resume(
+    engine: Engine, tmp_path: Path, qapp
+):
+    """SPEC-3: paused out of the scene, the video's node frees mpv's render context and
+    the item reopens the file for the next one. Position changes nobody asked for in
+    between (the old context's frame going, the reopening) are not emitted; once
+    reopened the video seeks back to the frame it showed, emitted once on landing."""
+    from PySide6.QtQuick import QQuickItem
+
     submit_video(engine)
     ctx = HostContext(engine, None)
     host = VideoHost(ctx, "rena", VIDEO_MANIFEST, headless=True)
@@ -509,16 +513,47 @@ def test_a_resumed_video_lands_back_on_the_frame_it_showed(engine: Engine, tmp_p
     host._on_loaded()
     mpv.props["position"] = host.timemap.pts[4]
     host._on_position()
-    assert host.frame == 4
+    assert emitted(ctx, "rena", "time") == TimeValue(t=FRAME_4, timeline="stamp")
 
+    host.item = QQuickItem()  # out of the scene: no parent item (the registry took it)
     host.pause()
-    mpv.writes.clear()
+    mpv.props["position"] = host.timemap.pts[5]  # the old context's frame went
+    host._on_position()
     host.resume()
-    assert ("seek", host.timemap.pts[4]) in mpv.writes and host._following
-    # the fresh frame after the render context came back is not emitted
-    mpv.props["position"] = host.timemap.pts[5]
+    mpv.props["position"] = 0.0  # the file reopening for the new context
     host._on_position()
     assert emitted(ctx, "rena", "time") == TimeValue(t=FRAME_4, timeline="stamp")
+    mpv.writes.clear()
+    host._on_loaded()
+    assert mpv.writes[-1] == ("seek", host.timemap.pts[4])
+    host._on_restart()
+    mpv.props["position"] = host.timemap.pts[4]
+    host._on_position()
+    assert host.frame == 4
+    assert emitted(ctx, "rena", "time") == TimeValue(t=FRAME_4, timeline="stamp")
+    host.item = None
+
+
+def test_a_time_received_while_released_is_where_the_video_comes_back(
+    engine: Engine, tmp_path: Path, qapp
+):
+    from PySide6.QtQuick import QQuickItem
+
+    submit_video(engine)
+    ctx = HostContext(engine, None)
+    host = VideoHost(ctx, "rena", VIDEO_MANIFEST, headless=True)
+    mpv = FakeMpv()
+    host.mpv = mpv  # type: ignore[assignment]
+    host.receive("data", Collection(items=video_items(tmp_path / "video", "cam-a")))
+    host._on_loaded()
+    host.item = QQuickItem()
+    host.pause()
+    host.receive("time", TimeValue(t=FRAME_8, timeline="stamp"))
+    host.resume()
+    mpv.writes.clear()
+    host._on_loaded()
+    assert mpv.writes[-1] == ("seek", host.timemap.pts[8])
+    host.item = None
 
 
 def test_a_video_playing_when_paused_plays_on_when_resumed(engine: Engine, tmp_path: Path):

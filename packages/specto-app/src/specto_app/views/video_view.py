@@ -236,6 +236,10 @@ class VideoHost(Stepping, QuickViewHost):
         self._final_pending = False  # a gesture ended: emit once mpv lands
         self._was_playing = False  # for the shell's pause / resume
         self._seek_target: int | None = None  # a seek in flight: steps build on it
+        # paused out of the scene (SPEC-3): the frame to show again once mpv has reopened
+        # the file for the new render context; position changes nobody asked for until
+        # then (the old context's last frame going, the reopening) are not emitted
+        self._landing: int | None = None
         self._params: dict[str, Any] = {}
         self.tl = TimelineController(self)
         self.tl.on_scrub = self.scrub
@@ -318,6 +322,7 @@ class VideoHost(Stepping, QuickViewHost):
         self.position = 0.0
         self._following = True  # positions reported while the file opens are not ours
         self._seek_target = None
+        self._landing = None
         self._rebuild_timemap()
         if self.item is not None:
             self.item.setProperty("caption", self.caption())
@@ -456,6 +461,12 @@ class VideoHost(Stepping, QuickViewHost):
             f"{self.mpv.property('videoWidth')}x{self.mpv.property('videoHeight')} "
             f"{self.fps:.3f} fps, {self.frame_count} frames, {self.duration:.3f} s",
         )
+        if self._landing is not None:
+            # reopened for a new render context (back in the scene): the frame it showed,
+            # or the one a time received meanwhile asked for
+            frame, self._landing = self._landing, None
+            self.seek_frame(frame, following=True)
+            return
         # a view that opens while a time already sits on its port lands on it
         value = self.ctx.links.input_of(self.view_id, TIME)
         if isinstance(value, TimeValue):
@@ -491,7 +502,7 @@ class VideoHost(Stepping, QuickViewHost):
             if self._seek_target is None:  # the landing report of a followed seek
                 self._following = False
                 self._emit_time()
-        else:
+        elif self._landing is None:
             self._emit_time()
 
     @Slot()
@@ -573,6 +584,8 @@ class VideoHost(Stepping, QuickViewHost):
             return
         self._following = following
         self._final_pending = final and not following
+        if self._landing is not None:
+            self._landing = frame  # out of the scene: the frame to show on the way back
         if self.mpv is not None:
             self._seek_target = frame
             self._apply_audio_to_mpv()  # queued ahead of the seek: silent through it
@@ -717,21 +730,21 @@ class VideoHost(Stepping, QuickViewHost):
 
     # -- shell pause API -----------------------------------------------------------------
     def pause(self) -> None:
-        """Off screen: stop decoding work (playback); the decoder stays, the render
-        context goes with the item's node (``release_when_paused``)."""
+        """Off screen: stop decoding work (playback); the decoder stays. Out of the scene
+        (``release_when_paused``) the item's node frees mpv's render context; the item
+        reopens the file for the next one, so the frame shown is kept for the way back."""
         self._was_playing = not self.playback_paused
         if self.mpv is not None and not self.playback_paused:
             self.mpv.pause()
+        released = self.item is not None and self.item.parentItem() is None
+        if released and self.loaded and not self._was_playing:
+            self._landing = self.frame
         super().pause()
 
     def resume(self) -> None:
         super().resume()
         if self._was_playing and self.mpv is not None:
             self.mpv.play()
-        elif self.loaded and self.mpv is not None:
-            # the render context comes back with the item and mpv decodes a fresh frame
-            # for it, the one after the frame shown: land back on the frame shown
-            self.seek_frame(self.frame, following=True)
         self._was_playing = False
 
     # -- following a time ------------------------------------------------------------------
