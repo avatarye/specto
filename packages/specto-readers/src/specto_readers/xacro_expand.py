@@ -2,45 +2,48 @@
 package (BSD-3-Clause, pinned below 2.2). One of the enumerated code-running paths
 (ADR 0006, contracts section 10).
 
-xacro's ``${...}`` is a Python ``eval`` with the builtins emptied and dunder names
-refused, but ``type`` and ``vars`` exposed: not a sandbox (``python.vars(python.type)``
-reaches ``__subclasses__``). So whatever can reach the eval text is either approved or
-refused:
+**An approved xacro is code, with the same power as an approved Python link.** Its
+``${...}`` and ``$(eval ...)`` are Python ``eval``; nothing here sandboxes them. The
+boundary is the user's approval, and the child process the code runs in: a fresh
+``python -I`` interpreter with a minimal environment and a fixed working folder, whose
+whole tree a timeout kills. What this module adds is that the approval means exactly
+what the user saw: nothing they did not approve can reach the eval text.
 
 - **The root, approved with its args.** ``$(arg x)`` is substituted inside ``${...}``
   before the eval, and ``params.xacro_args`` live in the canvas, which an agent can
   write; so the root is approved as :func:`approval_hash` ``(root bytes, args)``, and a
   change to either needs Approve again. The Approve card shows the args.
-- **Each package folder, approved per root.** ``$(find pkg)`` puts the folder's path into
-  the eval text, and ``params.package_paths`` is agent-writable too: each resolved
-  ``(name, folder)`` is approved as :func:`package_hash` under the root's approval (found
-  lazily, as xacro meets each ``$(find)``), so a moved package needs Approve again. A
-  folder whose path holds a quote, ``$``, a backtick or a brace is refused outright, as
-  is any file whose folder does (``$(dirname)`` substitutes it).
-- **No environment.** ``$(env X)``, ``$(optenv X)`` and ``env()`` / ``optenv()`` inside
-  ``$(eval ...)`` are refused with a fix (pass the value as an arg), and the child starts
-  with a minimal environment (``children.minimal_env``).
+- **Each package folder, approved on its own, per root.** ``$(find pkg)`` puts the
+  folder's path into the eval text, and ``params.package_paths`` is agent-writable too:
+  each resolved ``(name, folder)`` must be approved as :func:`package_hash` under the
+  root's approval. It is never accepted implicitly, not even during the root's Approve:
+  an unapproved one raises "needs Approve" naming the package and its folder, so the
+  user sees every folder before it is trusted. A folder whose path holds a quote,
+  ``$``, a backtick or a brace is refused outright.
+- **No environment, working folder or file location.** ``$(env)``, ``$(optenv)``,
+  ``$(cwd)`` and ``$(dirname)`` (and ``env()``, ``optenv()``, ``dirname()`` in
+  ``$(eval ...)``) are refused with a fix (pass the value as an arg); ``$(eval ...)``
+  sees only xacro's own short list of builtins.
 - **Every file xacro reads** (the root, each ``xacro:include`` and each file
   ``xacro.load_yaml`` reads, whose unit tags such as ``!degrees`` run the eval too) goes
   through one gated ``open`` (and an include pattern with ``*``, ``?`` or ``[`` through
   a gated ``glob``, which checks the pattern the same way before listing). Before
-  opening, its path text is checked: device paths
-  (``\\\\.\\``, ``\\\\?\\`` other than a local drive, reserved names such as ``NUL``,
-  ``/dev``) and network (UNC) paths outside the allowed folders are refused, and so is
-  anything outside the allowed folders (the root's own folder, ``roots`` (the project)
-  and the approved package folders). Then it is opened, must be a regular file, its
-  final path is taken from the open handle (refused when that cannot be told) and
-  checked again, and only then read, at most ``MAX_FILE_BYTES``. The bytes are hashed,
-  checked with ``trusted(sha256)``, and those same bytes go to xacro. An unapproved
-  root raises :class:`XacroNeedsApproval` before anything is parsed ("xacro needs
-  Approve"); so does an unapproved include, YAML file or package, unless
+  opening, its path text is checked: device paths (``\\\\.\\``, ``\\\\?\\`` other than a
+  local drive, reserved names such as ``NUL`` or ``COM1``, ``/dev``) and network (UNC)
+  paths outside the allowed folders are refused, and so is anything outside the allowed
+  folders (the root's own folder, ``roots`` (the project) and the approved package
+  folders). Then it is opened (non-blocking on POSIX, so a FIFO cannot hang it), must be
+  a regular file, its final path is taken from the open handle (refused when that cannot
+  be told) and checked again, and only then read, at most ``MAX_FILE_BYTES``. The bytes
+  are hashed, checked with ``trusted(sha256)``, and those same bytes go to xacro. An
+  unapproved root raises :class:`XacroNeedsApproval` before anything is parsed ("xacro
+  needs Approve"); so does an unapproved include or YAML file, unless
   ``approved_root_sha`` equals the root's approval hash: the user's Approve click on
-  that exact root and args accepts what that run meets, and :attr:`XacroResult.accepted`
-  lists each such approval for the host to record in the trust store and show.
+  that exact root and args accepts the files that run reads, and
+  :attr:`XacroResult.accepted` lists each for the host to record and show.
 - **Out of process.** :func:`xacro_task` (the pool's entry point) runs the expansion in
-  a fresh ``python -I -X utf8`` interpreter (``_xacro_runner.py``) through
-  ``children.run_child``: never in a pool worker, a timeout kills its whole process
-  tree, and output past ``OUT_CAP`` / ``ERR_CAP`` bytes fails the run.
+  the child (``_xacro_runner.py``, through ``children.run_child``): never in a pool
+  worker, and output past ``OUT_CAP`` / ``ERR_CAP`` bytes fails the run.
   :func:`expand_xacro` is what the child calls; it also restores what it patched.
 - ``find_package`` is Specto's package resolver (design section 3): a package name -> its
   folder, or None (fails with the fix: set ``params.package_paths``). It crosses into
@@ -58,6 +61,7 @@ import os
 import pickle
 import stat
 import sys
+import tempfile
 import threading
 import types
 from collections.abc import Callable, Iterable, Mapping
@@ -85,8 +89,7 @@ YAML_EXTS = (".yaml", ".yml")
 UNSAFE_PATH_CHARS = frozenset("'\"$`{}")
 _DEVICE_NAMES = frozenset(
     {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
-    | {f"COM{i}" for i in range(10)}
-    | {f"LPT{i}" for i in range(10)}
+    | {f"{p}{d}" for p in ("COM", "LPT") for d in "0123456789\u00b9\u00b2\u00b3"}
 )
 _LOCK = threading.Lock()
 
@@ -207,7 +210,7 @@ def _device_reason(path: Path) -> tuple[Path, str | None]:
                 return path, "a device path"
         elif text.startswith("\\\\.\\"):
             return path, "a device path"
-        if path.name.split(".")[0].upper() in _DEVICE_NAMES:
+        if path.name.split(".")[0].rstrip(" .").upper() in _DEVICE_NAMES:
             return path, "a device name"
     elif text.startswith(("/dev/", "/proc/", "/sys/")):
         return path, "a device path"
@@ -269,7 +272,8 @@ def _read_checked(
     (module docstring): ``(final path, bytes)``. An OSError from opening passes through
     (xacro's own report keeps an optional include optional)."""
     asked = _check_text(asked, allowed, is_root=is_root)
-    fd = os.open(asked, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(asked, flags)  # non-blocking: a FIFO answers at once, then fails S_ISREG
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise XacroError(f"{asked.name} is not a regular file")
@@ -280,11 +284,6 @@ def _read_checked(
             raise XacroError(
                 f"{final.name} is outside the project and the package paths",
                 fix="put it in the project, or its package in params.package_paths",
-            )
-        if _unsafe(str(final.parent)):
-            raise XacroError(
-                f"the folder of {final.name} has a quote, $, backtick or brace in its path",
-                fix="rename the folder",
             )
         with os.fdopen(fd, "rb", closefd=False) as f:
             raw = f.read(MAX_FILE_BYTES + 1)
@@ -310,6 +309,26 @@ def _refuse_env(*_: Any, **__: Any) -> str:
         "xacro's $(env) and $(optenv) are off in Specto",
         fix="pass the value through params.xacro_args and read it with $(arg)",
     )
+
+
+def _refuse_dirname(*_: Any, **__: Any) -> str:
+    raise XacroError(
+        "xacro's $(dirname) is off in Specto",
+        fix="name files relative to the xacro file, or pass the folder through xacro_args",
+    )
+
+
+def _eval_builtins(substitution_args: Any) -> Callable[..., Any]:
+    """``eval`` for ``$(eval ...)`` with only xacro's own short list of builtins (its
+    ``_eval`` passes empty globals, which Python fills with all of them)."""
+    import builtins
+
+    allowed = dict(substitution_args._eval_dict.get("__builtins__") or {})
+
+    def restricted(expr: Any, globals_: Any = None, locals_: Any = None) -> Any:
+        return builtins.eval(expr, {"__builtins__": allowed}, locals_)
+
+    return restricted
 
 
 def expand_xacro(
@@ -386,13 +405,19 @@ def expand_xacro(
                 fix="move or rename the package folder",
             )
         digest = package_hash(approval, pkg, str(folder))
-        if not trusted(digest):
-            if not accept:
-                raise XacroNeedsApproval(str(folder), digest, role="package", package=pkg)
-            accepted[f"package {pkg}: {folder}"] = digest
+        if not trusted(digest):  # never implicit: the user sees each folder first
+            raise XacroNeedsApproval(str(folder), digest, role="package", package=pkg)
         if allowed is not None:
             allowed.extend(_both(folder))
         return str(folder)
+
+    def gated_extension(text: str) -> Any:
+        if text.strip() == "$(cwd)":
+            raise XacroError(
+                "xacro's $(cwd) is off in Specto",
+                fix="name files relative to the xacro file, or pass a folder through xacro_args",
+            )
+        return real_extension(text)
 
     stderr = io.StringIO()
     patched = {
@@ -401,14 +426,19 @@ def expand_xacro(
         "_optenv": _refuse_env,
         "_eval_env": _refuse_env,
         "_eval_optenv": _refuse_env,
+        "_dirname": _refuse_dirname,
+        "_eval_dirname": _refuse_dirname,
+        "eval": _eval_builtins(substitution_args),
     }
     with _LOCK:
-        saved = {name: getattr(substitution_args, name) for name in patched}
+        saved = {name: vars(substitution_args).get(name) for name in patched}
         saved_dict = {k: substitution_args._eval_dict[k] for k in ("find", "env", "optenv")}
         saved_yaml = dict(yaml.SafeLoader.yaml_constructors)
         xacro.open = gated_open  # shadows the builtin for xacro's parse and load_yaml
         real_glob = xacro.glob
         xacro.glob = types.SimpleNamespace(glob=gated_glob)
+        real_extension = xacro.eval_extension
+        xacro.eval_extension = gated_extension  # $(cwd) is answered here, before the args
         for name, fn in patched.items():
             setattr(substitution_args, name, fn)
         substitution_args._eval_dict.update(find=find, env=_refuse_env, optenv=_refuse_env)
@@ -424,8 +454,12 @@ def expand_xacro(
         finally:
             del xacro.open
             xacro.glob = real_glob
+            xacro.eval_extension = real_extension
             for name, fn in saved.items():
-                setattr(substitution_args, name, fn)
+                if fn is None:  # ``eval`` is the builtin: the module never had its own
+                    delattr(substitution_args, name)
+                else:
+                    setattr(substitution_args, name, fn)
             substitution_args._eval_dict.update(saved_dict)
             yaml.SafeLoader.yaml_constructors = saved_yaml
             xacro.all_includes.clear()
@@ -451,6 +485,14 @@ def _cause(e: BaseException) -> BaseException:
 
 
 # -- out of process -----------------------------------------------------------------------
+
+
+def _child_cwd() -> Path:
+    """The child's working folder: a fixed, empty Specto folder under the temp dir, never
+    the app's (the project)."""
+    folder = Path(tempfile.gettempdir()) / "specto-xacro"
+    folder.mkdir(exist_ok=True)
+    return folder
 
 
 def xacro_task(
@@ -485,6 +527,7 @@ def xacro_task(
         out_cap=OUT_CAP,
         err_cap=ERR_CAP,
         env=minimal_env(),
+        cwd=str(_child_cwd()),
     )
     if run.timed_out:
         raise XacroError(f"{name}: xacro did not finish in {RUN_TIMEOUT_S:g} s")

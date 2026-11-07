@@ -232,19 +232,28 @@ def test_the_approve_gesture_on_that_root_accepts_and_lists_what_it_meets(tmp_pa
         ),
     )
     find = {"desc": str(pkg)}.get
-    # the user approved the file they opened; what it meets comes with that click
+    # a package folder is never accepted implicitly: the card names it first
+    with pytest.raises(XacroNeedsApproval, match="its package desc at") as e:
+        expand_xacro(
+            root,
+            find_package=find,
+            trusted=Approvals(root, known),
+            approved_root_sha=_approval(root),
+        )
+    assert e.value.role == "package" and e.value.path == os.path.abspath(pkg)
+    assert e.value.sha256 == _package(root, "desc", pkg)
+    # once the user approved that folder too, the root's Approve accepts the files it reads
     out = expand_xacro(
         root,
         find_package=find,
-        trusted=Approvals(root, known),
+        trusted=Approvals(root, known, packages={"desc": pkg}),
         approved_root_sha=_approval(root),
     )
     assert '<link name="part"/>' in out.urdf and '<link name="p"/>' in out.urdf
-    # what the host records and shows: the root's approval and each newly trusted thing
+    # what the host records and shows: the root's approval and each newly trusted file
     assert out.accepted == {
         str(root.resolve()): _approval(root),
         str(inc.resolve()): _sha(inc),
-        f"package desc: {os.path.abspath(pkg)}": _package(root, "desc", pkg),
         str((pkg / "p.xacro").resolve()): _sha(pkg / "p.xacro"),
     }
     # an approval of another root's hash accepts nothing here
@@ -370,6 +379,53 @@ def test_device_and_network_paths_are_refused_before_anything_opens(tmp_path: Pa
             expand_xacro(root, find_package=_no_packages, trusted=Approvals(root), _confine=False)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows reserved device names")
+def test_reserved_names_with_trailing_spaces_dots_or_superscripts_are_refused(tmp_path: Path):
+    for name in ("AUX .x", "lpt1  .xacro", "CON .txt", "COM¹", "lpt³.xacro", "nul."):
+        root = _write(tmp_path / "dev.xacro", _robot(f'<xacro:include filename="{name}"/>'))
+        # a device name, or a device path where Windows' own normalising got there first
+        with pytest.raises(XacroError, match="is a device (name|path)"):
+            expand_xacro(
+                root,
+                find_package=_no_packages,
+                trusted=Approvals(root),
+                approved_root_sha=_approval(root),
+            )
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX FIFOs")
+def test_a_fifo_is_refused_without_blocking(tmp_path: Path):
+    os.mkfifo(tmp_path / "pipe.xacro")
+    root = _write(tmp_path / "a.xacro", _robot('<xacro:include filename="pipe.xacro"/>'))
+    with pytest.raises(XacroError, match="not a regular file"):
+        expand_xacro(
+            root,
+            find_package=_no_packages,
+            trusted=Approvals(root),
+            approved_root_sha=_approval(root),
+        )
+
+
+def test_cwd_and_dirname_are_refused(tmp_path: Path):
+    for body, what in (
+        ('<link name="$(cwd)"/>', r"\$\(cwd\)"),
+        ("<link name=\"${'$(cwd)'}\"/>", r"\$\(cwd\)"),
+        ('<link name="$(dirname)"/>', r"\$\(dirname\)"),
+    ):
+        root = _write(tmp_path / "w.xacro", _robot(body))
+        with pytest.raises(XacroError, match=what + " is off in Specto"):
+            expand_xacro(root, find_package=_no_packages, trusted=Approvals(root))
+
+
+def test_eval_sees_only_xacro_s_own_builtins(tmp_path: Path):
+    ok = _write(tmp_path / "ok.xacro", _robot('<link name="$(eval str)"/>'))
+    out = expand_xacro(ok, find_package=_no_packages, trusted=Approvals(ok))
+    assert "<link name=\"&lt;class 'str'&gt;\"/>" in out.urdf
+    bad = _write(tmp_path / "bad.xacro", _robot('<link name="$(eval open)"/>'))
+    with pytest.raises(XacroError, match="open"):
+        expand_xacro(bad, find_package=_no_packages, trusted=Approvals(bad))
+
+
 def test_a_file_past_the_size_cap_is_refused(tmp_path: Path, monkeypatch):
     from specto_readers import xacro_expand
 
@@ -454,6 +510,11 @@ def test_xacro_is_left_as_it_was(tmp_path: Path):
             sa._optenv,
             sa._eval_env,
             sa._eval_optenv,
+            sa._dirname,
+            sa._eval_dirname,
+            "eval" in vars(sa),
+            xacro.eval_extension,
+            xacro.glob,
             {k: sa._eval_dict[k] for k in ("find", "env", "optenv")},
             "open" in vars(xacro),
             dict(yaml.SafeLoader.yaml_constructors),
@@ -491,18 +552,27 @@ def test_expansion_runs_in_its_own_process_never_in_a_pool_worker(tmp_path: Path
         assert pending["path"] == str(root.resolve()) and pending["args"] == args
         assert pending["sha256"] == _approval(root, args)
         assert "urdf" not in job.result
-        # the user's Approve: the root's approval goes into the store, what it meets along
+        # the user's Approve: the root's approval goes into the store
         store.approve(pending["sha256"], path=str(root))
-        job = submit_xacro(
-            pool,
-            root,
-            find,
-            store.approved,
-            args=args,
-            approved_root_sha=pending["sha256"],
-            roots=[tmp_path],
-        )
-        assert pool.wait([job], 60.0), job.error
+
+        def run():
+            job = submit_xacro(
+                pool,
+                root,
+                find,
+                store.approved,
+                args=args,
+                approved_root_sha=pending["sha256"],
+                roots=[tmp_path],
+            )
+            assert pool.wait([job], 60.0), job.error
+            return job
+
+        # the package folder is shown and approved on its own, then the files come along
+        package = run().result["needs_approval"]
+        assert package["role"] == "package" and package["package"] == "desc"
+        store.approve(package["sha256"], path=package["path"])
+        job = run()
         assert job.message == "xacro expanded"
         assert '<link name="part"/>' in job.result["urdf"]
         assert '<link name="base_link"/>' in job.result["urdf"]

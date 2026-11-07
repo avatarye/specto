@@ -78,3 +78,16 @@ def test_the_minimal_environment_carries_only_what_an_interpreter_needs(monkeypa
     seen = set(run.stdout.decode().split(","))
     assert "SPECTO_TEST_SECRET" not in seen
     assert {k.upper() for k in seen if k} <= set(MINIMAL_ENV_KEYS)
+
+
+def test_the_child_runs_in_the_folder_it_is_given(tmp_path: Path):
+    script = "import os, sys; sys.stdout.write(os.getcwd())"
+    run = run_child(
+        [sys.executable, "-I", "-c", script],
+        b"",
+        timeout=30.0,
+        out_cap=1 << 20,
+        err_cap=1 << 20,
+        cwd=str(tmp_path),
+    )
+    assert Path(run.stdout.decode()).resolve() == tmp_path.resolve()
