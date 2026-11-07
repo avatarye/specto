@@ -379,7 +379,7 @@ step, nothing journaled). */
     /** This Specto's instance name. default: "" */
     instance?: string;
   }
-  interface 3dState {
+  interface _3dState {
     /** Point cloud point size in pixels. default: 2 */
     point_size?: number;
     /** The data's up axis: z for most LiDAR, photogrammetry and robot meshes (STL, OBJ). A DAE is converted to Y up from its own up_axis and is not turned by this. default: "y" */
@@ -551,7 +551,7 @@ step, nothing journaled). */
 
   interface ViewStates {
     /** 3D: accepts pointcloud, mesh, splat; host web */
-    "3d": 3dState;
+    "3d": _3dState;
     /** Gallery: accepts image2d, image_seq, video_ref, pdf, mesh, pointcloud, splat, markdown, html, json, geojson, text; host quick */
     "gallery": GalleryState;
     /** HTML: accepts html; host web */

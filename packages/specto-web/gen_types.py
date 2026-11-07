@@ -66,7 +66,10 @@ def theme_token_names() -> list[str]:
 
 
 def pascal(name: str) -> str:
-    return "".join(p[:1].upper() + p[1:] for p in re.split(r"[^A-Za-z0-9]+", name) if p)
+    """``name`` as a PascalCase TypeScript identifier; one that would start with a digit
+    (the ``3d`` view type) gets a leading ``_`` (SPEC-49: ``_3dState``)."""
+    out = "".join(p[:1].upper() + p[1:] for p in re.split(r"[^A-Za-z0-9]+", name) if p)
+    return "_" + out if out[:1].isdigit() else out
 
 
 def quote(v: Any) -> str:

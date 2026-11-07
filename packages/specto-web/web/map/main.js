@@ -377,7 +377,7 @@
       row.classList.toggle("off", !lay.visible);
       row.classList.toggle("broken", !!lay.error);
       row.setAttribute("data-layer", id);
-      row.querySelector(".check").style.setProperty("--check", lay.color);
+      /** @type {HTMLElement} */ (row.querySelector(".check")).style.setProperty("--check", lay.color);
       row.addEventListener("dblclick", function () { fitLayer(id); });
       list.appendChild(row);
     });
