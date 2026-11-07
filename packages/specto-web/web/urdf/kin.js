@@ -121,14 +121,16 @@
   }
 
   /** The value of every moving joint: the given actuated values (missing ones 0, kept in
-   * their limits) and each mimic from its master. */
-  function resolve(model, values) {
+   * their limits unless `opts.clamp` is false: a track's samples show as recorded) and
+   * each mimic from its master. */
+  function resolve(model, values, opts) {
+    const keep = opts && opts.clamp === false ? function (j, x) { const n = Number(x); return isFinite(n) ? n : 0; } : clampJoint;
     const byName = {};
     (model.joints || []).forEach(function (j) { byName[j.name] = j; });
     const out = {};
     const v = values || {};
     actuated(model).forEach(function (j) {
-      out[j.name] = j.name in v ? clampJoint(j, v[j.name]) : clampJoint(j, 0);
+      out[j.name] = j.name in v ? keep(j, v[j.name]) : clampJoint(j, 0);
     });
     function mimicValue(j, seen) {
       if (j.name in out) return out[j.name];

@@ -185,3 +185,12 @@ test("the inertia box: a solid box with the link's mass and principal moments, o
   assert.ok(odd.size.every((x) => x > 0 && isFinite(x)));
   assert.equal(K.inertiaBox({ mass: 0, inertia: {} }), null);
 });
+
+test("resolve with clamp off keeps recorded values outside the limits (a track is evidence)", () => {
+  const v = K.resolve(ARM, { shoulder: 3.0, wrist_1: 4.0, gripper_joint: 0.05 }, { clamp: false });
+  assert.equal(v.shoulder, 3.0);
+  assert.equal(v.wrist_1, 4.0);
+  assert.equal(v.gripper_joint, 0.05);
+  assert.equal(v.finger_mimic, 0.05, "the mimic follows the recorded master");
+  assert.ok(Math.abs(K.resolve(ARM, { shoulder: 3.0 }).shoulder - 2.4435) < 1e-12, "clamped by default");
+});

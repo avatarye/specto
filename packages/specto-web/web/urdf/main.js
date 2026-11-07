@@ -261,9 +261,12 @@
     return r;
   }
 
+  /** Every moving joint's value: a track's as recorded (never clamped, amendment 17),
+   * otherwise kept in the limits. */
+  function resolved() { return K.resolve(model, values, { clamp: source !== "track" }); }
   function applyPose() {
     if (!model) return;
-    const v = K.resolve(model, values);
+    const v = resolved();
     Object.keys(joints).forEach(function (name) {
       const J = joints[name];
       if (!K.moving(J.joint)) return;
@@ -1434,7 +1437,7 @@
   }
   function syncJoints() {
     if (!model) return;
-    const v = K.resolve(model, values);
+    const v = resolved();
     Object.keys(sliders).forEach(function (n) {
       const s = sliders[n];
       if (s.typing) return;
@@ -1575,7 +1578,7 @@
         const lim = K.limits(j);
         prop("limits", j.type === "continuous" ? "continuous" : K.displayText(j, lim[0]) + " to " + K.displayText(j, lim[1]) + "  (" + fmt(lim[0]) + " .. " + fmt(lim[1]) + ")");
         if (j.limit) prop("effort", fmt(j.limit.effort) + "  velocity " + fmt(j.limit.velocity));
-        prop("value", K.displayText(j, K.resolve(model, values)[j.name]));
+        prop("value", K.displayText(j, resolved()[j.name]));
       } else {
         prop("slider", K.NO_SLIDER[j.type] || "none");
       }
@@ -1660,7 +1663,7 @@
     Object.keys(rows).forEach(function (k) { treeRows[k] = r(rows[k]); });
     const joint = {};
     if (model) {
-      const v = K.resolve(model, values);
+      const v = resolved();
       Object.keys(sliders).forEach(function (n) {
         const s = sliders[n];
         joint[n] = {
@@ -1683,7 +1686,7 @@
       bounds: box ? [round(box.min), round(box.max)] : null,
       robot: model ? { name: model.name, root: K.rootOf(model), links: (model.links || []).length, joints: (model.joints || []).length } : null,
       joints: joint,
-      values: model ? K.resolve(model, values) : {},
+      values: model ? resolved() : {},
       source: source,
       track: track,
       locked: locked(),

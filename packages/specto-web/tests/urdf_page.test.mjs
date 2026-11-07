@@ -543,3 +543,12 @@ test("inertia boxes: a translucent box of equivalent inertia per link with a mas
   assert.equal(page.last().overlays.inertia, 0);
   assert.equal(page.named("inertia:upper_arm").length, 0);
 });
+
+test("a track's values show as recorded, outside the limits too; params are clamped", async () => {
+  const page = await armPage();
+  page.notify("pose", { joints: { shoulder: 3.0 }, source: "track", track: "/joint_states" });
+  assert.equal(page.last().values.shoulder, 3.0);
+  assert.equal(page.last().joints.shoulder.text, (3.0 * 180 / Math.PI).toFixed(1) + "°");
+  page.notify("pose", { joints: { shoulder: 3.0 }, source: "params" });
+  assert.ok(Math.abs(page.last().values.shoulder - 2.4435) < 1e-12);
+});
