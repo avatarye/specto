@@ -151,7 +151,7 @@ test("a mesh file loads once, by its ext, and each link that uses it gets a clon
   const loaded = sentOf(page, "loaded");
   assert.equal(loaded.length, 1);
   assert.deepEqual(loaded[0].failed, []);
-  assert.equal(page.health[0][0], "loading", "the page only ever says loading; the host owns the dot");
+  assert.deepEqual(page.health, [], "the host owns the health dot");
 });
 
 test("a missing mesh draws the link's collision primitive as a magenta wire stand-in; an unreadable one a 5 cm box", async () => {
@@ -371,6 +371,9 @@ test("a double-click frames the link and sends `frame`; the `selected` param sel
   rowEl(page, "link:forearm").dispatchEvent({ type: "dblclick" });
   assert.deepEqual(sentOf(page, "frame"), [{ link: "forearm" }]);
   page.notify("params", { selected: ["tool0"] });
+  assert.deepEqual(plain(page.last().selected_links), ["tool0"]);
+  // an item key there is not the page's: the selection stays
+  page.notify("params", { selected: "robots/arm.urdf" });
   assert.deepEqual(plain(page.last().selected_links), ["tool0"]);
   assert.equal(page.document.getElementById("frameAll").title.startsWith("Frame"), true);
 });

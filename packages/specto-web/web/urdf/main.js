@@ -35,7 +35,8 @@
  * a slider's release, a typed value or a reset: one user submit), `frame {link}` (a
  * double-click), `loaded {ms, meshes, failed}`; the camera as a port emit (throttled);
  * view params through Specto.setParams (one user submit each). The host owns the health
- * dot; the page sets "loading" while its meshes load and reports what failed. */
+ * dot: the page never sets it, shows "loading N parts" on the canvas and reports what
+ * its loaders could not read in `loaded`. */
 (function () {
   "use strict";
   const $ = function (id) { return document.getElementById(id); };
@@ -462,7 +463,6 @@
   function startLoading(jobs, seq) {
     if (!loading) loadStarted = performance.now();
     setLoading(jobs.length);
-    if (jobs.length) Specto.setHealth("loading", "loading " + jobs.length + " part" + (jobs.length > 1 ? "s" : ""));
     Promise.allSettled(jobs).then(function () {
       setLoading(-jobs.length);
       if (seq !== loadSeq) return;
@@ -992,10 +992,14 @@
     });
     return out;
   }
+  /** `selected` names links (a name or a list); anything else (an item key) is not the
+   * page's and leaves the selection alone. */
   function applySelectionParam() {
     const s = params.selected;
     if (s === null || s === undefined) return;
-    selection = selectionFrom(Array.isArray(s) ? s : [s]);
+    const picked = selectionFrom(Array.isArray(s) ? s : [s]);
+    if (!picked.length) return;
+    selection = picked;
     applySelection(true);
   }
   function applySelection(reveal) {
