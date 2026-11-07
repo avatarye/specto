@@ -47,11 +47,15 @@ the release and move on their own schedule.
 - The 3d view opens STL, OBJ and COLLADA (`.dae`) meshes (SPEC-42, ADR 0028), from a
   double-click (dedicated) or a Ctrl+double-click (contextual) in the file tree and in
   any `@3d` intaker. STL and OBJ load with Babylon's own loaders, an OBJ with its MTL and
-  textures from next to it; a mesh without a material draws in grey. Their numbers are
-  metres and the view's `up` param stands Z-up robot meshes upright. A DAE is converted
-  to a GLB on first open, written next to it as `<name>.dae.glb` (the converted mesh;
-  Specto's cache when the folder is read-only) and written again when the DAE changes;
-  its `<unit>` and `<up_axis>` are applied, so it stands upright whatever `up` says.
+  textures from next to it (`../textures` too, inside the project; one it cannot reach is
+  named in the view's health); a mesh without a material draws in grey. Their unit is the
+  view's new `mesh_unit` param (m, cm, mm, in; default m), and its `up` param stands Z-up
+  robot meshes upright. A DAE is converted to a GLB on first open (a child process, 120 s
+  and 256 MB at most), written next to it as `<name>.dae.glb` (the converted mesh;
+  Specto's cache when the folder cannot take it) and written again whenever the DAE
+  differs from the one it was made from, an older copy included; an open view loads the
+  new one. Its `<unit>` and `<up_axis>` are applied, so it stands upright whatever `up`
+  says. STL and OBJ files over 512 MB are refused with the reason.
   **New runtime dependencies:** trimesh and pycollada (with python-dateutil and tzdata).
 - Gallery captions sit on the thumbnails (SPEC-6): each key overlays its tile's bottom
   edge, light text on a dark scrim that reads on light and dark images, and takes no row

@@ -1,9 +1,10 @@
 # SPEC-42: robot meshes in the 3d view. robot/ holds link.stl, panel.obj (with its MTL and
 # a texture) and arm.dae (centimetres, Z_UP). A double-click on each opens a dedicated 3d
 # view with one mesh item; the DAE's converted mesh, arm.dae.glb, is written next to it on
-# the way. A Ctrl+double-click on the STL opens the contextual preview, which renders it
-# in the 3d renderer. Offscreen there is no WebGL: the hosts' entries are checked here,
-# the pictures in the GPU tier (v2-mesh-formats-gpu.txt).
+# the way. Each view is closed after its checks, so the next one lands on screen. A
+# Ctrl+double-click opens the contextual preview on the STL, then the OBJ, then the DAE,
+# each in the 3d renderer. Offscreen there is no WebGL: the hosts' entries are checked
+# here, the pictures in the GPU tier (v2-mesh-formats-gpu.txt).
 # Project: tools/gui_flows/v2-mesh-formats-seed.py <folder>.
 resize 1600 960
 wait 1500
@@ -45,11 +46,28 @@ print snap {"target": "@3d"}
 shot mesh-02-dae-dedicated.png
 click close:@3d
 wait 800
-# 4 Ctrl+double-click: the contextual preview shows the STL in the 3d renderer
+# 4 Ctrl+double-click: the contextual preview shows each format in the 3d renderer,
+# re-pointed by the next Ctrl+double-click (the STL, the OBJ, the DAE)
 ctrldblclick treeRow:@file_tree:robot/link.stl 0.6 0.5
 wait_until slot:@preview 15000
 wait 1500
 assert_found contextual:@preview
 assert_missing preview:@preview:card
+assert_host @preview renderer "3d" 10000
+assert_host @preview selected.key "robot/link" 10000
+assert_host @preview shown.kinds.mesh 1 20000
 print snap {"target": "@preview"}
 shot mesh-03-contextual-preview.png
+ctrldblclick treeRow:@file_tree:robot/panel.obj 0.6 0.5
+assert_host @preview selected.key "robot/panel" 10000
+assert_host @preview renderer "3d" 10000
+assert_host @preview shown.kinds.mesh 1 20000
+assert_missing preview:@preview:card
+assert_missing slot:@preview#2
+ctrldblclick treeRow:@file_tree:robot/arm.dae 0.6 0.5
+assert_host @preview selected.key "robot/arm" 10000
+assert_host @preview renderer "3d" 10000
+assert_host @preview shown.kinds.mesh 1 20000
+assert_missing preview:@preview:card
+print snap {"target": "@preview"}
+shot mesh-04-contextual-dae.png

@@ -24,18 +24,23 @@ webclick @3d buttons.frameAll
 wait 900
 assert_pixel slot:@3d 0.476 0.47 not #faf7f1
 shot mesh-gpu-01-stl-upright.png
+# mesh_unit mm: the same numbers as millimetres, a box under a millimetre tall
+params @3d {"mesh_unit": "mm"}
+assert_web @3d items.link.bounds [[-0,0,-0],[0,0,0]]
 click close:@3d
 wait 800
 assert_missing slot:@3d
-# 2 the OBJ: its MTL and texture loaded from next to it (green), upright under up z
+# 2 the OBJ: its MTL from next to it and its texture from ../shared (green: the texture
+# arrived through the items host's @root path), upright under up z
 dblclick treeRow:@file_tree:robot/panel.obj 0.6 0.5
 wait_until slot:@3d 15000
 assert_web @3d items.panel.loaded true 20000
 params @3d {"up": "z"}
 assert_web @3d items.panel.bounds [[-0.2,0,-0.2],[0.2,0.8,0.2]]
+assert_host @3d missing {}
 webclick @3d buttons.frameAll
 wait 900
-assert_pixel slot:@3d 0.476 0.47 not #faf7f1
+assert_pixel slot:@3d 0.476 0.47 is #166a1f
 shot mesh-gpu-02-obj-textured.png
 click close:@3d
 wait 800

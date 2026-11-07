@@ -147,7 +147,7 @@ The account of what a binding, dry run or recipe apply did: what bound, what was
 _Avoid_: log, warnings, result
 
 **Converted mesh**:
-A file Specto writes so the 3d view can show a mesh format it cannot open itself: a COLLADA file `robot.dae` becomes `robot.dae.glb` beside it (or in Specto's cache when the folder is read-only), in metres and Y up, written again when the original is newer. An ordinary file in the file tree; never a part of the original's item (ADR 0028).
+A file Specto writes so the 3d view can show a mesh format it cannot open itself: a COLLADA file `robot.dae` becomes `robot.dae.glb` beside it (or in Specto's cache when the folder is read-only), in metres and Y up, written again when the original changes. An ordinary file in the file tree; never a part of the original's item (ADR 0028).
 _Avoid_: sidecar, derived file, export, conversion (the conversion report is something else)
 
 ### Views and the canvas

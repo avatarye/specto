@@ -1,9 +1,10 @@
 """Seed the project folder for the SPEC-42 mesh-format flows: robot/ holds a Z-up box as
-an STL (link.stl), an OBJ with its MTL and a green texture (panel.obj, panel.mtl,
-textures/panel.png) and a COLLADA file in centimetres, Z_UP, with a blue box and a red
-textured box 80 cm above it (arm.dae, textures/arm.png). The files come from the readers
-tests' synthetic writers (``packages/specto-readers/tests/mesh_samples.py``). No
-``.specto/``: the app initialises the project on open.
+an STL (link.stl), an OBJ with its MTL and a green texture outside the OBJ's folder
+(panel.obj, panel.mtl naming ../shared/panel.png) and a COLLADA file in centimetres,
+Z_UP, with a blue box and a red textured box 80 cm above it (arm.dae, textures/arm.png).
+The files come from the readers tests' synthetic writers
+(``packages/specto-readers/tests/mesh_samples.py``). No ``.specto/``: the app
+initialises the project on open.
 
     uv run python tools/gui_flows/v2-mesh-formats-seed.py <folder>
 """
@@ -25,9 +26,10 @@ def main() -> int:
     samples = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(samples)
     samples.write_stl(robot / "link.stl")
-    samples.write_obj(robot / "panel.obj")
+    # the texture beside the robot folder, as robot packages keep them: ../shared/
+    samples.write_obj(robot / "panel.obj", texture_ref="../shared/panel.png")
     samples.write_dae(robot / "arm.dae")
-    print(f"[OK] {robot}: link.stl, panel.obj (+ mtl, texture), arm.dae (+ texture)")
+    print(f"[OK] {robot}: link.stl, panel.obj (+ mtl, ../shared texture), arm.dae (+ texture)")
     return 0
 
 
