@@ -26,8 +26,9 @@ const ENVIRONMENTS = [
 ];
 const plain = (x) => JSON.parse(JSON.stringify(x));
 
-function bootPage() {
+function bootPage(opts = {}) {
   const { babylon, scene, created, imports, frame, textures } = makeBabylon();
+  if (opts.noWebGL) babylon.Engine = class { constructor() { throw new Error("WebGL not supported"); } };
   const handlers = {};
   const sent = [];
   const reports = [];
@@ -481,4 +482,17 @@ test("the side panels are kept in `panels`; params from the host restore them", 
   const page = await armPage({ panels: { robot: { collapsed: true, width: 260 } } });
   assert.ok(page.document.getElementById("robot").classList.contains("collapsed"));
   assert.ok(!page.document.getElementById("view").classList.contains("collapsed"));
+});
+
+test("without WebGL the panels and the footer still show, the tree and sliders work, and health says why", () => {
+  const page = bootPage({ noWebGL: true });
+  assert.deepEqual(page.health.at(-1), ["error", "no 3D here: WebGL not supported"]);
+  assert.ok(page.document.querySelector(".footer"), "the footer is mounted");
+  page.notify("config", { params: {} });
+  page.notify("model", { generation: 1, model: JSON.parse(JSON.stringify(ARM)), environments: [] });
+  assert.equal(page.last().tree_order[0], "link:base_link");
+  rowEl(page, "link:upper_arm").click();
+  assert.deepEqual(sentOf(page, "select").at(-1), { link: "upper_arm", joint: null, add: false });
+  page.document.getElementById("resetPose").click();
+  assert.equal(sentOf(page, "joints").length, 1);
 });

@@ -19,7 +19,7 @@ import specto_web
 CHILD = Path(__file__).with_name("web_zoom_child.py")
 WEB = specto_web.find_web_root()
 SMALL = 11  # theme metric font_px_small: the outline rows and the footer
-PAGES = ["markdown", "map", "3d", "json", "html"]
+PAGES = ["markdown", "map", "3d", "json", "html", "urdf"]
 
 pytestmark = pytest.mark.skipif(
     WEB is None or not (WEB / "vendor" / "markdown-it").is_dir(),

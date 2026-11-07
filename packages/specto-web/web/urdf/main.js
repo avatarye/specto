@@ -202,7 +202,11 @@
     generation = msg && msg.generation !== undefined ? msg.generation : generation + 1;
     const seq = ++loadSeq;
     tree = model ? K.tree(model) : [];
-    if (!model) { renderTree(); renderJoints(); renderProps(); updateFooter(); report(); return; }
+    if (!model || !scene) {
+      if (model) values = Object.assign(K.zeroPose(model), pendingPose ? pendingPose.joints : {});
+      renderTree(); renderJoints(); renderProps(); updateFooter(); report();
+      return;
+    }
     robot = new BABYLON.TransformNode("robot", scene);
     robot.parent = world;
     (model.links || []).forEach(function (l, i) {
@@ -1592,7 +1596,6 @@
 
   /* ---- what the page shows, for snap and the flows -------------------------------------------- */
   function report() {
-    if (!scene) return;
     const r = Specto.rectOf;
     const treeRows = {};
     Object.keys(rows).forEach(function (k) { treeRows[k] = r(rows[k]); });
@@ -1691,10 +1694,17 @@
     report();
   });
 
-  boot();
+  // the chrome first: without WebGL the panels and the footer still show, and say why
   mountViewPanel();
   mountRobotPanel();
   mountFooter();
+  try {
+    boot();
+  } catch (e) {
+    engine = scene = camera = null;
+    Specto.setHealth("error", "no 3D here: " + (e && e.message || e));
+    Specto.log("error", "urdf page: " + (e && e.message || e));
+  }
   applyParams();
   renderTree(); renderJoints(); renderProps(); updateFooter();
   Specto.connect().catch(function (e) {
