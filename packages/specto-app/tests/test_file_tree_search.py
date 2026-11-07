@@ -566,24 +566,27 @@ def test_a_new_query_cancels_the_search_trees_folder_listings_in_flight():
 
     class Worker:
         def __init__(self) -> None:
-            self.pending: set[int] = set()
+            self.done: dict[int, object] = {}
             self.cancelled: list[int] = []
 
         def submit(self, fn, on_done) -> int:
-            self.pending.add(len(self.pending) + 1)
-            return len(self.pending)
+            token = len(self.done) + 1
+            self.done[token] = on_done
+            return token
 
         def is_pending(self, token: int) -> bool:
-            return token in self.pending
+            return token in self.done
 
         def cancel(self, token: int) -> None:
             self.cancelled.append(token)
 
     worker = Worker()
     host = SimpleNamespace(worker=worker, lister=object(), root="", item=None, _anchor=0)
-    model = SimpleNamespace(set_hits=lambda hits: None)
+    model = SimpleNamespace(set_hits=lambda hits: None, load=lambda path, entries: None)
     search = TreeSearch(host, model)  # type: ignore[arg-type]
     search.list_folder("docs")
     search.list_folder("notes")
+    search.list_folder("runs")
+    worker.done[3]([], None)  # runs landed: nothing left to cancel for it
     search.query("")
     assert sorted(worker.cancelled) == [1, 2]

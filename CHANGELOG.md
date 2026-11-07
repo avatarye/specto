@@ -30,9 +30,10 @@ the release and move on their own schedule.
 - A folder row's modified time is the folder's own (SPEC-40). On Windows the time the
   listing showed came from the folder's entry in its parent, which falls behind after a
   change for as long as nothing opens the folder (a file added 5 s after the folder was
-  last opened left the row 5 s behind, and it did not catch up on its own). The listing now stats each folder, about
-  20 us a folder locally and milliseconds over a network drive, and a listing no longer
-  wanted (a new project, a new search) stops between entries. A junction or link the
+  last opened left the row 5 s behind, and it did not catch up on its own). The listing
+  now stats each folder, about 20 us a folder locally and milliseconds over a network
+  drive, and a listing no longer wanted (a new project, a new search) stops between
+  entries. A junction or link the
   source follows (`follow_links`) shows its target's time.
 - Gallery captions sit on the thumbnails (SPEC-6): each key overlays its tile's bottom
   edge, light text on a dark scrim that reads on light and dark images, and takes no row

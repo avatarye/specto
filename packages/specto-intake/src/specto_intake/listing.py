@@ -7,12 +7,11 @@ and link policy; the screener with its aliases) and answers two questions:
 
 - ``list_dir(path, cancelled)``: the entries one level below a tree path, folders
   first; it checks ``cancelled`` between entries (a folder's stat can cost milliseconds
-  on a network drive). The root
-  (``""``) lists the project folder; a source narrowed to a subfolder shows only the
-  folders on the way to it; a source outside the project appears under its absolute
-  path. An archive is listed as a folder whose members are virtual entries
-  (``drive.zip#/front/00042.jpg``, ``specto_core.containers``), read from the archive's
-  directory when it is expanded.
+  on a network drive). The root (``""``) lists the project folder; a source narrowed to
+  a subfolder shows only the folders on the way to it; a source outside the project
+  appears under its absolute path. An archive is listed as a folder whose members are
+  virtual entries (``drive.zip#/front/00042.jpg``, ``specto_core.containers``), read
+  from the archive's directory when it is expanded.
 - ``files_under(paths)``: every file under the given folders (or the files named), as
   the recursive scan would list them, with the stat the listing saw, so a folder pick
   still means every file under it. It checks ``cancelled`` between folders.
@@ -208,10 +207,11 @@ class TreeLister:
     def list_dir(self, path: str = "", cancelled: Callable[[], bool] | None = None) -> list[Entry]:
         """The entries one level below tree path ``path`` (``""``: the root), folders
         first, each group sorted by name case-insensitively. A folder that is not
-        there, or cannot be read, lists nothing. Stops early, with what it has, once
-        ``cancelled()`` is true: each folder is a stat of its own (SPEC-40), about 20 us
-        on a local disk and milliseconds over SMB, so a level of thousands of folders on
-        a network drive must not hold the worker after its answer is no longer wanted."""
+        there, or cannot be read, lists nothing. Stops early once ``cancelled()`` is
+        true: each folder is a stat of its own (SPEC-40), about 20 us on a local disk and
+        milliseconds over SMB, so a level of thousands of folders on a network drive must
+        not hold the worker after its answer is no longer wanted. A cancelled listing is
+        partial: discard it (the tree's worker drops a cancelled job's result)."""
         path = path.strip("/")
         virtual = split_virtual(path)
         if virtual is not None:
@@ -230,7 +230,7 @@ class TreeLister:
         entries.extend(e for e in self._way_down(path) if e.path not in seen)
         return _sorted(entries)
 
-    def _list_folder(self, r: _Root, path: str, stop: Callable[[], bool]) -> list[Entry]:
+    def _list_folder(self, r: _Root, path: str, cancelled: Callable[[], bool]) -> list[Entry]:
         folder = r.abs(path)
         if r.is_file:
             # a single-file source: its folder shows that file alone
@@ -252,7 +252,7 @@ class TreeLister:
         out: list[Entry] = []
         files: list[tuple[str, int, int]] = []
         for e in found:
-            if stop():
+            if cancelled():
                 break
             child = f"{path}/{e.name}" if path else e.name
             try:

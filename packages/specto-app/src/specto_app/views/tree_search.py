@@ -78,12 +78,7 @@ class TreeSearch:
         host = self.host
         self._loading.clear()  # a listing still in flight lands nowhere (its gen is old)
         host._anchor = -1  # a Shift range never spans the two trees
-        if self._token is not None:
-            host.worker.cancel(self._token)
-            self._token = None
-        for t in self._listings:
-            host.worker.cancel(t)
-        self._listings.clear()
+        self.cancel()
         self._gen += 1
         gen = self._gen
         if not self.active:
@@ -142,9 +137,13 @@ class TreeSearch:
         self.query("")
 
     def cancel(self) -> None:
+        """Cancel the query in flight and the search tree's folder listings."""
         if self._token is not None:
             self.host.worker.cancel(self._token)
             self._token = None
+        for t in self._listings:
+            self.host.worker.cancel(t)
+        self._listings.clear()
 
     # -- the search tree's rows ------------------------------------------------------------------
     def list_folder(self, path: str) -> None:
@@ -155,8 +154,11 @@ class TreeSearch:
             return
         self._loading.add(path)
         gen = self._gen
+        token: list[int] = []  # set once submitted (inline jobs land inside submit)
 
         def landed(entries: list[Entry] | None, error: str | None) -> None:
+            if token:
+                self._listings.discard(token[0])
             if gen != self._gen:
                 return
             self._loading.discard(path)
@@ -166,9 +168,10 @@ class TreeSearch:
             if entries is not None:
                 self.model.load(path, entries)
 
-        token = self.host.worker.submit(lambda cancelled: lister.list_dir(path, cancelled), landed)
-        if self.host.worker.is_pending(token):
-            self._listings.add(token)
+        t = self.host.worker.submit(lambda cancelled: lister.list_dir(path, cancelled), landed)
+        if self.host.worker.is_pending(t):
+            token.append(t)
+            self._listings.add(t)
 
     def stats(self) -> dict[str, tuple[int, int]]:
         """``path -> (size, mtime_ns)`` of the file hits: what a pick of one sends."""
