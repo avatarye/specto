@@ -483,10 +483,13 @@ rounds, and prints the source's own split of each load (`load_timings`, also in 
 
 Run it on the GPU tier, under `tools/gpu_guard.py` and the heavy-run slot. The public
 sample world for it is Isaac 4.5's Simple_Warehouse from NVIDIA's public content bucket
-(about 500 MB, under NVIDIA's terms; local use only, never committed).
-`tools/fetch_sample_usd.py` fetches it, and with `--textures 1x1` makes a copy whose
-PNGs are 1x1 images, so the same stage and materials load without the texture decode.
-Two stages of one name are told apart by their folder in the table:
+(2047 files, about 554 MB, under NVIDIA's terms; local use only, never committed;
+`THIRD_PARTY_NOTICES.md` section 5.1). `tools/fetch_sample_usd.py` fetches it, checks
+every file against the bucket's listing (size and, for single-part objects, the MD5 the
+ETag carries), pins the world's entry file by sha256 so the numbers below name the exact
+world, and with `--textures 1x1` makes a copy whose PNGs are 1x1 images, so the same
+stage and materials load without the texture decode. Two stages of one name are told
+apart by their folder in the table:
 
 ```text
 uv run --no-sync python tools/fetch_sample_usd.py <scratch>/full

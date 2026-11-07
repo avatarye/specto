@@ -89,7 +89,7 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from PySide6.QtCore import Property, QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtQuick import QQuickItem
@@ -118,6 +118,7 @@ from ..usd.environment import (
     sky_of,
 )
 from ..usd.environment import LABELS as ENVIRONMENT_LABELS
+from ..usd.load_timings import LoadTimings
 from ..usd.timecodes import USD_TIMELINE, StageTime
 from . import gallery_native
 from .scene3d_view import initial_camera
@@ -286,9 +287,9 @@ def stub_launcher(width: int, height: int) -> list[str]:
 def rtx_launcher(width: int, height: int) -> list[str]:
     """``specto-usd-source`` with the RTX renderer (#137), a fresh renderer for each stage
     after the first: both #155 crashes were GPU page faults about 3 s after a stage was
-    attached to a running renderer. A fresh one costs 1-1.5 s more per switch, up to 4 s
-    after a large stage (SPEC-27, tools/bench_usd_load.py), next to the 5-7 s the first
-    frame of a large world takes either way."""
+    attached to a running renderer. A fresh one costs 1.0-1.4 s more per switch (SPEC-27,
+    tools/bench_usd_load.py; 3-4 s if ovrtx's ``keep_system_alive`` were off), next to
+    the 5-7 s the first frame of a large world takes either way."""
     argv = [sys.executable, "-m", "specto_app.usd.source", "--renderer", "rtx"]
     return [*argv, "--width", str(width), "--height", str(height), "--fresh-renderer"]
 
@@ -949,7 +950,7 @@ class UsdHost(Stepping, QuickViewHost):
         self._fallback_told = False
         # where the shown stage's load spent its time (the source's ``load_timings``,
         # SPEC-27); cleared when a load starts or fails
-        self.load_timings: dict[str, float] = {}
+        self.load_timings: LoadTimings = {}
         #: the loading label (#156): {file, phase} from the open or reload until the new
         #: stage's first complete frame is on screen; None: the picture shows
         self.cover: dict[str, str] | None = None
@@ -1263,7 +1264,9 @@ class UsdHost(Stepping, QuickViewHost):
                 self.frame_item.setProperty("ring", params.get("name", ""))
         elif name == "load_timings":
             if params.get("path") == self.path:  # not a stage the user stepped past
-                self.load_timings = {k: v for k, v in params.items() if k != "path"}
+                self.load_timings = cast(
+                    LoadTimings, {k: v for k, v in params.items() if k != "path"}
+                )
         elif name == "health":
             seq = params.get("seq")
             self._on_phase(

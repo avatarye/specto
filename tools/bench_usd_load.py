@@ -198,9 +198,14 @@ def main() -> int:
         run.close()
         report["events"] = run.events
         (ns.work / "usd_load.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
-    split = ("renderer_s", "open_s", "populate_s", "environment_s", "first_frame_s", "total_s")
-    heads = ("renderer", "open", "populate", "environ.", "1st frame", "total")
-    print(f"\nround  {'stage':30} {'to ok':>6}  " + "  ".join(f"{h:>9}" for h in heads))
+    from specto_app.usd.load_timings import LoadTimings
+
+    split = tuple(LoadTimings.__annotations__)  # the phases, in order
+    heads = {"renderer_s": "renderer", "environment_s": "environ.", "first_frame_s": "1st frame"}
+    print(
+        f"\nround  {'stage':30} {'to ok':>6}  "
+        + "  ".join(f"{heads.get(k, k.removesuffix('_s')):>9}" for k in split)
+    )
     for row in report["loads"]:
         t = row.get("timings", {})
         print(

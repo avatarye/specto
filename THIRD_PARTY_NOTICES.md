@@ -175,6 +175,23 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 - `ffmpeg` / `ffprobe` (LGPL-2.1+ or GPL depending on the build) on PATH:
   `tools/make_testdata.py` renders the git-ignored test dataset with them.
 
+### 5.1 NVIDIA's Isaac Sim sample world, `tools/fetch_sample_usd.py`
+
+The usd view's load profiling (SPEC-27, `tools/bench_usd_load.py`, developer.md
+"Profiling a usd load") measures a public sample world: Isaac Sim 4.5's
+`Environments/Simple_Warehouse` and the `Props/Forklift` it references, 2047 files and
+about 554 MB, from NVIDIA's public content bucket
+(`https://omniverse-content-production.s3-us-west-2.amazonaws.com/Assets/Isaac/4.5/Isaac/`).
+These are NVIDIA "Content" under the **NVIDIA Omniverse License Agreement** (section 3.1
+quotes its terms), so **nothing of them is committed**: a developer fetches them into a
+scratch folder of their own, outside any checkout, and nothing in Specto, its tests or
+its build reads them. The script checks every file against the bucket's listing, its size
+and, for the 2037 single-part objects, its ETag (the MD5 of the content), and pins the
+world's entry file `full_warehouse.usd` by sha256, so a measurement names the exact world
+it was made on. A per-file sha256 manifest of 2047 files is not kept in the repository for
+an input that only a developer's bench reads; the entry file's pin and the ETag checks
+stand in for it.
+
 ## 6. Services the app may contact at runtime
 
 Only when the user turns the capability on for a view: OpenStreetMap and Esri basemap

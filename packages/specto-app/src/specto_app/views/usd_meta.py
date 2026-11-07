@@ -21,6 +21,8 @@ from pydantic import BaseModel
 from specto_core.links import CameraValue
 from specto_core.machine import MachineCapability, usd_renderer
 
+from ..usd.load_timings import LoadTimings
+
 
 class UsdSnapMeta(BaseModel):
     path: str | None
@@ -47,9 +49,8 @@ class UsdSnapMeta(BaseModel):
     #: "" when a renderer runs or the stub was asked for
     fallback_reason: str = ""
     #: where the shown stage's load spent its time, in seconds (SPEC-27; the source's
-    #: ``load_timings``: renderer_s, open_s, populate_s, environment_s, first_frame_s,
-    #: total_s); {} while a load runs, after a failed one, or with no stage
-    load_timings: dict[str, float] = {}
+    #: ``load_timings``); {} while a load runs, after a failed one, or with no stage
+    load_timings: LoadTimings = {}
 
 
 def usd_snap_meta(
@@ -62,7 +63,7 @@ def usd_snap_meta(
     camera: CameraValue | Mapping[str, Any] | None = None,
     environment: Mapping[str, Any] | None = None,
     fallback_reason: str = "",
-    load_timings: Mapping[str, float] | None = None,
+    load_timings: LoadTimings | None = None,
 ) -> dict[str, Any]:
     """``UsdSnapMeta`` as JSON for a usd view with ``params`` on a machine with ``caps``;
     the keyword arguments are what the host and its source know (None: not yet;
@@ -82,7 +83,7 @@ def usd_snap_meta(
         look_through=params.get("look_through"),
         camera_speed=float(params.get("camera_speed", 1.0)),
         fallback_reason=fallback_reason,
-        load_timings=dict(load_timings or {}),
+        load_timings=load_timings or {},
         **{k: v for k, v in env.items() if k in UsdSnapMeta.model_fields},
     )
     return meta.model_dump(mode="json")

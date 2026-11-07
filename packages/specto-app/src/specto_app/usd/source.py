@@ -112,7 +112,7 @@ from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 from specto_app.frames.control import ControlServer
 from specto_app.frames.server import FrameServer
@@ -120,6 +120,7 @@ from specto_core.machine import INSTALL_HINT, STORM_HINT, openusd_prefix
 
 from . import environment as env
 from . import skies
+from .load_timings import LoadTimings
 from .nav import CameraState, Nav, usd_camera
 
 #: a USD time step on of at most this many seconds plays (the simulation advances with
@@ -162,18 +163,6 @@ class OverlayBuild:
     started: float  # time.monotonic()
     stop: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
-
-
-class LoadTimings(TypedDict, total=False):
-    """Where one stage load's seconds went (SPEC-27); ``renderer_s`` only for a load that
-    swapped in a fresh renderer."""
-
-    renderer_s: float
-    open_s: float
-    populate_s: float
-    environment_s: float
-    first_frame_s: float
-    total_s: float
 
 
 def settle(answers: list[Future], fn: Callable[[], Any]) -> Any:
@@ -565,7 +554,7 @@ class UsdSource:
                     self._close_renderer()  # no second stage in a renderer (#155)
                     self._start_renderer()
                     self.load_timings["renderer_s"] = time.perf_counter() - started
-                self._load(load, timed=True)
+                self._load(load)
             modes = self._take_mode()  # against the stage loaded now
             if self.renderer is None or self.info is None or self.failed:
                 if timecode is not None:
@@ -890,15 +879,12 @@ class UsdSource:
         self.timecode = timecode
         self._budget = self.settle_steps
 
-    def _load(self, path: str, timed: bool = False) -> None:
+    def _load(self, path: str) -> None:
         """Open ``path`` and hand it to the renderer; its first frame ends the load, and
-        ``load_timings`` reports where the time went (SPEC-27). ``timed``: the caller
-        started the load's timing (a fresh renderer's swap counts in it); else it starts
-        here."""
+        ``load_timings`` reports where the time went (SPEC-27). The caller began the
+        load's timing (``_begin_timing``), so a fresh renderer's swap counts in it."""
         from .stage import open_stage
 
-        if not timed:
-            self._begin_timing()
         self.health("composing", os.path.basename(path))
         self._building_shown = False  # the load's own phases say what goes on now
         self._drain()
@@ -967,6 +953,7 @@ class UsdSource:
         self.failed = False
         self._start_renderer()
         if self.info is not None and self._want_load is None:
+            self._begin_timing()  # the restart's own load; the renderer start is not in it
             self._load(self.info.path)
 
     def _step(self) -> None:

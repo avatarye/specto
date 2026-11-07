@@ -82,14 +82,11 @@ the release and move on their own schedule.
   stage opened, the renderer's stage populated, the environment set up, from there to
   that frame, the total), and `snap` shows them as `load_timings`.
   `tools/bench_usd_load.py` times loads in the source alone, fresh or reused renderer,
-  with an optional py-spy profile. On a public 26k-prim warehouse with warm caches, a
-  reload takes 7-10 s, 5-7 s of it the renderer's first frame, which is the same with
-  every texture swapped for a 1x1 image: the time is materials and geometry, not texture
-  decode. The fresh renderer adds 1-1.5 s a switch (3-4 s without ovrtx's default
-  `keep_system_alive`); clearing a kept renderer's stage instead (`reset_stage`) costs the
-  same as a reused one and stays a follow-up. ovrtx 0.6.0's `datastore_cache` relocates
-  its DerivedDataCache (1.5 GB for this world) and buys nothing warm; its texture cache
-  has no setting.
+  with an optional py-spy profile. On a public 26k-prim warehouse with warm caches a
+  reload takes 7-10 s, 5-7 s of it the renderer's first frame, and the same with every
+  texture swapped for a 1x1 image: the time is materials and geometry, not texture
+  decode. The other numbers (the fresh renderer's swap, `reset_stage`, ovrtx's caches)
+  are in `docs/setup/developer.md`, "Profiling a usd load".
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the
