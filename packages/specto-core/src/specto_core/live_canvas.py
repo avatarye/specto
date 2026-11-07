@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
+import sys
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -98,6 +101,9 @@ class CanvasConflict(CanvasInvalid):
 _OBJECT_PATH = re.compile(r"^/(views|links)/([^/]+)")
 #: how many turn-start copies ``mark`` keeps (the prompt bar needs the newest)
 MARK_COPIES = 4
+#: what a submit off the canvas's own thread does: ``warn`` (the app's default), ``raise``
+#: (the test suite sets it, conftest.py) or ``off``
+THREAD_CHECK_ENV = "SPECTO_THREAD_CHECK"
 
 
 def _conflict(section: str, oid: str, entry: Any, fields: list[str]) -> Problem:
@@ -214,6 +220,11 @@ class LiveCanvas:
         #: SPEC-18); the newest ``MARK_COPIES`` are kept
         self._marks: dict[int, tuple[int, dict[str, dict[str, Any]]]] = {}
         self._mark_no = 0
+        #: the thread that owns the canvas (the GUI thread in the app): every submit runs
+        #: there, so one submit's read, merge and apply never interleave with another's.
+        #: ``None``: the caller serialises submits with a lock of its own instead (the
+        #: SDK's test endpoints, ``serialised_elsewhere``)
+        self.owner_thread: int | None = threading.get_ident()
 
     # -- construction ------------------------------------------------------------------
     @classmethod
@@ -402,6 +413,7 @@ class LiveCanvas:
         turn-start copies (SPEC-18); a field both changed differently is refused with
         ``CanvasConflict``, carrying the live entry (#98). A submit without a ``label``
         gets one from its patch (``diff_text.patch_label``)."""
+        self._check_thread("submit")
         if (document is None) == (edits is None):
             raise CanvasInvalid(
                 [
@@ -519,6 +531,31 @@ class LiveCanvas:
             cursor=self.cursor,
             depth=len(self.history),
         )
+
+    def serialised_elsewhere(self) -> None:
+        """The caller runs submits from several threads but one at a time, under a lock
+        of its own (the SDK's test endpoints): the thread check stands down."""
+        self.owner_thread = None
+
+    def _check_thread(self, what: str) -> None:
+        """Catch a change that moved ``what`` off the canvas's own thread (SPEC-18): today
+        every submit runs on the GUI thread (the prompt bar's agent tools on the qasync
+        loop, the endpoint's ``QLocalServer``, the gestures), which is what keeps a
+        submit's read, merge and apply whole without a lock. Raises under tests, warns in
+        the app (``THREAD_CHECK_ENV``)."""
+        if self.owner_thread is None or threading.get_ident() == self.owner_thread:
+            return
+        mode = os.environ.get(THREAD_CHECK_ENV, "warn")
+        if mode == "off":
+            return
+        message = (
+            f"LiveCanvas.{what} ran on thread {threading.current_thread().name!r}, not the "
+            "thread that owns the canvas: submits must stay on it (no lock guards a "
+            "submit's read, merge and apply)"
+        )
+        if mode == "raise":
+            raise RuntimeError(message)
+        print(f"[WARN] {message}", file=sys.stderr)
 
     def retired_ids(self) -> set[str]:
         """View names and link ids the undo history names that the canvas no longer has

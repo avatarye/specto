@@ -197,8 +197,10 @@ class InProcessTransport:
     """Talks to an ``RpcHandler`` directly: ``send`` runs the request synchronously and
     queues the response plus any pushed notifications for ``recv``."""
 
-    def __init__(self, handler: RpcHandler) -> None:
+    def __init__(self, handler: RpcHandler, lock: Any = None) -> None:
         self.handler = handler
+        #: held around each request (``InProcessEndpoint`` shares one among its clients)
+        self._lock = lock if lock is not None else contextlib.nullcontext()
         self._lines: deque[str] = deque()
         self.conn: RpcConnection = handler.connect(send=self._push)
         self._closed = False
@@ -215,7 +217,8 @@ class InProcessTransport:
     def send(self, line: str) -> None:
         if self._closed:
             raise TransportError("transport is closed")
-        out = self.handler.handle_line(self.conn, line)
+        with self._lock:
+            out = self.handler.handle_line(self.conn, line)
         if out:
             self._lines.extend(ln for ln in out.split("\n") if ln)
 

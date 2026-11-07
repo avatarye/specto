@@ -23,12 +23,18 @@ from .transport import InProcessTransport, SocketTransport
 
 
 class InProcessEndpoint:
+    """The engine behind direct calls. Its clients may run on any thread (an MCP server
+    calls tools from worker threads): one lock serialises their requests, as the app's
+    GUI thread does, so the canvas's thread check stands down."""
+
     def __init__(self, engine: Engine | None = None, *, project: Project | None = None) -> None:
         self.engine = engine or Engine(project=project)
         self.handler = RpcHandler(self.engine)
+        self._lock = threading.RLock()
+        self.engine.live.serialised_elsewhere()
 
     def transport(self) -> InProcessTransport:
-        return InProcessTransport(self.handler)
+        return InProcessTransport(self.handler, self._lock)
 
     def client(
         self,
@@ -51,6 +57,10 @@ class TcpEndpoint:
     def __init__(self, handler: RpcHandler, *, host: str = "127.0.0.1", port: int = 0) -> None:
         self.handler = handler
         self._lock = threading.Lock()
+        # every handler call holds the lock: the canvas's thread check stands down
+        live = getattr(getattr(handler, "engine", None), "live", None)
+        if live is not None:
+            live.serialised_elsewhere()
         self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._srv.bind((host, port))

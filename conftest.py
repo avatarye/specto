@@ -8,11 +8,19 @@ the ``link.approve`` command never approves by itself (#203, ADR 0006), it opens
 approval card in the window; tests with no window stand in for the user's click by
 calling the runtime's ``approve`` directly, exactly what the view's Approve button and
 the card call. There is no flag, env var or command for this: nothing outside the
-process can reach it."""
+process can reach it.
+
+A submit off the thread that owns the canvas raises under tests (``SPECTO_THREAD_CHECK``,
+``live_canvas._check_thread``; the app only warns), in this process and in the app
+processes the GUI tests start."""
 
 from __future__ import annotations
 
+import os
+
 import pytest
+
+os.environ.setdefault("SPECTO_THREAD_CHECK", "raise")
 
 
 @pytest.fixture(autouse=True)

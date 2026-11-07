@@ -243,3 +243,34 @@ def test_each_mark_keeps_its_own_turn_start_copy(live: LiveCanvas):
     gestures.move_views(live, {"kobi": (700, 300)})
     live.submit(edits={"views": {"kobi": {"label": "front"}}}, origin=AGENT, since=first)
     assert position(live, "kobi") == [700.0, 300.0]
+
+
+def test_a_submit_off_the_canvas_s_thread_is_caught(live: LiveCanvas, monkeypatch, capsys):
+    """Every submit runs on the thread that owns the canvas (the GUI thread: the prompt
+    bar's agent on the qasync loop, the endpoint, the gestures), so one submit's read,
+    merge and apply never interleave with another's. A change that moved a submit onto
+    another thread is caught: raised under tests, a warning in the app."""
+    import threading
+
+    def from_a_worker() -> list[BaseException]:
+        errors: list[BaseException] = []
+
+        def run() -> None:
+            try:
+                live.submit(edits={"views": {"kobi": {"label": "x"}}}, origin=AGENT)
+            except BaseException as e:
+                errors.append(e)
+
+        worker = threading.Thread(target=run)
+        worker.start()
+        worker.join(10)
+        return errors
+
+    monkeypatch.setenv("SPECTO_THREAD_CHECK", "raise")
+    (error,) = from_a_worker()
+    assert isinstance(error, RuntimeError) and "owns the canvas" in str(error)
+    assert live.data["views"]["kobi"]["label"] == "kobi"
+    monkeypatch.setenv("SPECTO_THREAD_CHECK", "warn")
+    assert from_a_worker() == []
+    assert "[WARN]" in capsys.readouterr().err
+    assert live.data["views"]["kobi"]["label"] == "x"
