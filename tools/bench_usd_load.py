@@ -66,23 +66,27 @@ class Run:
         self.stderr = open(self.work / "source-stderr.log", "w", encoding="utf-8")  # noqa: SIM115
         self.src = FrameSourceProcess.spawn(argv, stderr=self.stderr)
         self.events: list[dict[str, Any]] = []
+        self.pending: list[dict[str, Any]] = []  # stamped, not yet seen by an ``until``
         self.spy: subprocess.Popen | None = None
 
     def stamp(self) -> float:
         return round(time.monotonic() - self.t0, 3)
 
-    def pump(self) -> list[dict[str, Any]]:
-        out = []
+    def pump(self) -> None:
         for name, params in self.src.poll():
             ev = {"t": self.stamp(), "event": name, **params}
             self.events.append(ev)
-            out.append(ev)
-        return out
+            self.pending.append(ev)
 
     def until(self, test, timeout: float) -> dict[str, Any]:
+        """The first event, in arrival order, that passes ``test``. The events before it
+        are passed over; the ones after it wait for the next call (one poll brings several
+        when the source sends them together, as ``ok`` and ``load_timings`` often come)."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            for ev in self.pump():
+            self.pump()
+            while self.pending:
+                ev = self.pending.pop(0)
                 if test(ev):
                     return ev
             if self.src.proc.poll() is not None:
@@ -150,6 +154,20 @@ class Run:
                 self.spy.terminate()
 
 
+def labels(paths: list[str]) -> list[str]:
+    """One label per stage: its file name and, when two stages share a name (a world and
+    its 1x1-texture copy), the first folder that tells them apart."""
+    parts = [Path(os.path.abspath(p)).parts for p in paths]
+    out = [p[-1] for p in parts]
+    for name in {n for n in out if out.count(n) > 1}:
+        same = [p for p in parts if p[-1] == name]
+        depth = next((i for i in range(min(map(len, same))) if len({p[i] for p in same}) > 1), None)
+        if depth is not None:
+            pairs = zip(parts, out, strict=True)
+            out = [f"{name} ({p[depth]})" if p[-1] == name else lb for p, lb in pairs]
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("stages", nargs="+")
@@ -170,9 +188,9 @@ def main() -> int:
         report["ready_s"] = run.stamp()
         print(f"[OK] source pid {ready['pid']} ready at {report['ready_s']} s", flush=True)
         for r in range(ns.repeat):
-            for stage in ns.stages:
+            for stage, label in zip(ns.stages, labels(ns.stages), strict=True):
                 row = run.load(os.path.abspath(stage))
-                row["round"] = r + 1
+                row.update(stage=label, round=r + 1)
                 report["loads"].append(row)
                 print(f"[OK] {row}", flush=True)
                 time.sleep(2)  # let the frames settle before the next pick
@@ -181,15 +199,13 @@ def main() -> int:
         report["events"] = run.events
         (ns.work / "usd_load.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
     split = ("renderer_s", "open_s", "populate_s", "environment_s", "first_frame_s", "total_s")
-    print(
-        "\nround  stage                    to ok  renderer      open  populate  environ.  "
-        "1st frame     total"
-    )
+    heads = ("renderer", "open", "populate", "environ.", "1st frame", "total")
+    print(f"\nround  {'stage':30} {'to ok':>6}  " + "  ".join(f"{h:>9}" for h in heads))
     for row in report["loads"]:
         t = row.get("timings", {})
         print(
-            f"{row['round']:5}  {row['stage'][:22]:22} {row.get('ok', float('nan')):6.2f}  "
-            + "  ".join(f"{t.get(k, float('nan')):8.2f}" for k in split)
+            f"{row['round']:5}  {row['stage'][:30]:30} {row.get('ok', float('nan')):6.2f}  "
+            + "  ".join(f"{t.get(k, float('nan')):9.2f}" for k in split)
         )
     return 0
 
