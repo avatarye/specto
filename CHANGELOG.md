@@ -15,6 +15,11 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The web build leaves no truncated HDRI behind (SPEC-45): each `.hdr` streams into a
+  `.part` beside it and is renamed into place once its sha256 matches, and a source
+  checkout's `specto_web.hdri_source` serves a cached `.hdr` only at the manifest's
+  size. A build killed mid-download used to leave a cut-off file that the usd view's
+  dome light then read.
 - In the 3d view a glTF/GLB keeps its own Y up and is no longer turned by the view's
   `up` param (SPEC-50, ADR 0028 amended), the same as a converted DAE. A Z-up STL, a DAE
   and a glTF now line up in one scene under `up: z`. A glTF exported Z up against the glTF

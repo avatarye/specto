@@ -104,6 +104,57 @@ def test_the_build_fetches_each_hdri_once_and_refuses_one_off_its_pin(tmp_path, 
     assert not got["studio"].exists(), "a file off its pin is not kept"
 
 
+def test_a_killed_build_leaves_no_hdri_the_source_would_serve(tmp_path, monkeypatch):
+    """SPEC-45: the build streams each .hdr into a ``.part`` beside it and renames it once
+    the sha256 matches, so a build that dies in the download leaves nothing at the .hdr's
+    name (and no part behind when it dies by an error); and ``hdri_source`` serves a
+    cached .hdr only at the manifest's size, so a truncated file an older build left at
+    that name is not used either."""
+    build = load_build()
+    body = b"#?RADIANCE\n" + bytes(range(256)) * 8
+    entry = {
+        "name": "studio",
+        "url": "https://dl.polyhaven.org/x/studio_1k.hdr",
+        "sha256": hashlib.sha256(body).hexdigest(),
+        "size": len(body),
+    }
+    manifest = {"cube_size": 256, "environments": [entry]}
+    web = tmp_path / "web"
+    (web / "3d").mkdir(parents=True)
+    (web / "3d" / "environments.json").write_text(json.dumps(manifest), encoding="utf-8")
+    cache = web.parent / specto_web.HDRI_CACHE
+    monkeypatch.setattr(build, "HDRI_CACHE", cache)
+    dst = cache / "studio_1k.hdr"
+    part = cache / "studio_1k.hdr.part"
+
+    class Cut(io.BytesIO):
+        """A download the build dies in: one block arrives, then the connection is gone.
+        While it flows, nothing stands at the .hdr's name; the bytes go to the part."""
+
+        def read(self, n: int = -1) -> bytes:
+            assert not dst.exists(), "a half-written file at the .hdr's name"
+            if self.tell() > 0:
+                assert part.is_file()
+                raise ConnectionResetError("the build was cut off")
+            return super().read(64)
+
+    monkeypatch.setattr(build.urllib.request, "urlopen", lambda req, timeout=0: Cut(body))
+    with pytest.raises(ConnectionResetError):
+        build.fetch_hdri(manifest)
+    assert not dst.exists() and not part.exists()
+    assert specto_web.hdri_source("studio", web) is None
+
+    # a truncated file at the name itself (an older build killed mid-write): not served
+    dst.write_bytes(body[:100])
+    assert specto_web.hdri_source("studio", web) is None
+
+    # a whole download: served, and only the .hdr is left in the cache
+    monkeypatch.setattr(build.urllib.request, "urlopen", lambda req, timeout=0: io.BytesIO(body))
+    assert build.fetch_hdri(manifest) == {"studio": dst}
+    assert specto_web.hdri_source("studio", web) == dst
+    assert [p.name for p in cache.iterdir()] == [dst.name]
+
+
 def test_the_build_stamp_follows_the_pins(tmp_path):
     build = load_build()
     m = build.hdri_manifest()

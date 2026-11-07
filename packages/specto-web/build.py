@@ -10,7 +10,8 @@ specto:// host. Monaco keeps its historical location ``web/vendor/vs``.
 
 The 3D view's HDRI environments (#175) are not npm packages: ``web/3d/environments.json``
 pins each one (Poly Haven URL, sha256, author, CC0). They download once into
-``node_modules/.hdri`` (checked against the sha256), are prefiltered into
+``node_modules/.hdri`` (streamed to a ``.part``, checked against the sha256, then renamed
+into place, so a killed build leaves no truncated .hdr), are prefiltered into
 ``web/vendor/hdri/<name>.env`` by ``bake_env.py`` (Babylon in headless Qt WebEngine) and
 ``web/vendor/hdri.version`` records the manifest they came from. Where no WebGL2 context
 can bake them the .hdr itself is vendored and the page filters it on load.
@@ -21,6 +22,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -35,6 +37,8 @@ HDRI_MANIFEST = WEB / "3d" / "environments.json"
 HDRI_CACHE = NODE_MODULES / ".hdri"
 HDRI_VENDOR = VENDOR / "hdri"
 HDRI_STAMP = VENDOR / "hdri.version"
+#: a download in flight, beside its .hdr; renamed over it once its sha256 matches
+HDRI_PART_SUFFIX = ".part"
 
 #: name -> (npm package, [(source under the package, destination under web/vendor)])
 #: The first destination is the one ``--check`` probes.
@@ -133,20 +137,31 @@ def sha256_of(path: Path) -> str:
 
 
 def fetch_hdri(manifest: dict | None = None) -> dict[str, Path]:
-    """Each manifest HDRI in the download cache, verified: name -> .hdr path."""
+    """Each manifest HDRI in the download cache, verified: name -> .hdr path.
+
+    A download streams into ``<name>.part`` beside its target and is renamed over it only
+    once its sha256 matches, so nothing ever stands at the .hdr's name but a whole file
+    (SPEC-45: a build killed mid-download used to leave a truncated .hdr that a source
+    checkout's ``specto_web.hdri_source`` served). A part left by a kill is overwritten by
+    the next build; one left by an error is removed here."""
     out: dict[str, Path] = {}
     HDRI_CACHE.mkdir(parents=True, exist_ok=True)
     for e in (manifest or hdri_manifest())["environments"]:
         dst = HDRI_CACHE / Path(e["url"]).name
         if not dst.is_file() or sha256_of(dst) != e["sha256"]:
             print(f"[..] fetch {e['url']}")
+            part = dst.with_name(dst.name + HDRI_PART_SUFFIX)
             req = urllib.request.Request(e["url"], headers={"User-Agent": "specto-build"})
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                dst.write_bytes(resp.read())
-            got = sha256_of(dst)
-            if got != e["sha256"]:
-                dst.unlink()
-                raise SystemExit(f"[ERROR] {e['url']}: sha256 {got}, pinned {e['sha256']}")
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp, part.open("wb") as f:
+                    shutil.copyfileobj(resp, f, 1 << 20)
+                got = sha256_of(part)
+                if got != e["sha256"]:
+                    dst.unlink(missing_ok=True)  # nor does a stale one off its pin stay
+                    raise SystemExit(f"[ERROR] {e['url']}: sha256 {got}, pinned {e['sha256']}")
+                os.replace(part, dst)
+            finally:
+                part.unlink(missing_ok=True)
         out[e["name"]] = dst
     return out
 

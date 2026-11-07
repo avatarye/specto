@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 from test_usd_host import health, stages, submit_usd
 
+import specto_web
 from specto_app.hosts import HostContext
 from specto_app.usd import skies
 from specto_app.views.usd_view import USD_MANIFEST, UsdHost
@@ -92,7 +93,7 @@ def cache_hdri(name: str) -> Path:
     (the stub source never reads them)."""
     entry = skies.hdri_entry(name)
     assert entry is not None
-    path = skies.hdri_dir() / str(entry["url"]).rsplit("/", 1)[-1]
+    path = skies.hdri_dir() / specto_web.hdri_file_name(entry)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("wb") as f:
         f.truncate(int(entry["size"]))
@@ -101,21 +102,33 @@ def cache_hdri(name: str) -> Path:
 
 
 @pytest.fixture
-def cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """An empty user folder but for the default HDRI (sunny), as fetched; never this
-    machine's: neither its user folder nor a source checkout's web build cache
-    (SPEC-37), and no network (the fetchers are fakes)."""
-    import specto_web
-
+def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """An empty user folder, its skies cache answered: never this machine's user folder
+    nor a source checkout's web build cache (SPEC-37), no network (the fetchers are
+    fakes), and no HDRI until a test or ``default_hdri`` lands one."""
     monkeypatch.setenv("SPECTO_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("SPECTO_USER_DIR", str(tmp_path / "user"))
     monkeypatch.setattr(specto_web, "hdri_source", lambda name, root=None: None)
-    cache_hdri("sunny")
     return tmp_path / "user" / "skies"
 
 
 @pytest.fixture
-def fetchers(cache: Path) -> list[FakeFetcher]:
+def default_hdri(sandbox: Path) -> Path:
+    """The default HDRI (sunny) in the sandbox's user folder, as fetched: what the host
+    finds cached when the test says nothing about HDRIs."""
+    return cache_hdri("sunny")
+
+
+@pytest.fixture
+def no_hdri(sandbox: Path) -> Path:
+    """The sandbox with no HDRI anywhere, said in the test's own words: the host has
+    something to fetch."""
+    assert skies.hdri_path("sunny") is None
+    return sandbox
+
+
+@pytest.fixture
+def fetchers(sandbox: Path) -> list[FakeFetcher]:
     return []
 
 
@@ -133,8 +146,8 @@ def make_host(cache: Path, fetchers: list[FakeFetcher], params: dict | None = No
 
 
 @pytest.fixture
-def host(cache: Path, fetchers: list[FakeFetcher]):
-    h = make_host(cache, fetchers)
+def host(sandbox: Path, default_hdri: Path, fetchers: list[FakeFetcher]):
+    h = make_host(sandbox, fetchers)
     yield h
     h.dispose()
 
@@ -168,8 +181,8 @@ def test_the_control_lists_the_choices_the_skies_and_the_hdris(host):
     assert snap["sky_fetch"] == {"sky": "ClearSky", "cached": False}
 
 
-def test_picking_a_choice_is_one_submit_and_the_picture_follows(host, cache, tmp_path, spin):
-    cache_sky(cache, "ClearSky")
+def test_picking_a_choice_is_one_submit_and_the_picture_follows(host, sandbox, tmp_path, spin):
+    cache_sky(sandbox, "ClearSky")
     loaded(host, tmp_path, spin)
     undo_depth = host.ctx.live.undo_info()["depth"]
     host.bridge.setEnvironment("sky")
@@ -224,8 +237,8 @@ def test_a_fetch_that_fails_is_said_under_the_control(host, fetchers, tmp_path, 
     spin(until=lambda: host.bridge.environmentNote == "")
 
 
-def test_the_agent_sets_the_choices_through_the_params(host, cache, tmp_path, spin):
-    cache_sky(cache, "NightSky")
+def test_the_agent_sets_the_choices_through_the_params(host, sandbox, tmp_path, spin):
+    cache_sky(sandbox, "NightSky")
     loaded(host, tmp_path, spin)
     doc = host.ctx.live.document()
     doc["views"]["kobi"]["params"].update({"environment": "sky", "sky": "NightSky", "haze": 0.5})
@@ -239,8 +252,8 @@ def test_the_agent_sets_the_choices_through_the_params(host, cache, tmp_path, sp
     assert snap["sky_controls"] == {"time_of_day": 6.93, "cloudiness": 0.0, "haze": 0.5}
 
 
-def test_a_slider_moves_the_sky_live_and_writes_the_param_on_release(host, cache, tmp_path, spin):
-    cache_sky(cache, "ClearSky")
+def test_a_slider_moves_the_sky_live_and_writes_the_param_on_release(host, sandbox, tmp_path, spin):
+    cache_sky(sandbox, "ClearSky")
     loaded(host, tmp_path, spin)
     host.set_environment("sky")
     spin(until=lambda: host.bridge.environmentShown == "sky")
@@ -261,8 +274,8 @@ def test_a_slider_moves_the_sky_live_and_writes_the_param_on_release(host, cache
     assert host.snapshot()["sky_controls"]["time_of_day"] == 17.5
 
 
-def test_the_choices_are_kept_across_stages_and_sent_with_the_load(host, cache, tmp_path, spin):
-    cache_sky(cache, "ClearSky")
+def test_the_choices_are_kept_across_stages_and_sent_with_the_load(host, sandbox, tmp_path, spin):
+    cache_sky(sandbox, "ClearSky")
     loaded(host, tmp_path, spin, "valley", "stage-a")
     host.set_environment("sky")
     host.set_sky_control("haze", 0.3)
@@ -277,13 +290,13 @@ def test_the_choices_are_kept_across_stages_and_sent_with_the_load(host, cache, 
 
 
 def test_what_shows_may_differ_from_the_choice_and_the_note_says_why(
-    cache, fetchers, tmp_path, monkeypatch, qapp, spin
+    sandbox, default_hdri, fetchers, tmp_path, monkeypatch, qapp, spin
 ):
     """``SPECTO_USD_STUB_NO_MDL`` makes the stub answer the sky as Storm does: the HDRI
     instead, with the note; the control stays on what was asked, the sliders rest."""
     monkeypatch.setenv("SPECTO_USD_STUB_NO_MDL", "1")
-    cache_sky(cache, "ClearSky")
-    host = make_host(cache, fetchers)
+    cache_sky(sandbox, "ClearSky")
+    host = make_host(sandbox, fetchers)
     try:
         loaded(host, tmp_path, spin)
         host.bridge.setEnvironment("sky")
@@ -301,10 +314,10 @@ def test_what_shows_may_differ_from_the_choice_and_the_note_says_why(
 
 
 def test_a_choice_restored_from_the_document_applies_before_the_first_load(
-    cache, fetchers, tmp_path, qapp, spin
+    sandbox, default_hdri, fetchers, tmp_path, qapp, spin
 ):
-    cache_sky(cache, "Cirrus")
-    h = make_host(cache, fetchers, {"environment": "sky", "sky": "Cirrus", "time_of_day": 15.0})
+    cache_sky(sandbox, "Cirrus")
+    h = make_host(sandbox, fetchers, {"environment": "sky", "sky": "Cirrus", "time_of_day": 15.0})
     try:
         assert (h.bridge.environment, h.bridge.sky, h.bridge.timeOfDay) == ("sky", "Cirrus", 15.0)
         loaded(h, tmp_path, spin)
@@ -317,8 +330,8 @@ def test_a_choice_restored_from_the_document_applies_before_the_first_load(
         h.dispose()
 
 
-def test_the_ground_toggle_is_one_submit_sent_to_the_source(host, cache, tmp_path, spin):
-    cache_sky(cache, "ClearSky")
+def test_the_ground_toggle_is_one_submit_sent_to_the_source(host, sandbox, tmp_path, spin):
+    cache_sky(sandbox, "ClearSky")
     loaded(host, tmp_path, spin)
     host.set_environment("sky")
     spin(until=lambda: host.bridge.environmentShown == "sky")
@@ -333,9 +346,9 @@ def test_the_ground_toggle_is_one_submit_sent_to_the_source(host, cache, tmp_pat
     assert host.ctx.live.undo_info()["depth"] == undo_depth + 1
 
 
-def test_each_control_acts_where_the_sky_shown_takes_it(host, cache, tmp_path, spin):
-    cache_sky(cache, "ClearSky")
-    cache_sky(cache, "CloudySky")
+def test_each_control_acts_where_the_sky_shown_takes_it(host, sandbox, tmp_path, spin):
+    cache_sky(sandbox, "ClearSky")
+    cache_sky(sandbox, "CloudySky")
     loaded(host, tmp_path, spin)
     assert not (host.bridge.timeOfDayOn or host.bridge.cloudinessOn or host.bridge.hazeOn)
     host.set_environment("sky")
@@ -348,11 +361,11 @@ def test_each_control_acts_where_the_sky_shown_takes_it(host, cache, tmp_path, s
 
 
 def test_on_storm_the_hdri_standing_in_for_the_sky_is_shown_and_can_be_picked(
-    cache, fetchers, tmp_path, monkeypatch, qapp, spin
+    sandbox, default_hdri, fetchers, tmp_path, monkeypatch, qapp, spin
 ):
     monkeypatch.setenv("SPECTO_USD_STUB_NO_MDL", "1")
-    cache_sky(cache, "ClearSky")
-    host = make_host(cache, fetchers)
+    cache_sky(sandbox, "ClearSky")
+    host = make_host(sandbox, fetchers)
     try:
         loaded(host, tmp_path, spin)
         assert not host.bridge.hdriStandsIn
@@ -367,9 +380,8 @@ def test_on_storm_the_hdri_standing_in_for_the_sky_is_shown_and_can_be_picked(
         host.dispose()
 
 
-def test_an_hdri_not_here_is_fetched_and_its_progress_said(cache, fetchers, tmp_path, qapp, spin):
-    cache_hdri("sunny").unlink()
-    host = make_host(cache, fetchers)
+def test_an_hdri_not_here_is_fetched_and_its_progress_said(no_hdri, fetchers, tmp_path, qapp, spin):
+    host = make_host(no_hdri, fetchers)
     try:
         loaded(host, tmp_path, spin)
         host.bridge.setEnvironment("hdri")

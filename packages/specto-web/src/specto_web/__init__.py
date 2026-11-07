@@ -101,17 +101,29 @@ def environment_file(name: str, root: Path | None = None) -> Path | None:
 HDRI_CACHE = "node_modules/.hdri"
 
 
+def hdri_file_name(entry: dict[str, Any]) -> str:
+    """The file name of a manifest entry's HDRI: the last segment of its URL, what build.py's
+    cache and the user's folder (``specto_app.usd.skies``) both name the ``.hdr`` by."""
+    return str(entry.get("url", "")).rsplit("/", 1)[-1]
+
+
 def hdri_source(name: str, root: Path | None = None) -> Path | None:
     """The source ``.hdr`` of environment ``name`` (SPEC-31: the usd view lights a stage with
     it; a dome light reads ``.hdr``, not Babylon's ``.env``): the file build.py downloaded
-    into its cache, named as the manifest's URL names it; None until build.py has run,
-    or outside a source checkout."""
+    into its cache, named as the manifest's URL names it, at the manifest's size (a build
+    killed mid-write leaves nothing at that name, SPEC-45, but an older one may have left a
+    truncated file: never served); None until build.py has run, or outside a source
+    checkout."""
     base = root or find_web_root()
     entry = next((e for e in environments(base) if e.get("name") == name), None)
     if base is None or entry is None:
         return None
-    f = base.parent / HDRI_CACHE / str(entry.get("url", "")).rsplit("/", 1)[-1]
-    return f if f.is_file() else None
+    f = base.parent / HDRI_CACHE / hdri_file_name(entry)
+    try:
+        whole = f.is_file() and f.stat().st_size == int(entry.get("size", -1))
+    except OSError:
+        return None
+    return f if whole else None
 
 
 BUILD_HINT = "run: uv run python packages/specto-web/build.py  (npm install + offline copy)"
@@ -128,6 +140,7 @@ __all__ = [
     "environments",
     "environments_manifest",
     "find_web_root",
+    "hdri_file_name",
     "hdri_source",
     "monaco_dir",
     "monaco_ok",

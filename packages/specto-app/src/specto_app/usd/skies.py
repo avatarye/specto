@@ -443,10 +443,6 @@ def hdri_label(name: str) -> str:
     return str(entry_.get("label") or name)
 
 
-def _hdri_file_name(entry_: dict[str, Any]) -> str:
-    return str(entry_.get("url", "")).rsplit("/", 1)[-1]
-
-
 def hdri_path(name: str, folder: Path | None = None) -> Path | None:
     """HDRI ``name``'s ``.hdr``: the web build's cache in a source checkout when it is
     there, else the one fetched into the user's folder; None before either."""
@@ -456,7 +452,7 @@ def hdri_path(name: str, folder: Path | None = None) -> Path | None:
     entry_ = hdri_entry(name)
     if entry_ is None:
         return None
-    path = (folder or hdri_dir()) / _hdri_file_name(entry_)
+    path = (folder or hdri_dir()) / specto_web.hdri_file_name(entry_)
     return path if path.is_file() and path.stat().st_size == int(entry_.get("size", -1)) else None
 
 
@@ -475,7 +471,7 @@ def fetch_hdri(
     if found is not None:
         return found
     folder = folder or hdri_dir()
-    file_name = _hdri_file_name(entry_)
+    file_name = specto_web.hdri_file_name(entry_)
     override = os.environ.get(HDRI_BASE_URL_ENV)
     url = (override.rstrip("/") + "/" + file_name) if override else str(entry_["url"])
     pin = Pin(str(entry_["sha256"]), int(entry_["size"]))
