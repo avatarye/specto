@@ -20,11 +20,12 @@ the release and move on their own schedule.
   gallery or video leaves the scene: the gallery's atlas and the video's frame buffer
   and mpv render context are freed. A paused image lets go of its decoded picture. Each
   comes back as it was: scroll, zoom, selection and the frame shown. Coming back costs
-  the decode: a gallery re-decodes its visible thumbnails, an image its picture, and a
-  video takes about a second. A parked video kept about 265 MB even if never shown and
-  now keeps about 2 MB; a gallery with a filled atlas kept 67 MB and now keeps 1 MB. Web
-  views keep their pages, because QtWebEngine offers no release that pays off.
-  `tools/bench_gpu_release.py` measures it all on the GPU tier.
+  the decode: a gallery re-decodes its visible thumbnails (about 0.6 s), an image its
+  picture (0.4 s for a 24-megapixel photo), and a video reopens its file (about 1.4 s).
+  A parked video kept about 265 MB even if never shown and now keeps under 2 MB; a
+  gallery with a filled atlas kept 67 MB and now keeps 1 MB. Web views keep their pages,
+  because QtWebEngine offers no release that pays off. `tools/bench_gpu_release.py`
+  measures it all on the GPU tier.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the
