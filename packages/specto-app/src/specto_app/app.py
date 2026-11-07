@@ -98,42 +98,26 @@ def find_item(root: QQuickItem | None, object_name: str) -> QQuickItem | None:
     return None
 
 
-#: at most this many polish passes in :func:`settle`
-SETTLE_PASSES = 3
-
-
-def _polish_pass(root: QQuickItem) -> tuple[str, ...]:
-    """Force a polish of every item under ``root``, top down, and answer the item tree's
-    shape after it (each item's ``objectName``, in walk order)."""
-    shape: list[str] = []
-    stack = [root]
-    while stack:
-        item = stack.pop()
-        item.ensurePolished()  # may add or remove its children: read them after
-        shape.append(item.objectName())
-        if not item.metaObject().className().startswith("QQuickWebEngine"):
-            stack.extend(item.childItems())
-    return tuple(shape)
-
-
 def settle(root: QQuickItem | None) -> None:
     """Force a polish of every item under ``root`` (``QQuickItem.ensurePolished`` calls
     ``updatePolish`` whether or not one is pending), so the item tree is the one the next
     frame draws: a ListView applies its model's row changes at its polish, and until then
     a removed row's delegate is still there, visible (SPEC-41). Qt's public API cannot
     tell which items have a polish pending (``QQuickRenderControl.polishItems`` can, but
-    the app's window, offscreen tier included, has no render control). A polish can make
-    new items that want one of their own, so passes repeat until the tree's shape stops
-    changing, at most :data:`SETTLE_PASSES`. Web views' own children are skipped, as in
-    :func:`find_item`."""
+    the app's window, offscreen tier included, has no render control). One pass, top
+    down: children are read after their parent's polish, so the rows a list makes in it
+    are polished too, but an item a polish makes under a branch already walked is not. A
+    forced polish is not free of effects, so a call makes one pass only: two back to back
+    moved an open Menu's keyboard highlight (``test_context_menu_shell``). Web views'
+    own children are skipped, as in :func:`find_item`."""
     if root is None:
         return
-    shape = _polish_pass(root)
-    for _ in range(SETTLE_PASSES - 1):
-        again = _polish_pass(root)
-        if again == shape:
-            return
-        shape = again
+    stack = [root]
+    while stack:
+        item = stack.pop()
+        item.ensurePolished()  # may add or remove its children: read them after
+        if not item.metaObject().className().startswith("QQuickWebEngine"):
+            stack.extend(item.childItems())
 
 
 def find_settled(win: QQuickWindow, object_name: str) -> QQuickItem | None:
