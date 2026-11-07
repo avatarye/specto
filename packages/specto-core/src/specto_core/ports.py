@@ -41,6 +41,7 @@ ViewType = Literal[
     "usd",
     "scratch",
     "text",
+    "urdf",
 ]
 VIEW_TYPES: tuple[str, ...] = (
     "file_tree",
@@ -57,6 +58,7 @@ VIEW_TYPES: tuple[str, ...] = (
     "usd",
     "scratch",
     "text",
+    "urdf",
 )
 #: the context viewer (ADR 0020, SPEC-32): the one view type that follows the file tree's
 #: picks by design; a dedicated view is never one
@@ -90,6 +92,9 @@ VIEW_ROLES: dict[str, ViewRole] = {
     "scratch": "browser",
     # a short text the document carries (SPEC-32: "Not supported: <name> (<ext>)")
     "text": "viewer",
+    # one robot (SPEC-43, ADR 0028): a viewer, never the root view; its joints follow a
+    # joint track at the global clock's time, but it keeps no timeline of its own
+    "urdf": "viewer",
 }
 
 #: The roles as the agent reads them (the canvas schema's view type, ADR 0020).
@@ -228,6 +233,26 @@ VIEW_PORTS: dict[str, PortDecl] = {
     # file no view type shows opens in. Its data input takes the pinned link that says
     # which file it stands for; nothing is read from it and nothing goes out
     "text": PortDecl(inputs={"data": "collection"}),
+    # one robot (SPEC-43, ADR 0028): the picked .urdf (or the first) of its collection;
+    # joints is a collection of joint tracks (SPEC-43.3; until then the pose comes from
+    # params.joints) sampled at the time input, nearest, never interpolated; selection keys
+    # are ``<item key>#<link name>``; camera is the 3d view's CameraValue; content is the
+    # selected link's or joint's properties
+    "urdf": PortDecl(
+        inputs={
+            "data": "collection",
+            "joints": "collection",
+            "time": "time",
+            "camera": "camera",
+            "selection": "selection",
+        },
+        outputs={"camera": "camera", "selection": "selection", "content": "content"},
+        propagates={
+            "data": ["selection", "content"],
+            "selection": ["selection", "content"],
+            "camera": ["camera"],
+        },
+    ),
 }
 
 

@@ -55,6 +55,7 @@ DATA_KINDS: tuple[str, ...] = (
     "table",
     "message_stream",
     "pose_track",
+    "urdf",
 )
 DataKind = Literal[
     "image2d",
@@ -73,6 +74,7 @@ DataKind = Literal[
     "table",
     "message_stream",
     "pose_track",
+    "urdf",
 ]
 
 HostKind = Literal["quick", "web", "frame"]
@@ -687,6 +689,14 @@ BUILTIN_LOCATORS: list[LocatorManifest] = [
         extensions=[".usd", ".usda", ".usdc", ".usdz"],
         aliases=["@usd"],
         kinds=["usd_stage_ref"],
+        priority=10,
+    ),
+    # what the urdf view shows (SPEC-43): a robot description, parsed by the view's host
+    LocatorManifest(
+        name="urdf",
+        extensions=[".urdf"],
+        aliases=["@urdf"],
+        kinds=["urdf"],
         priority=10,
     ),
 ]
