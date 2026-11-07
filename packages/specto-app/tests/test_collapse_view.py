@@ -224,7 +224,7 @@ def test_the_health_dot_shows_only_when_the_view_is_not_healthy(two, spin):
     spin(until=lambda: app.controller.views["kobi"]["health"] == "ok")
     dot = item(app, "health:kobi")
     assert not dot.isVisible()
-    for status in ("loading", "error", "approval", "disconnected", "paused"):
+    for status in ("loading", "warn", "error", "approval", "disconnected", "paused"):
         ctx.set_health("kobi", status, "why")
         spin(until=lambda s=status: app.controller.views["kobi"]["health"] == s)
         assert dot.isVisible(), status

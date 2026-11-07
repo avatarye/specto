@@ -30,13 +30,8 @@ def test_the_urdf_view_is_a_viewer_never_the_root_view():
 
 def test_the_urdf_views_ports():
     decl = VIEW_PORTS["urdf"]
-    assert decl.inputs == {
-        "data": "collection",
-        "joints": "collection",
-        "time": "time",
-        "camera": "camera",
-        "selection": "selection",
-    }
+    # the joints and time inputs come with SPEC-43.3's joint tracks
+    assert decl.inputs == {"data": "collection", "camera": "camera", "selection": "selection"}
     assert decl.outputs == {"camera": "camera", "selection": "selection", "content": "content"}
 
 

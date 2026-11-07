@@ -458,39 +458,38 @@ step, nothing journaled). */
     [key: string]: unknown;
   }
   interface UrdfState {
-    /** The pose: {joint name: position}, radians for revolute and continuous joints, metres for prismatic ones (URDF units; the sliders show degrees and mm). Joints left out stay at 0, clamped into their limits; mimic joints follow their master. A slider release writes it as one undo step. default: {} */
+    /** {joint: position}, radians or metres; clamped to limits. default: {} */
     joints?: Record<string, number>;
-    /** Where package://<name>/ meshes live, tried first: {name: folder} (the package's own folder), or a list of folders each searched for the package (a folder named for it, or a package.xml naming it). Relative folders are under the project. */
+    /** {package: folder} or folders to search, tried first. */
     package_paths?: Record<string, string> | string[];
-    /** lit, unlit, wireframe, collision (only the colliders, each link in a flat tint) or visual_collision (the visuals lit, the colliders as translucent shells). default: "lit" */
+    /** default: "lit" */
     view_mode?: "lit" | "unlit" | "wireframe" | "collision" | "visual_collision";
-    /** The robot's up axis; z for ROS (REP 103). default: "z" */
+    /** default: "z" */
     up?: "x" | "y" | "z" | "-x" | "-y" | "-z";
-    /** Image-based lighting from one of the 3d view's bundled HDRIs (Poly Haven, CC0); none: the two default lights. default: "none" */
+    /** A 3d view HDRI; none: default lights. default: "none" */
     environment?: "none" | "studio" | "overcast" | "sunny" | "indoor" | "urban";
-    /** How strongly the environment lights the robot. default: 1.0 */
+    /** default: 1.0 */
     environment_intensity?: number;
-    /** Draw the environment behind the robot. default: false */
+    /** default: false */
     environment_background?: boolean;
-    /** Turns the environment about the up axis, in degrees. default: 0.0 */
+    /** default: 0.0 */
     environment_rotation?: number;
-    /** The ground grid. default: true */
+    /** default: true */
     show_grid?: boolean;
-    /** RGB axes at each link's origin. default: false */
+    /** default: false */
     show_frames?: boolean;
-    /** An arrow along each moving joint's axis. default: false */
+    /** default: false */
     show_joint_axes?: boolean;
-    /** A marker at each link's centre of mass, sized by mass. default: false */
+    /** default: false */
     show_com?: boolean;
-    /** Scales flying, zooming and panning, as in the 3d view. default: 1.0 */
+    /** default: 1.0 */
     camera_speed?: number;
-    /** free: Unreal Editor's camera, as in the 3d view; orbit: drag orbits the selection, middle-drag pans, the wheel dollies. default: "free" */
+    /** orbit: left-drag orbits the pivot, right-drag and the wheel dolly toward it. default: "free" */
     camera_mode?: "free" | "orbit";
-    /** The item key of the robot shown (default: the picked item, else the first). */
+    /** The item key of the robot shown. */
     selected?: string | null;
-    /** The selected links by name, the last one picked last; they go out on selection as <item key>#<link>. A click on the robot or a ROBOT panel row writes it. default: [] */
+    /** The selected links by name. default: [] */
     selected_links?: string[];
-    /** The side panels' {collapsed, width} by name (view, robot). */
     panels?: Record<string, unknown>;
     [key: string]: unknown;
   }

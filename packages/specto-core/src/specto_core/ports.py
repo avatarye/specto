@@ -234,18 +234,11 @@ VIEW_PORTS: dict[str, PortDecl] = {
     # which file it stands for; nothing is read from it and nothing goes out
     "text": PortDecl(inputs={"data": "collection"}),
     # one robot (SPEC-43, ADR 0029): the picked .urdf (or the first) of its collection;
-    # joints is a collection of joint tracks (SPEC-43.3; until then the pose comes from
-    # params.joints) sampled at the time input, nearest, never interpolated; selection keys
-    # are ``<item key>#<link name>``; camera is the 3d view's CameraValue; content is the
-    # selected link's or joint's properties
+    # selection keys are ``<item key>#<link name>``; camera is the 3d view's CameraValue;
+    # content is the selected link's or joint's properties. The joints (joint tracks) and
+    # time inputs come with SPEC-43.3; until then the pose is params.joints
     "urdf": PortDecl(
-        inputs={
-            "data": "collection",
-            "joints": "collection",
-            "time": "time",
-            "camera": "camera",
-            "selection": "selection",
-        },
+        inputs={"data": "collection", "camera": "camera", "selection": "selection"},
         outputs={"camera": "camera", "selection": "selection", "content": "content"},
         propagates={
             "data": ["selection", "content"],
