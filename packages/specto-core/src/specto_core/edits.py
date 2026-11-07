@@ -291,6 +291,64 @@ def lost_ends(link: Any, views: Any) -> list[str]:
     return out
 
 
+def conflict_problem(
+    section: str,
+    oid: str,
+    entry: Any,
+    fields: list[str],
+    *,
+    edit: bool,
+    links: Iterable[str] = (),
+) -> Problem:
+    """A turn-start conflict on one object: removed by the user (``entry`` ``MISSING``),
+    or changed in ``fields`` (dotted paths; ``""`` for the object as a whole) by both
+    sides. ``since`` stays the turn's start, so writing over the user's value is refused
+    again: the fix-it says how to keep it, per submit form. An edit leaves the field out;
+    a whole document copies the live value (leaving it out would remove it, refused
+    again), and leaves out a view the user removed together with ``links``, its links in
+    the document (else they fail validation before the merge)."""
+    if entry is MISSING:
+        with_links = sorted(links)
+        what = f"{oid} and links {', '.join(with_links)}" if with_links else oid
+        return Problem(
+            path=f"/{section}/{oid}",
+            message=f"{oid} was removed by the user during this turn",
+            fix=f"leave out {what}; add {oid} again only if the user asks for it",
+        )
+    which = ", ".join(f for f in fields if f)
+    what = f"{oid}'s {which}" if which else oid
+    how = (
+        "leave it out of your edits"
+        if edit
+        else "copy its live value (from this entry) into your document"
+    )
+    return Problem(
+        path=f"/{section}/{oid}",
+        message=f"{oid} was changed by the user during this turn"
+        + (f" ({which})" if which else "")
+        + f"; its entry is now {json.dumps(entry, separators=(',', ':'))}",
+        fix=f"keep the user's {what}: {how}, or ask the user before changing it",
+    )
+
+
+def link_conflict_problem(lid: str, views: list[str], *, edit: bool) -> Problem:
+    """A link the user added or changed this turn that the submit would leave without one
+    of its views. The fix-it keeps the views: an edit drops their removal; a whole
+    document keeps them and their links (copied from the live canvas)."""
+    names = " and ".join(views)
+    how = (
+        f"drop the removal of {names} from your edits"
+        if edit
+        else f"keep {names} and its links in your document (copy them from the live canvas)"
+    )
+    return Problem(
+        path=f"/links/{lid}",
+        message=f"{lid} was added or changed by the user during this turn and links {names}, "
+        "which your change removes",
+        fix=f"{how}, or ask the user before removing it",
+    )
+
+
 def edit_conflict(
     section: str,
     oid: str,
@@ -299,25 +357,25 @@ def edit_conflict(
     live: Any,
     new: Any,
     views: Any,
-) -> tuple[str, list[str]] | None:
+) -> Problem | None:
     """The turn-start conflict of an edit on one object the user touched (SPEC-18), or
-    ``None`` when it lands. An edit changes what it names: ``("fields", paths)`` for named
-    fields the user changed to another value (even when the edit sets them back to their
-    turn-start value; ``[""]`` for a named removal of what the user changed), and
-    ``("link", views)`` for a user's link the edit drops with a view it removes."""
+    ``None`` when it lands. An edit changes what it names: named fields the user changed
+    to another value conflict (even when the edit sets them back to their turn-start
+    value; a named removal of what the user changed too), and so does a user's link the
+    edit drops with a view it removes."""
     named = edit.get(section) if isinstance(edit.get(section), dict) else {}
     if oid not in named:
         if new is MISSING and live is not MISSING and section == "links":
-            return ("link", lost_ends(live, views))
+            return link_conflict_problem(oid, lost_ends(live, views), edit=True)
         return None
     if named[oid] is None:
-        return None if live == base else ("fields", [""])
+        return None if live == base else conflict_problem(section, oid, live, [""], edit=True)
     clash = sorted(
         f
         for f in field_paths(named[oid])
         if field_at(live, f) != field_at(base, f) and field_at(new, f) != field_at(live, f)
     )
-    return ("fields", clash) if clash else None
+    return conflict_problem(section, oid, live, clash, edit=True) if clash else None
 
 
 __all__ = [
@@ -325,10 +383,12 @@ __all__ = [
     "MISSING",
     "REFUSED",
     "already_removed",
+    "conflict_problem",
     "edit_conflict",
     "edit_problems",
     "field_at",
     "field_paths",
+    "link_conflict_problem",
     "lost_ends",
     "merge_edits",
     "merge_patch",

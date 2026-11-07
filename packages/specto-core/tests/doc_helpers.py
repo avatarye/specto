@@ -71,3 +71,21 @@ def app_plugins(reg: PluginRegistry | None = None) -> PluginRegistry:
     ]
     reg.register(PluginManifest(name="app-like", version="0.0.0", views=views))
     return reg
+
+
+def run_in_thread(fn: Any) -> list[BaseException]:
+    """Run ``fn`` on a worker thread of its own and wait; what it raised, if anything."""
+    import threading
+
+    errors: list[BaseException] = []
+
+    def run() -> None:
+        try:
+            fn()
+        except BaseException as e:
+            errors.append(e)
+
+    worker = threading.Thread(target=run)
+    worker.start()
+    worker.join(10)
+    return errors

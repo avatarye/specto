@@ -423,7 +423,7 @@ A submit that names only what changes, in the canvas document's own shape (a JSO
 _Avoid_: patch (that is the stored change), delta, diff
 
 **Turn-start copy**:
-The canvas's views and links as they were when a prompt turn began. The agent's submits during the turn are judged against it: what the user changed since then is kept unless the agent changed the same field.
+The canvas's views and links as the agent last knew them in a prompt turn: as the turn began, then as the agent's last accepted submit wrote them. The agent's next submit is judged against it: what the user changed since is kept unless the agent changed the same field.
 _Avoid_: base, snapshot (a snapshot is `snap`'s), checkpoint
 
 **Turn-start conflict**:

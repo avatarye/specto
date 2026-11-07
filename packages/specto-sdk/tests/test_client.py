@@ -100,7 +100,7 @@ def test_generated_files_match_registry():
 
 
 def test_tcp_roundtrip_with_push(endpoint):
-    with TcpEndpoint(endpoint.handler, endpoint.engine.live) as srv:
+    with TcpEndpoint(endpoint) as srv:
         a = tcp_client(srv, origin="agent:a")
         b = tcp_client(srv, origin="agent:b")
         assert a.connection != b.connection
@@ -129,7 +129,7 @@ def test_client_open_via_endpoint_file(tmp_path, monkeypatch):
         find_endpoint(proj)
     assert "endpoint.json" in ei.value.fix
     ep = InProcessEndpoint(project=proj)
-    with TcpEndpoint(ep.handler, ep.engine.live) as srv:
+    with TcpEndpoint(ep) as srv:
         srv.advertise(proj)
         info, p = find_endpoint(proj)
         assert info.kind == "tcp" and p.id == proj.id

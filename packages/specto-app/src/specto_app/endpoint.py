@@ -134,8 +134,8 @@ if HAVE_QT:
                     break
                 line = bytes(buf[:nl]).decode("utf-8", errors="replace")
                 del buf[: nl + 1]
-                # the GUI thread owns the canvas; the lock is every endpoint's all the same
-                # (SPEC-18: one serialise lock for the canvas, whoever calls it)
+                # every endpoint holds the canvas's lock around a request (SPEC-18); here,
+                # on the GUI thread that owns the canvas, it is never contended
                 with self.engine.live.serial_lock:
                     out = self.handler.handle_line(conn, line)
                 if out:

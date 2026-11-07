@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from doc_helpers import pin
+from doc_helpers import pin, run_in_thread
 
 from specto_core import gestures
 from specto_core.live_canvas import CanvasConflict, LiveCanvas
@@ -249,31 +249,20 @@ def test_each_mark_keeps_its_own_turn_start_copy(live: LiveCanvas):
 
 def test_a_submit_off_the_canvas_s_thread_is_caught(live: LiveCanvas, monkeypatch, capsys):
     """Every submit runs on the thread that owns the canvas (the GUI thread: the prompt
-    bar's agent on the qasync loop, the endpoint, the gestures), so one submit's read,
-    merge and apply never interleave with another's. A change that moved a submit onto
-    another thread is caught: raised under tests, a warning in the app."""
-    import threading
+    bar's agent on the qasync loop, the gestures) or on one holding its serial_lock (the
+    endpoints), so one submit's read, merge and apply never interleave with another's. A
+    change that moved a submit onto another thread is caught: raised under tests, a
+    warning in the app."""
 
-    def from_a_worker() -> list[BaseException]:
-        errors: list[BaseException] = []
-
-        def run() -> None:
-            try:
-                live.submit(edits={"views": {"kobi": {"label": "x"}}}, origin=AGENT)
-            except BaseException as e:
-                errors.append(e)
-
-        worker = threading.Thread(target=run)
-        worker.start()
-        worker.join(10)
-        return errors
+    def relabel() -> None:
+        live.submit(edits={"views": {"kobi": {"label": "x"}}}, origin=AGENT)
 
     monkeypatch.setenv("SPECTO_THREAD_CHECK", "raise")
-    (error,) = from_a_worker()
+    (error,) = run_in_thread(relabel)
     assert isinstance(error, RuntimeError) and "serial_lock" in str(error)
     assert live.data["views"]["kobi"]["label"] == "kobi"
     monkeypatch.setenv("SPECTO_THREAD_CHECK", "warn")
-    assert from_a_worker() == []
+    assert run_in_thread(relabel) == []
     assert "[WARN]" in capsys.readouterr().err
     assert live.data["views"]["kobi"]["label"] == "x"
 
@@ -343,25 +332,111 @@ def test_a_thread_holding_the_serial_lock_may_submit_and_a_bare_one_may_not(
     """The canvas's one serialise lock, which every endpoint takes around a request: a
     submit on a thread holding it passes the thread check; a bare submit from a thread
     still raises, also after a locked one ran (the lock is no switch that stays off)."""
-    import threading
-
     monkeypatch.setenv("SPECTO_THREAD_CHECK", "raise")
-    errors: list[BaseException] = []
 
-    def run(locked: bool, label: str) -> None:
-        try:
-            if locked:
-                with live.serial_lock:
-                    live.submit(edits={"views": {"kobi": {"label": label}}}, origin=AGENT)
-            else:
-                live.submit(edits={"views": {"kobi": {"label": label}}}, origin=AGENT)
-        except BaseException as e:
-            errors.append(e)
+    def locked() -> None:
+        with live.serial_lock:
+            live.submit(edits={"views": {"kobi": {"label": "locked"}}}, origin=AGENT)
 
-    for locked, label in ((True, "locked"), (False, "bare")):
-        worker = threading.Thread(target=run, args=(locked, label))
-        worker.start()
-        worker.join(10)
-    (error,) = errors
+    def bare() -> None:
+        live.submit(edits={"views": {"kobi": {"label": "bare"}}}, origin=AGENT)
+
+    assert run_in_thread(locked) == []
+    (error,) = run_in_thread(bare)
     assert isinstance(error, RuntimeError)
     assert live.data["views"]["kobi"]["label"] == "locked"
+
+
+def test_a_submit_holds_the_serial_lock_on_the_owner_thread_too(live: LiveCanvas):
+    seen: list[bool] = []
+    live.on_patch(lambda patch, meta: seen.append(live.serial_lock.held()))
+    live.submit(edits={"views": {"kobi": {"label": "front"}}}, origin=AGENT)
+    assert seen == [True] and not live.serial_lock.held()
+
+
+def test_a_foreign_release_leaves_the_holder_s_lock_alone(live: LiveCanvas):
+    lock = live.serial_lock
+    with lock:
+        (error,) = run_in_thread(lambda: lock.__exit__(None, None, None))
+        assert isinstance(error, RuntimeError) and lock.held()
+    assert not lock.held()
+    assert run_in_thread(lambda: lock.__enter__() and lock.__exit__(None, None, None)) == []
+
+
+def test_a_closed_view_s_fix_it_names_its_links_and_following_it_lands(live: LiveCanvas):
+    """A whole document is validated before the merge: leaving out the view the user
+    closed, but not its links, would fail first. The fix-it names both."""
+    since = live.mark()
+    doc = live.document()
+    gestures.close_view(live, "tamu")
+    doc["views"]["tamu"]["label"] = "rear"
+    doc["views"]["kobi"]["label"] = "front"
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(doc, origin=AGENT, since=since)
+    problem = next(p for p in e.value.problems if p["path"] == "/views/tamu")
+    pins = sorted(lid for lid, link in doc["links"].items() if link["target"]["view"] == "tamu")
+    assert problem["fix"].startswith(f"leave out tamu and links {', '.join(pins)}")
+
+    del doc["views"]["tamu"]  # as the fix-it says: the view and those links
+    for lid in pins:
+        del doc["links"][lid]
+    live.submit(doc, origin=AGENT, since=since)
+    assert "tamu" not in live.data["views"] and live.data["views"]["kobi"]["label"] == "front"
+
+
+def test_a_user_link_s_fix_it_followed_lands_for_an_edit(live: LiveCanvas):
+    since = live.mark()
+    lid = user_link(live)
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(
+            edits={"views": {"kobi": None, "tamu": {"label": "rear"}}}, origin=AGENT, since=since
+        )
+    assert e.value.problems[0]["fix"].startswith("drop the removal of kobi from your edits")
+    live.submit(edits={"views": {"tamu": {"label": "rear"}}}, origin=AGENT, since=since)
+    assert lid in live.data["links"] and live.data["views"]["tamu"]["label"] == "rear"
+
+
+def test_a_user_link_s_fix_it_followed_lands_for_a_whole_document(live: LiveCanvas):
+    since = live.mark()
+    doc = live.document()
+    lid = user_link(live)
+    del doc["views"]["kobi"]
+    doc["links"] = {k: v for k, v in doc["links"].items() if v["target"]["view"] != "kobi"}
+    doc["views"]["tamu"]["label"] = "rear"
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(doc, origin=AGENT, since=since)
+    assert "keep kobi and its links in your document" in e.value.problems[0]["fix"]
+
+    doc["views"]["kobi"] = live.data["views"]["kobi"]  # copied from the live canvas
+    doc["links"].update(
+        {
+            k: v
+            for k, v in live.data["links"].items()
+            if "kobi" in (v["source"]["view"], v["target"]["view"])
+        }
+    )
+    live.submit(doc, origin=AGENT, since=since)
+    assert lid in live.data["links"] and live.data["views"]["tamu"]["label"] == "rear"
+
+
+@pytest.mark.parametrize("form", ["edits", "document"])
+def test_a_user_undo_of_the_agent_s_change_is_kept_by_its_next_document(live: LiveCanvas, form):
+    """The turn-start copy advances to what the agent last wrote: the agent removes kobi,
+    the user undoes that, and the agent's next whole document (still without kobi, as it
+    wrote it) keeps the user's undo instead of removing kobi again silently."""
+    since = live.mark()
+    if form == "edits":
+        live.submit(edits={"views": {"kobi": None}}, origin=AGENT, since=since)
+    else:
+        doc = live.document()
+        del doc["views"]["kobi"]
+        doc["links"] = {k: v for k, v in doc["links"].items() if v["target"]["view"] != "kobi"}
+        live.submit(doc, origin=AGENT, since=since)
+    after = live.document()  # what the agent believes now
+    assert "kobi" not in after["views"]
+    live.undo(origin="user")
+    assert "kobi" in live.data["views"]
+
+    after["views"]["tamu"]["label"] = "rear"
+    live.submit(after, origin=AGENT, since=since)
+    assert "kobi" in live.data["views"] and live.data["views"]["tamu"]["label"] == "rear"

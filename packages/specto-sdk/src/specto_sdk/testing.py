@@ -3,7 +3,7 @@ the same newline-delimited JSON-RPC as the app. No Qt.
 
     ep = InProcessEndpoint()              # Engine(project=None) + RpcHandler
     c = ep.client(origin="agent:s1")      # a Client over an InProcessTransport
-    with TcpEndpoint(ep.handler, ep.engine.live) as srv:  # real sockets, same handler
+    with TcpEndpoint(ep) as srv:          # real sockets, same handler
         c2 = Client(SocketTransport.connect_tcp(srv.address))
 """
 
@@ -16,7 +16,6 @@ import threading
 from typing import Any
 
 from specto_core import Engine, Project
-from specto_core.live_canvas import LiveCanvas
 from specto_core.rpc import EndpointInfo, RpcHandler, write_endpoint_file
 
 from .client import Client
@@ -54,11 +53,11 @@ class TcpEndpoint:
     runs everything on the GUI thread, the canvas's owner)."""
 
     def __init__(
-        self, handler: RpcHandler, live: LiveCanvas, *, host: str = "127.0.0.1", port: int = 0
+        self, endpoint: InProcessEndpoint, *, host: str = "127.0.0.1", port: int = 0
     ) -> None:
-        self.handler = handler
+        self.handler = endpoint.handler
         #: every handler call holds the canvas's one serialise lock (no lock of its own)
-        self._lock = live.serial_lock
+        self._lock = endpoint.engine.live.serial_lock
         self._srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._srv.bind((host, port))

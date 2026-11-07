@@ -11,7 +11,7 @@ the card call. There is no flag, env var or command for this: nothing outside th
 process can reach it.
 
 A submit off the thread that owns the canvas raises under tests (``SPECTO_THREAD_CHECK``,
-``live_canvas._check_thread``; the app only warns), in this process and in the app
+``LiveCanvas.check_thread``; the app only warns), in this process and in the app
 processes the GUI tests start."""
 
 from __future__ import annotations

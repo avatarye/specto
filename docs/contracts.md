@@ -429,9 +429,9 @@ before. Thumbnails and posters never open an audio device.
   sublayers; `defaulted` and `unavailable` say what fell back and what needs the stage).
   `uses` names machine capabilities (`specto_core.machine`: `ovrtx`, detected by
   importing ovrtx and ovstage in a child Python), and `describe view:<type>` reports them.
-  Test-only: `SPECTO_THREAD_CHECK` (`warn` by default, `raise` under the test suite,
-  `off`) says what a change of the canvas off its owner thread and off its `serial_lock`
-  does (`LiveCanvas.check_thread`, SPEC-18).
+  `SPECTO_THREAD_CHECK` (read by the app and the tests: `warn` by default, `raise`
+  under the suite, `off`) says what a change of the canvas off its owner thread and off
+  its `serial_lock` does (`LiveCanvas.check_thread`, SPEC-18).
   Test-only: `SPECTO_DISABLE_CAPABILITIES` (comma-separated) makes capabilities absent
   without detecting them, `SPECTO_FAKE_CAPABILITIES` present (the usd view then runs the
   stub USD source in the faked renderer's place); a name in both is disabled. A usd view
@@ -512,7 +512,11 @@ address, pid, project_id, server, api_level, api_compatible}`); `SPECTO_ENDPOINT
 Errors: JSON-RPC `-32000` with `data = SpectoError.to_dict()`; standard codes for
 protocol errors; a bad line never drops the connection. `specto_core.rpc.RpcHandler` is
 the transport-agnostic handler; `specto_app.endpoint.LocalEndpoint` serves it;
-`specto_sdk.testing` serves it in-process or over TCP for tests.
+`specto_sdk.testing` serves it in-process (`InProcessEndpoint`) or over TCP for tests
+(`TcpEndpoint(endpoint)`, given the in-process endpoint it serves). Every endpoint holds
+the canvas's `live.serial_lock` around each request (`SerialLock`: re-entrant, it knows
+its holder; `LiveCanvas.submit` takes it too, so the SDK's threads and the GUI thread are
+serialised and `check_thread` accepts a thread holding it).
 
 - SDK (`specto_sdk.Client`): `open(project=, endpoint=, origin=)`, `call`, `describe`,
   `list_commands`, `api_info`, `watch`/`events`/`poll_events`, `wait_job`, and
