@@ -15,6 +15,25 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The urdf view's page (SPEC-43.2): the robot in Babylon.js, beside the 3d view. Python
+  sends the parsed model and the page does the forward kinematics (a node per link under
+  the joint that holds it; mimic joints follow their masters). Box, cylinder and sphere
+  through MeshBuilder; STL, OBJ, glTF and GLB meshes through Babylon's loaders, each file
+  loaded once and shared by the links that use it, STL in its file's own coordinates;
+  collision geometry loads the first time a collision mode shows. A missing or unreadable
+  mesh draws the link's collision primitive, else a 5 cm magenta wire box. Five view
+  modes from the footer's pill: lit, unlit, wireframe, collision (each link's colliders
+  flat in the usd view's tints, hover names "link · shape") and visual + collision (35 %
+  shells with wire edges). The VIEW panel: camera speed, World origin, Frame selected,
+  Free / Orbit, Default lights or a bundled HDRI with intensity, rotation and background,
+  the ground grid (on by default), link frames, joint axes, centre of mass, the up axis
+  (X, Y or Z, negatable, default Z) and Reset pose. The ROBOT panel: a search that keeps
+  each match's ancestors, the tree of links under their joints with R/P/C/F markers,
+  joint sliders in degrees or mm (URDF limits, continuous joints wrap at 180, a click on
+  the value types one, one undo step per release, locked while a track drives) and the
+  selection's properties. Selection works both ways; a double-click or F frames. Without
+  WebGL the panels still work and health says why. The shared web navigation (viewnav.js)
+  gains the usd view's orbit mode, opt-in; the 3d view is unchanged.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the
