@@ -27,24 +27,37 @@ def decode_task(
     )
 
 
+def map_refs(
+    refs: list[Any],
+    one: Callable[[DataRef], Any],
+    progress: ProgressFn,
+    *,
+    every: int = 16,
+) -> list[Any]:
+    """``one(ref)`` for each ref (``DataRef`` dumps or models) of a batch job: a failing
+    item becomes ``{"error": ..., "uri": ...}`` in its slot instead of failing the
+    batch; progress every ``every`` items."""
+    out: list[Any] = []
+    n = max(1, len(refs))
+    for i, r in enumerate(refs):
+        ref = r if isinstance(r, DataRef) else DataRef.model_validate(r)
+        try:
+            out.append(one(ref))
+        except Exception as e:
+            out.append({"error": f"{type(e).__name__}: {e}", "uri": ref.uri})
+        if (i + 1) % every == 0:
+            progress((i + 1) / n, f"{i + 1}/{n}")
+    return out
+
+
 def decode_batch(
     decoder: str, refs: list[dict[str, Any]], request: dict[str, Any], progress: ProgressFn
 ) -> list[TypedBuffer | dict[str, str]]:
     """Decode several refs in one job; a failing item becomes ``{"error": ...}`` in its
     slot instead of failing the batch."""
-    reg = default_readers()
-    d = reg.decoder(decoder)
+    d = default_readers().decoder(decoder)
     req = DecodeRequest.model_validate(request)
-    out: list[TypedBuffer | dict[str, str]] = []
-    n = max(1, len(refs))
-    for i, r in enumerate(refs):
-        try:
-            out.append(d.decode(DataRef.model_validate(r), req))
-        except Exception as e:
-            out.append({"error": f"{type(e).__name__}: {e}", "uri": r.get("uri", "")})
-        if (i + 1) % 16 == 0:
-            progress((i + 1) / n, f"{i + 1}/{n}")
-    return out
+    return map_refs(refs, lambda ref: d.decode(ref, req), progress)
 
 
 def decoder_name_for(ref: DataRef, request: DecodeRequest) -> str:

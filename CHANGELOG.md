@@ -61,11 +61,20 @@ the release and move on their own schedule.
   fallback a test or scripted flow asks for (a disabled or faked capability) stays silent.
 - Gallery thumbnail cache follow-ups (SPEC-17). Thumbnails of files that were deleted or
   changed leave `.specto/cache/thumbs/`, pruned in the background at most once a day
-  when a gallery opens; a file outside the project whose folder is missing (a drive not
-  plugged in) keeps its thumbnail. Long code and JSON lines wrap on excerpt cards instead
+  when a gallery opens. Only the cache's own files are touched (`<hash>.png` in its
+  folder and a killed writer's `<hash>.<pid>.tmp`); a PNG with no source recorded, links
+  and junctions are left alone. A missing file inside the project is pruned; one outside
+  it is pruned only when its folder is still there, so the thumbnails of sources outside
+  the project on a drive that is not plugged in are kept. Long code and JSON lines wrap
+  on excerpt cards instead
   of being cut at the edge, continuations keeping their indent. Big images (2 MP and up)
   keep their thumbnail on disk too, so a reopened project reads a 12 MP PNG's thumbnail
   in under a millisecond instead of decoding it again (about 200 ms); smaller images
+  decode as before; an image's cache key holds the decoder's version and options. A
+  video inside an archive shows its poster frame: the member is copied into the cache
+  folder for libmpv and removed again, as a job of its own, up to 512 MB (64 MB from a
+  compressed tar, which is read into memory), only with room left on the drive and within
+  15 s; past any of those it keeps the kind card.
   decode as before. A video inside an archive shows its poster frame: the member, up to
   512 MB, is copied to a temporary file for libmpv and removed again.
 - Paused galleries, images and videos give back their GPU memory (SPEC-3, ADR 0030). A

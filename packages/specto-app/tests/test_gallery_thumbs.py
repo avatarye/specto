@@ -238,7 +238,7 @@ def test_thumbnails_of_deleted_or_changed_files_are_pruned(project: Project):
     kept, removed = thumbs.prune_cache(thumbs.cache_dir_for(project.root), project.root)
 
     assert (kept, removed) == (len(names) - 3, 2)
-    sources = {thumbs.cached_source(p) for p in cached_pngs(project)}
+    sources = {cached_source(p) for p in cached_pngs(project)}
     assert str(project.root / "data" / "notes.md") not in sources
     assert str(pose) not in sources
 
@@ -381,5 +381,166 @@ def test_a_video_inside_an_archive_shows_its_poster_frame(project: Project):
     assert fake.pushed[0][:2] == (96, 64)  # a poster, not a 3:2 kind card
     assert close(pixel(fake, 0, 0.5, 0.1), (255, 0, 0), 60)
     assert close(pixel(fake, 0, 0.5, 0.9), (0, 0, 255), 60)
-    leftovers = [p for p in Path(thumbs.tempfile.gettempdir()).glob("specto-poster-*")]
-    assert leftovers == []
+    cache = Path(thumbs.cache_dir_for(project.root))
+    assert not list(cache.rglob("*.tmp"))  # the copy out of the archive is gone
+
+
+# -- SPEC-17 review follow-ups ---------------------------------------------------------------
+
+
+def cached_source(path: Path) -> str | None:
+    """The source path a cached PNG was made of (None when it cannot be read)."""
+    try:
+        with Image.open(path) as im:
+            return getattr(im, "text", {}).get("specto-source")
+    except (OSError, ValueError):
+        return None
+
+
+def test_pruning_touches_only_the_caches_own_files(project: Project):
+    from specto_app import thumbs
+
+    names = write_fixtures(project.root / "data")
+    host, _ = open_gallery(project)
+    host.receive("data", collection_of(project.root / "data", names))
+    host.pump()
+    cache = Path(thumbs.cache_dir_for(project.root))
+    ours = cached_pngs(project)
+    sub = ours[0].parent
+    # foreign files, in the cache folder and next to ours: a PNG of someone else's (no
+    # specto-source), one named like ours but without a source, any .tmp, a stray PNG
+    Image.new("RGB", (4, 4)).save(sub / "holiday.png")
+    Image.new("RGB", (4, 4)).save(sub / f"{sub.name}{'0' * 38}.png")
+    (sub / "notes.tmp").write_text("keep", encoding="utf-8")
+    Image.new("RGB", (4, 4)).save(cache / "stray.png")
+    # a killed writer's leftover, two hours old: ours by name, so it goes
+    leftover = sub / f"{sub.name}{'1' * 38}.4242.tmp"
+    leftover.write_bytes(b"half")
+    old = leftover.stat().st_mtime - 7200
+    os.utime(leftover, (old, old))
+    (project.root / "data" / "notes.md").unlink()
+
+    kept, removed = thumbs.prune_cache(str(cache), project.root)
+
+    assert removed == 1 and not leftover.exists()
+    assert kept == len(ours)  # ours less the deleted file's, plus the sourceless look-alike
+    for p in (sub / "holiday.png", sub / f"{sub.name}{'0' * 38}.png", sub / "notes.tmp"):
+        assert p.exists(), p
+    assert (cache / "stray.png").exists()
+
+
+def test_pruning_never_follows_a_junction(project: Project, tmp_path: Path):
+    import subprocess
+
+    from specto_app import thumbs
+
+    if os.name != "nt":
+        pytest.skip("a Windows junction")
+    elsewhere = tmp_path / "elsewhere" / "ab"
+    elsewhere.mkdir(parents=True)
+    victim = elsewhere / f"ab{'2' * 38}.png"
+    Image.new("RGB", (4, 4)).save(victim, pnginfo=_png_info(str(tmp_path / "gone.md")))
+    cache = Path(thumbs.cache_dir_for(project.root))
+    cache.mkdir(parents=True, exist_ok=True)
+    made = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(cache / "ab"), str(elsewhere)], capture_output=True
+    )
+    if made.returncode != 0:
+        pytest.skip("no junction")
+
+    thumbs.prune_cache(str(cache), project.root)
+
+    assert victim.exists()
+    os.rmdir(cache / "ab")  # the junction alone
+
+
+def _png_info(source: str):
+    from PIL.PngImagePlugin import PngInfo
+
+    info = PngInfo()
+    info.add_text("specto-stat", "1:1")
+    info.add_text("specto-source", source)
+    return info
+
+
+def test_a_corrupt_cached_thumbnail_is_rendered_again(project: Project):
+    names = write_fixtures(project.root / "data")
+    col = collection_of(project.root / "data", names)
+    host, fake = open_gallery(project)
+    host.receive("data", col)
+    host.pump()
+    first = dict(fake.pixels)
+    for p in cached_pngs(project):
+        p.write_bytes(b"\x89PNG not really")
+
+    reopened, fake2 = open_gallery(project)
+    reopened.receive("data", col)
+    reopened.pump()
+
+    counts = reopened.snapshot()["decode"]["thumbs"]
+    assert counts["rendered"] == len(names) - 1 and counts["disk"] == 0
+    assert fake2.pixels == first
+
+
+def test_an_image_cache_key_follows_the_decoder(project: Project):
+    from specto_app import thumbs
+    from specto_core.kinds import DecodeRequest
+
+    plain = thumbs.image_look(DecodeRequest(purpose="thumbnail", max_size=176))
+    raw = thumbs.image_look(
+        DecodeRequest(purpose="thumbnail", max_size=176, options={"exif_transpose": False})
+    )
+    assert plain != raw and plain["decoder"] == thumbs.IMAGE_DECODER_VERSION
+    a = thumbs.cache_path("c", "x.png", 176, plain)
+    assert a != thumbs.cache_path("c", "x.png", 176, raw)
+
+
+def _zipped_clip(project: Project) -> Collection:
+    import zipfile
+
+    from specto_core.containers import join_virtual
+
+    clip = project.root / "redblue.mp4"
+    subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-y",
+         "-f", "lavfi", "-i", "color=red:s=96x32:d=2:r=10",
+         "-f", "lavfi", "-i", "color=blue:s=96x32:d=2:r=10",
+         "-filter_complex", "vstack", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip)],
+        check=True,
+    )  # fmt: skip
+    archive = project.root / "data" / "clips.zip"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive, "w") as z:
+        z.write(clip, "takes/redblue.mp4")
+    clip.unlink()
+    st = archive.stat()
+    member = join_virtual(str(archive), "takes/redblue.mp4")
+    return Collection(
+        items=[
+            Item(
+                key="redblue",
+                parts={".mp4": member},
+                meta={"stat": {".mp4": [st.st_size, st.st_mtime_ns]}},
+            )
+        ],
+        root=str(archive.parent),
+    )
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="no ffmpeg to make the clip")
+def test_an_archived_video_over_its_cap_gets_the_kind_card(project: Project, monkeypatch):
+    from specto_app import thumbs
+
+    if thumbs.libmpv() is None:
+        pytest.skip("no libmpv (build the native plugin)")
+    col = _zipped_clip(project)
+    monkeypatch.setattr(thumbs, "ARCHIVE_VIDEO_MAX", 1024)  # the clip is bigger
+    host, fake = open_gallery(project)
+
+    host.receive("data", col)
+    host.pump()
+
+    w, h, _ = fake.pushed[0]
+    assert w > h and (w, h) != (96, 64)  # a 3:2 card, no poster
+    cache = Path(thumbs.cache_dir_for(project.root))
+    assert not list(cache.rglob("*.tmp"))  # no copy was made, nothing left

@@ -78,6 +78,7 @@ from specto_app import thumbs
 from specto_app.drag import DragPayload, payload_for
 from specto_app.hosts.base import HostContext, QuickViewHost
 from specto_app.menu import MenuCall, MenuEntry, MenuItemRef, MenuTarget, default_registry
+from specto_core.containers import is_virtual
 from specto_core.errors import SpectoError
 from specto_core.gestures import open_gallery_preview, open_image_view
 from specto_core.jobs import JobInfo, JobManager
@@ -691,6 +692,12 @@ class GalleryHost(QuickViewHost):
                 continue
             image = thumbs.is_image(ref.kind)
             if not image and self._push_remembered(i, ref, size):
+                continue
+            if ref.kind == "video_ref" and is_virtual(ref.uri):
+                # copied out of its archive first: a job of its own, so the batch never
+                # waits on it and cancelling it cancels just that copy (SPEC-17)
+                self._submit([i], [ref], request, False)
+                submitted += 1
                 continue
             chunk, refs = chunks[image]
             chunk.append(i)
