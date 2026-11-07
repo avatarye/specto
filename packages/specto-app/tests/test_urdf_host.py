@@ -1,9 +1,10 @@
-"""The urdf view host (SPEC-43.1; ADR 0028's host and page contract).
+"""The urdf view host (SPEC-43.1; ADR 0029's host and page contract).
 Built by the host registry from a submitted canvas, it parses the robot its intaker
 delivered (on the job manager), serves the robot's meshes through the items host under
 that link, and speaks the contract's messages: ``model``, ``pose`` and ``params`` out;
-``select``, ``joints``, ``camera``, ``panels`` and ``frame`` in. A mesh it cannot find
-turns health amber (``warn``) with one note per cause."""
+``select``, ``joints``, ``loaded`` and ``frame`` in, the camera as a port emit and the
+view params as the page's own writes. A mesh it cannot find or the page cannot read turns
+health amber (``warn``) with one note per cause."""
 
 from __future__ import annotations
 
@@ -19,6 +20,7 @@ from specto_app.canvas.controller import VIEW_KEYS
 from specto_app.hosts import HostContext, HostRegistry, clear_pending
 from specto_app.hosts.stepping import STEP_KEYS
 from specto_app.theme import COLORS
+from specto_app.views.scene3d_view import environment_entries
 from specto_app.views.urdf_view import URDF_MANIFEST, UrdfHost, factory
 from specto_app.web.runtime import reset_runtime, runtime
 from specto_core import Engine, Project
@@ -170,6 +172,7 @@ def test_the_manifest_is_a_viewer_of_urdf_with_the_3d_views_cost(engine: Engine)
         "camera_speed",
         "camera_mode",
         "selected",
+        "selected_links",
         "panels",
     }
     assert props["view_mode"]["enum"] == [
@@ -201,6 +204,8 @@ def test_the_page_gets_the_model_with_mesh_urls_on_the_items_host(engine: Engine
     assert key == arm_key(host)
     msg = sink.last("model")
     assert msg["generation"] >= 1
+    # the 3d view's HDRIs ride with the model, for the page's environment controls
+    assert msg["environments"] == environment_entries()
     model = msg["model"]
     assert model["name"] == "arm" and model["root"] == "base"
     base, upper, finger, _tool = model["links"]
@@ -211,6 +216,7 @@ def test_the_page_gets_the_model_with_mesh_urls_on_the_items_host(engine: Engine
         "url": f"specto://items/l2/{enc}/m0/base.stl",
         "ext": "stl",
         "scale": [1.0, 1.0, 1.0],
+        "uri": "package://arm_description/meshes/base.stl",  # for the properties panel
     }
     cover = upper["visuals"][0]["geometry"]
     assert cover["url"] == f"specto://items/l2/{enc}/m1/cover.obj" and cover["ext"] == "obj"
@@ -271,11 +277,12 @@ def test_the_pose_comes_from_params_clamped_into_the_limits(engine: Engine):
     assert "1 joint name not in the robot: nope" in ctx.health_of("robo")["message"]
 
 
-def test_a_slider_release_is_one_user_submit_of_params_joints(engine: Engine):
-    submit_robot(engine, {"joints": {"shoulder": 0.5}})
+def test_a_slider_release_replaces_params_joints_in_one_user_submit(engine: Engine):
+    submit_robot(engine, {"joints": {"shoulder": 0.5, "nope": 3.0}})
     _ctx, host, sink = make_host(engine)
     steps = len(engine.live.history)
-    host.bridge.send("joints", json.dumps({"grip": 0.02}))
+    # the page sends the full map of the actuated joints; it replaces params.joints
+    host.bridge.send("joints", json.dumps({"shoulder": 0.5, "grip": 0.02}))
     host.flush()
     params = engine.live.data["views"]["robo"]["params"]
     assert params["joints"] == {"shoulder": 0.5, "grip": 0.02}
@@ -283,12 +290,23 @@ def test_a_slider_release_is_one_user_submit_of_params_joints(engine: Engine):
     summary = engine.live.history_summaries()[-1]
     assert summary["origin"] == "user" and summary["label"] == "Arm: joints"
     assert sink.last("pose") == {"joints": {"shoulder": 0.5, "grip": 0.02}, "source": "params"}
-    # beyond the limit: clamped before it is written
-    host.bridge.send("joints", json.dumps({"grip": 1.0}))
-    assert engine.live.data["views"]["robo"]["params"]["joints"]["grip"] == 0.04
+    # beyond the limit: clamped before it is written; names it lacks are dropped
+    host.bridge.send("joints", json.dumps({"shoulder": 0.5, "grip": 1.0, "ghost": 1}))
+    assert engine.live.data["views"]["robo"]["params"]["joints"] == {
+        "shoulder": 0.5,
+        "grip": 0.04,
+    }
+    # the same map again is no submit
+    steps = len(engine.live.history)
+    host.bridge.send("joints", json.dumps({"shoulder": 0.5, "grip": 0.04}))
+    assert len(engine.live.history) == steps
+    # Reset pose: every joint at 0
+    host.bridge.send("joints", json.dumps({"shoulder": 0.0, "grip": 0.0}))
+    host.flush()
+    assert sink.last("pose")["joints"] == {"shoulder": 0.0, "grip": 0.0}
     engine.live.undo()
     host.flush()
-    assert sink.last("pose")["joints"]["grip"] == 0.02
+    assert sink.last("pose")["joints"]["grip"] == 0.04
 
 
 def test_a_pick_selects_a_link_and_sends_its_properties_on_content(engine: Engine):
@@ -321,6 +339,30 @@ def test_a_pick_selects_a_link_and_sends_its_properties_on_content(engine: Engin
     assert ctx.links.output_of("robo", "content").entries == []
 
 
+def test_params_selected_links_select_the_links(engine: Engine):
+    """The page writes its link selection to params.selected_links (setParams); the agent
+    may too. The host selects those links: selection out and content, no echo of what
+    is selected already."""
+    submit_robot(engine)
+    ctx, host, _sink = make_host(engine)
+    key = host.key
+    set_params(engine, selected_links=["upper", "ghost", "base"])
+    host.flush()
+    sel = ctx.links.output_of("robo", "selection")
+    assert sel.keys == [f"{key}#upper", f"{key}#base"] and sel.last == f"{key}#base"
+    assert ctx.links.output_of("robo", "content").entries[0].data["name"] == "base"
+    # the page picked a link and then writes the same list: nothing more goes out
+    host.bridge.send("select", json.dumps({"link": "finger", "joint": None, "add": False}))
+    out = ctx.links.output_of("robo", "selection")
+    emitted = []
+    ctx.links.emit = lambda *a, **k: emitted.append(a)  # type: ignore[method-assign]
+    set_params(engine, selected_links=["finger"])
+    host.flush()
+    assert emitted == [] and out.keys == [f"{key}#finger"]
+    # the page may write it: the grant is there
+    assert "params:selected_links" in host.caps
+
+
 def test_a_selection_from_outside_is_shown_and_not_echoed(engine: Engine):
     submit_robot(engine)
     ctx, host, sink = make_host(engine)
@@ -345,10 +387,7 @@ def test_the_camera_goes_out_and_an_outside_camera_is_not_echoed(engine: Engine)
     host.flush()
     assert sink.last_port("camera") == outside.model_dump(mode="json")
     assert ctx.links.output_of("robo", "camera") == CameraValue(**CAMERA)
-    # the camera message (ADR 0028) does the same
-    host.bridge.send("camera", json.dumps({**CAMERA, "position": [9.0, 9.0, 9.0]}))
-    assert ctx.links.output_of("robo", "camera").position == (9.0, 9.0, 9.0)
-    assert host.snapshot()["camera"]["position"] == [9.0, 9.0, 9.0]
+    assert host.snapshot()["camera"] == CAMERA
 
 
 def test_params_reach_the_page_with_their_defaults(engine: Engine):
@@ -364,19 +403,48 @@ def test_params_reach_the_page_with_their_defaults(engine: Engine):
     assert sink.last("params")["view_mode"] == "collision"
 
 
-def test_panels_from_the_page_are_kept_in_params(engine: Engine):
+def test_the_page_writes_its_view_params_itself(engine: Engine):
+    """The VIEW panel, the footer and the side panels write their params through
+    Specto.setParams (one user submit each), as the 3d view's page does."""
     submit_robot(engine)
-    _ctx, host, _sink = make_host(engine)
-    host.bridge.send("panels", json.dumps({"robot": {"collapsed": True, "width": 260}}))
-    host.bridge.send("panels", json.dumps({"view": {"collapsed": False, "width": 220}}))
-    assert engine.live.data["views"]["robo"]["params"]["panels"] == {
-        "robot": {"collapsed": True, "width": 260},
-        "view": {"collapsed": False, "width": 220},
-    }
+    _ctx, host, sink = make_host(engine)
+    panels = {"robot": {"collapsed": True, "width": 260}, "view": {"collapsed": False}}
+    reply = json.loads(host.bridge.setParams(json.dumps({"panels": panels})))
+    assert reply["ok"] is True
+    host.bridge.setParams(json.dumps({"view_mode": "visual_collision", "up": "-y"}))
+    params = engine.live.data["views"]["robo"]["params"]
+    assert params["panels"] == panels and params["view_mode"] == "visual_collision"
+    host.flush()
+    assert sink.last("params")["up"] == "-y"
+    # never the pose: that is the joints message, clamped by the host
+    refused = json.loads(host.bridge.setParams(json.dumps({"joints": {"grip": 9}})))
+    assert refused["ok"] is False and refused["error"]["code"] == "capability"
     # a double-click frames on the page; the host only takes note (no submit)
     steps = len(engine.live.history)
     host.bridge.send("frame", json.dumps({"link": "upper"}))
-    assert len(engine.live.history) == steps
+    assert len(engine.live.history) == steps and host.snapshot()["framed"] == "upper"
+
+
+def test_meshes_the_page_could_not_read_join_the_health_notes(engine: Engine):
+    """The host owns the health dot: the page's ``loaded`` failures join the notes."""
+    submit_robot(engine, {"package_paths": {"gripper": "vendor/grip_pkg"}})
+    ctx, host, _sink = make_host(engine)
+    assert ctx.health_of("robo")["status"] == "ok"
+    failed = [
+        {"link": "base", "kind": "visual", "url": "u0", "error": "STL: bad header"},
+        {"link": "upper", "kind": "visual", "url": "u1", "error": "STL: bad header"},
+        {"link": "finger", "kind": "visual", "url": "u2", "error": "404"},
+    ]
+    host.bridge.send("loaded", json.dumps({"ms": 41.5, "meshes": 3, "failed": failed}))
+    assert ctx.health_of("robo") == {
+        "status": "warn",
+        "message": "arm: 4 links, 3 joints · 2 meshes unreadable: STL: bad header "
+        "· 1 mesh unreadable: 404",
+        "hint": "",
+    }
+    assert host.snapshot()["loaded"] == {"ms": 41.5, "meshes": 3, "failed": failed}
+    host.bridge.send("loaded", json.dumps({"ms": 30, "meshes": 3, "failed": []}))
+    assert ctx.health_of("robo")["status"] == "ok"
 
 
 def test_the_footer_steps_through_the_robots_and_params_selected_picks_one(engine: Engine):
@@ -407,14 +475,18 @@ def test_a_file_that_is_not_a_urdf_is_an_error_in_health(engine: Engine, tmp_pat
     host.flush()
     health = ctx.health_of("robo")
     assert health["status"] == "error" and "not a URDF" in health["message"]
-    assert sink.last("model") == {"generation": host.generation, "model": None}
+    assert sink.last("model") == {
+        "generation": host.generation,
+        "model": None,
+        "environments": environment_entries(),
+    }
     assert host.snapshot()["error"] and host.snapshot()["robot"] is None
 
 
 def test_snap_reports_the_robot(engine: Engine):
     submit_robot(engine, {"joints": {"shoulder": 0.25}, "environment": "none"})
     _ctx, host, _sink = make_host(engine)
-    host.bridge.send("camera", json.dumps(CAMERA))
+    host.bridge.emit("camera", json.dumps(CAMERA))
     snap = host.snapshot()
     assert snap["robot"] == "arm" and snap["file"].endswith("arm.urdf")
     assert snap["links"] == 4 and snap["joints"] == 3 and snap["actuated"] == ["shoulder", "grip"]
@@ -438,8 +510,28 @@ def test_the_page_grants_and_the_keys_it_shares_with_the_3d_view(engine: Engine)
     _ctx, host, _sink = make_host(engine)
     caps = set(host.caps)
     assert {"emit:camera", "emit:selection", "emit:content", "read:link:l2"} <= caps
-    for p in ("view_mode", "up", "environment", "show_grid", "camera_speed", "panels"):
+    for p in (
+        "panels",
+        "camera_speed",
+        "camera_mode",
+        "view_mode",
+        "up",
+        "environment",
+        "environment_intensity",
+        "environment_rotation",
+        "environment_background",
+        "show_grid",
+        "show_frames",
+        "show_joint_axes",
+        "show_com",
+        "selected_links",
+    ):
         assert f"params:{p}" in caps, p
+    assert host.vendor_files == (
+        "babylon/babylon.js",
+        "babylon/babylonjs.loaders.min.js",
+        "babylon/fflate.js",
+    )
     # the pose and the package paths go through the host, never the page's own writes
     assert "params:joints" not in caps and "params:package_paths" not in caps
     assert STEP_KEYS["urdf"] == ("PageUp/PageDown",)  # the keyboard flies the camera

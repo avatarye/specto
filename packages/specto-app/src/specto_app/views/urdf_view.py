@@ -1,30 +1,33 @@
-"""The ``urdf`` view host (SPEC-43.1, ADR 0028).
+"""The ``urdf`` view host (SPEC-43.1, ADR 0029).
 
 One robot at a time in a Babylon.js page (``web/urdf/index.html``, SPEC-43.2) beside the
 3d view's, which does the forward kinematics; this host is the Python half of ADR
-0028's host and page contract:
+0029's host and page contract:
 
 - ``data`` in: the robots its intaker delivered (``.urdf`` items); the picked one (a
   selection's key, else ``params.selected``, else the first) is parsed on the job
-  manager (``specto_readers.urdf.build_robot``: yourdfpy parse-only plus Specto's
-  ``package://`` resolver, with ``params.package_paths`` first), and the footer steps
-  through the rest;
+  manager (``specto_readers.urdf.build_robot``: the standard library's XML parser plus
+  Specto's ``package://`` resolver, with ``params.package_paths`` first), and the footer
+  steps through the rest (``hosts.stepping``);
 - the meshes are served by the items host as extra roles of the robot's item
   (``specto://items/<link>/<key>/m<n>/<file name>``: the name ends the URL so an OBJ's
   ``.mtl`` and textures resolve next to it), under the link that delivered the robot,
   which the page reads through ``read:link:<id>``;
-- Python to page: ``model {generation, model}`` (null model: the file could not be
-  read), ``pose {joints, source}`` (every actuated joint, ``params.joints`` clamped into
-  the limits, else 0; ``source`` is ``params`` or ``zero`` until SPEC-43.3 adds the
-  joint track), ``params`` (the view's params over the manifest's defaults), and the
-  ``camera`` and ``selection`` ports (no echo);
+- Python to page: ``model {generation, model, environments}`` (null model: the file
+  could not be read; ``environments``: the 3d view's bundled HDRIs), ``pose {joints,
+  source}`` (every actuated joint, ``params.joints`` clamped into the limits, else 0;
+  ``source`` is ``params`` or ``zero`` until SPEC-43.3 adds the joint track), ``params``
+  (the view's params over the manifest's defaults), and the ``camera`` and ``selection``
+  ports (no echo);
 - page to Python: ``select {link, joint, add}`` (selection out ``<item key>#<link>``, a
   joint as its child link; content out: the link's or joint's properties),
-  ``joints {name: value}`` (a slider release: one user submit of ``params.joints``),
-  ``camera`` (the camera output), ``panels {...}`` (``params.panels``), ``frame {link}``
-  (the page frames it; noted here only) and ``step {delta}``;
-- a mesh not found turns health amber (``warn``) with one note per cause
-  (``missing_notes``); snap lists every one with its cause.
+  ``joints {name: value}`` (a slider release or Reset pose: the full map, which
+  replaces ``params.joints`` in one user submit), ``frame {link}`` (the page frames it;
+  noted here), ``loaded {ms, meshes, failed}`` (the page's mesh loads) and ``step
+  {delta}``; the camera comes as a port emit, and the VIEW panel's and footer's params
+  (``selected_links`` among them) as the page's own ``setParams`` writes;
+- the host owns the health dot: a mesh not found, or one the page could not read,
+  turns it amber (``warn``) with one note per cause; snap lists every one.
 """
 
 from __future__ import annotations
@@ -48,7 +51,13 @@ from ..hosts.stepping import Stepping
 from ..web.runtime import runtime
 from ..web.scheme import item_url
 from ..web.webview import WebViewHost
-from .scene3d_view import ENV_INTENSITY_MAX, ENV_NONE, ENVIRONMENTS, VENDOR_FILES
+from .scene3d_view import (
+    ENV_INTENSITY_MAX,
+    ENV_NONE,
+    ENVIRONMENTS,
+    VENDOR_FILES,
+    environment_entries,
+)
 
 DATA, JOINTS, TIME, CAMERA, SELECTION, CONTENT = (
     "data",
@@ -70,7 +79,7 @@ CLAMPED = ("revolute", "prismatic")
 ACTUATED = ("revolute", "continuous", "prismatic")
 
 
-#: the urdf view type (SPEC-43, ADR 0028): a web view beside the 3d view, its params the
+#: the urdf view type (SPEC-43, ADR 0029): a web view beside the 3d view, its params the
 #: 3d view's camera and environment plus the robot's own
 URDF_MANIFEST = ViewManifest(
     type="urdf",
@@ -202,6 +211,14 @@ URDF_MANIFEST = ViewManifest(
                 "description": "The item key of the robot shown (default: the picked "
                 "item, else the first).",
             },
+            "selected_links": {
+                "type": "array",
+                "items": {"type": "string"},
+                "default": [],
+                "description": "The selected links by name, the last one picked last; "
+                "they go out on selection as <item key>#<link>. A click on the robot or a "
+                "ROBOT panel row writes it.",
+            },
             "panels": {
                 "type": "object",
                 "additionalProperties": True,
@@ -223,6 +240,19 @@ URDF_MANIFEST = ViewManifest(
     },
 )
 URDF_PLUGIN = PluginManifest(name="app-urdf", version="0.1.0", views=[URDF_MANIFEST])
+
+
+def unreadable_notes(failed: list[dict[str, Any]]) -> list[str]:
+    """Health notes for the meshes the page could not read (``loaded.failed``): one per
+    error, most meshes first."""
+    counts: dict[str, int] = {}
+    for f in failed:
+        err = str(f.get("error") or "unreadable")
+        counts[err] = counts.get(err, 0) + 1
+    return [
+        f"{n} mesh{'es' if n != 1 else ''} unreadable: {err}"
+        for err, n in sorted(counts.items(), key=lambda kv: -kv[1])
+    ]
 
 
 def urdf_part(item: Item) -> str | None:
@@ -277,6 +307,7 @@ class UrdfHost(Stepping, WebViewHost):
         self.selected_links: list[str] = []
         self.selected_joint: str | None = None
         self.framed: str | None = None
+        self.loaded: dict[str, Any] | None = None  # the page's last ``loaded``
         self._wanted_key: str | None = None
         self._wanted_links: list[str] | None = None
         self._package_paths: Any = self.view_params().get("package_paths")
@@ -463,7 +494,18 @@ class UrdfHost(Stepping, WebViewHost):
 
     def _send_model(self) -> None:
         self.generation += 1
-        self.notify("model", {"generation": self.generation, "model": self.model})
+        self.loaded = None
+        self._notify_model()
+
+    def _notify_model(self) -> None:
+        self.notify(
+            "model",
+            {
+                "generation": self.generation,
+                "model": self.model,
+                "environments": environment_entries(),
+            },
+        )
 
     # -- the pose ------------------------------------------------------------------------------
     def _joint_table(self) -> dict[str, dict[str, Any]]:
@@ -513,6 +555,7 @@ class UrdfHost(Stepping, WebViewHost):
             f"{n_joints} joint{'s' if n_joints != 1 else ''}"
         )
         notes = missing_notes(model["missing"])
+        notes.extend(unreadable_notes((self.loaded or {}).get("failed") or []))
         _joints, _source, unknown = self.pose()
         if unknown:
             n = len(unknown)
@@ -605,7 +648,7 @@ class UrdfHost(Stepping, WebViewHost):
 
     # -- the page -------------------------------------------------------------------------------
     def on_ready(self) -> None:
-        self.notify("model", {"generation": self.generation, "model": self.model})
+        self._notify_model()
         self.notify("params", self.page_params())
         self._send_pose()
         self.sync_step()
@@ -619,7 +662,23 @@ class UrdfHost(Stepping, WebViewHost):
                 self._parse()
                 return
         self._send_pose()
+        self._take_selected_links(params.get("selected_links"))
         self._say_health()
+
+    def _take_selected_links(self, value: Any) -> None:
+        """``params.selected_links`` changed (the page's write, or the agent's): select
+        those links, if that is not the selection already (no echo of a pick)."""
+        if not isinstance(value, list) or self.robot is None:
+            return
+        names = {lk["name"] for lk in self.robot["model"]["links"]}
+        links = [str(n) for n in value if str(n) in names]
+        if links == self.selected_links:
+            return
+        self.selected_links, self.selected_joint = links, None
+        key = self.key
+        keys = [f"{key}#{n}" for n in links] if key else []
+        self.emit(SELECTION, Selection(keys=keys, last=keys[-1] if keys else None))
+        self._emit_content()
 
     def on_page_event(self, kind: str, payload: Any) -> None:
         args = payload if isinstance(payload, dict) else {}
@@ -630,13 +689,8 @@ class UrdfHost(Stepping, WebViewHost):
             )
         elif kind == "joints":
             self.set_joints(args)
-        elif kind == "camera":
-            with contextlib.suppress(ValueError, TypeError):
-                self.emit(CAMERA, CameraValue.model_validate(args))
-        elif kind == "panels":
-            panels = dict(self.view_params().get("panels") or {})
-            panels.update({str(k): v for k, v in args.items()})
-            self._submit_params({"panels": panels}, "panels")
+        elif kind == "loaded":
+            self.on_loaded(args)
         elif kind == "frame":
             link = args.get("link")
             self.framed = str(link) if link else None
@@ -645,11 +699,11 @@ class UrdfHost(Stepping, WebViewHost):
                 self.step_item(int(args.get("delta") or 0))
 
     def set_joints(self, values: dict[str, Any]) -> None:
-        """A slider release: the joints moved, clamped, merged into ``params.joints``
-        as one user submit. Names the robot does not have are dropped."""
+        """A slider release or Reset pose: the page's full map of the joints, clamped,
+        replaces ``params.joints`` as one user submit. Names the robot does not have,
+        and values that are not numbers, are dropped; an unchanged map is no submit."""
         table = self._joint_table()
-        joints = dict(self.view_params().get("joints") or {})
-        changed = False
+        joints: dict[str, float] = {}
         for name, raw in values.items():
             if name not in table:
                 continue
@@ -657,9 +711,19 @@ class UrdfHost(Stepping, WebViewHost):
                 joints[name] = self.clamp(name, float(raw))
             except (TypeError, ValueError):
                 continue
-            changed = True
-        if changed:
+        if joints != (self.view_params().get("joints") or {}):
             self._submit_params({"joints": joints}, "joints")
+
+    def on_loaded(self, args: dict[str, Any]) -> None:
+        """The page loaded the model's meshes: ``{ms, meshes, failed: [{link, kind, url,
+        error}]}``; the failures join the health notes (the host owns the dot)."""
+        failed = args.get("failed") if isinstance(args.get("failed"), list) else []
+        self.loaded = {
+            "ms": args.get("ms"),
+            "meshes": args.get("meshes"),
+            "failed": [f for f in failed if isinstance(f, dict)],
+        }
+        self._say_health()
 
     # -- lifecycle -------------------------------------------------------------------------------
     def pause(self) -> None:
@@ -689,6 +753,8 @@ class UrdfHost(Stepping, WebViewHost):
             "pose_source": source,
             "unknown_joints": unknown,
             "selected": {"links": list(self.selected_links), "joint": self.selected_joint},
+            "framed": self.framed,
+            "loaded": self.loaded,
             "view_mode": params.get("view_mode"),
             "environment": params.get("environment"),
             "missing": list(model.get("missing", [])),
@@ -720,5 +786,6 @@ __all__ = [
     "UrdfHost",
     "factory",
     "register",
+    "unreadable_notes",
     "urdf_part",
 ]

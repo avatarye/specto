@@ -488,6 +488,8 @@ step, nothing journaled). */
     camera_mode?: "free" | "orbit";
     /** The item key of the robot shown (default: the picked item, else the first). */
     selected?: string | null;
+    /** The selected links by name, the last one picked last; they go out on selection as <item key>#<link>. A click on the robot or a ROBOT panel row writes it. default: [] */
+    selected_links?: string[];
     /** The side panels' {collapsed, width} by name (view, robot). */
     panels?: Record<string, unknown>;
     [key: string]: unknown;

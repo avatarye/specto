@@ -145,9 +145,11 @@ _TYPE_DEFAULTS: dict[str, tuple[str, ...]] = {
         "params:environment_rotation",
     ),
     "html": ("net:web",),  # a user's page: its files and the network, no params
-    # the urdf view's VIEW panel and footer (SPEC-43); its pose (params.joints, a slider
-    # release) and panels go through the host's messages, the package paths are the agent's
+    # the urdf view's VIEW panel, footer, side panels and link selection (SPEC-43, ADR
+    # 0029); its pose (params.joints) goes through the host's joints message, the package
+    # paths are the agent's
     "urdf": (
+        "params:selected_links",
         "params:view_mode",
         "params:up",
         "params:environment",
