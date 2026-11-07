@@ -34,6 +34,7 @@ hover slot:robo 0.5 0.5
 webclick robo tree.link:upper_arm
 assert_web robo selected_links ["upper_arm"]
 assert_host robo selected.links ["upper_arm"]
+assert_meta robo params.selected_links ["upper_arm"]
 wait 500
 shot 43-02-upper-arm-selected.png
 # a typed value poses the elbow: one user submit to params.joints
