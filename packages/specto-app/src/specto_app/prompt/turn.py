@@ -169,6 +169,9 @@ class Reply:
     #: what the turn launched (#186) or was refused (#192), in order: each a ``Launched``
     #: whose note is "launched Blender 4.2 on a.blend" / "refused System default on ..."
     launches: list[Launched] = field(default_factory=list)
+    #: the model got the prompt: False for an error with no assistant output (the CLI
+    #: refused the turn, e.g. not logged in), so its context counts as unseen (SPEC-30)
+    reached_agent: bool = True
 
 
 class TurnTools:
@@ -514,6 +517,7 @@ async def run_turn(
         scratch_step=tools.scratch_step,
         fleet=list(tools.fleet_sends),
         launches=list(tools.launches),
+        reached_agent=not (outcome.is_error and not text and not tools.calls),
     )
     if outcome.is_error:
         reply.status = "failed"

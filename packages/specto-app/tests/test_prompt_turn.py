@@ -274,3 +274,27 @@ def test_a_successful_edit_ends_the_turn_and_its_label_is_the_reply(engine, tool
     assert tools.done is True
     assert reply.status == "changed" and reply.summary == "move kobi"
     assert reply.text == "move kobi"
+
+
+def test_an_error_reached_the_agent_only_when_it_said_or_did_something(engine, tools):
+    """SPEC-30: an error with no assistant output (the CLI refused the turn) did not reach
+    the model; an error after a reply or a tool call did."""
+    from specto_app.prompt.turn import TurnOutcome
+
+    class Ends(ScriptedAgentSession):
+        def __init__(self, tools, steps, outcome_text: str) -> None:
+            super().__init__(tools, [steps])
+            self.outcome_text = outcome_text
+
+        async def turn(self, prompt, context_text, **kw):
+            await super().turn(prompt, context_text, **kw)
+            return TurnOutcome(text=self.outcome_text, is_error=True, error="it failed")
+
+    refused = turn(engine, tools, Ends(tools, [], ""), "hello")
+    assert refused.status == "failed" and refused.reached_agent is False
+    answered = turn(engine, tools, Ends(tools, [], "Half an answer"), "hello")
+    assert answered.status == "failed" and answered.reached_agent is True
+    worked = turn(engine, tools, Ends(tools, [{"tool": "state"}], ""), "hello")
+    assert worked.status == "failed" and worked.reached_agent is True
+    fine = turn(engine, tools, ScriptedAgentSession(tools, [[{"text": "Hi."}]]), "hello")
+    assert fine.reached_agent is True
