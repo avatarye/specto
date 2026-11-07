@@ -82,7 +82,7 @@ the release and move on their own schedule.
   the first frame drawn, the total), and `snap` shows them as `load_timings`.
   `tools/bench_usd_load.py` times loads in the source alone, fresh or reused renderer,
   with an optional py-spy profile. On a public 26k-prim warehouse with warm caches, a
-  reload takes 8-9 s. The first frame takes 6-7 s of it, of which textures are 1.5-3 s;
+  reload takes 8-9 s. The first frame takes 5-7 s of it, of which textures are 1.5-3 s;
   the fresh renderer adds 1-1.5 s. ovrtx 0.6.0 offers no way to turn its texture cache
   on.
 - After a project slash command (`/layout review`), the agent's next turn gets the

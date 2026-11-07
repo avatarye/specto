@@ -28,11 +28,13 @@ source's methods (#139), so the usd host drives either one:
   when the renderer cannot show all of the stage (Storm: MDL materials) or lights it
   itself (rtx: a stage without lights gets a default dome, #148). ``ok`` comes
   with the stage's first frame in the ring, its ``seq`` the stage's first complete
-  frame (#166: past the frames in flight), which the source always draws, and its
-  ``timings`` where the load's seconds went (SPEC-27): ``renderer_s`` (a fresh
-  renderer's swap, ``--fresh-renderer``), ``open_s`` (usd-core opens the stage),
-  ``populate_s`` (the renderer's stage filled), ``first_frame_s`` (its first frame drawn:
-  geometry, materials, textures) and ``total_s``. The renderer
+  frame (#166: past the frames in flight), which the source always draws. Once that frame
+  is in the ring, ``load_timings {path, ...}`` says where the load's seconds went
+  (SPEC-27, :class:`LoadTimings`): ``renderer_s`` (a fresh renderer's swap,
+  ``--fresh-renderer``), ``open_s`` (usd-core opens the stage), ``populate_s`` (the
+  renderer's stage filled), ``environment_s`` (the environment light set up),
+  ``first_frame_s`` (from there to the frame ``ok`` names: geometry, materials,
+  textures) and ``total_s``. The renderer
   itself starts with the process, as ``compiling shaders`` for rtx (about 2.5 minutes on
   a cold shader cache, said in its message, a few seconds warm), ``starting`` for storm;
 - ``set_camera {position, target, up, fov_y, near, far, cut}`` in the stage's frame;
@@ -110,7 +112,7 @@ from collections.abc import Callable
 from concurrent.futures import Future
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from specto_app.frames.control import ControlServer
 from specto_app.frames.server import FrameServer
@@ -160,6 +162,18 @@ class OverlayBuild:
     started: float  # time.monotonic()
     stop: threading.Event = field(default_factory=threading.Event)
     thread: threading.Thread | None = None
+
+
+class LoadTimings(TypedDict, total=False):
+    """Where one stage load's seconds went (SPEC-27); ``renderer_s`` only for a load that
+    swapped in a fresh renderer."""
+
+    renderer_s: float
+    open_s: float
+    populate_s: float
+    environment_s: float
+    first_frame_s: float
+    total_s: float
 
 
 def settle(answers: list[Future], fn: Callable[[], Any]) -> Any:
@@ -243,9 +257,11 @@ class UsdSource:
         self.settle_steps = max(1, settle)
         self.make_renderer = make_renderer
         self.fresh_renderer = bool(getattr(args, "fresh_renderer", False))
-        # where the current load's time goes (seconds), sent with its ``ok`` (SPEC-27)
-        self.load_timings: dict[str, float] = {}
+        # where the current load's time goes (seconds, SPEC-27): sent as ``load_timings``
+        # once the frame its ``ok`` names is in the ring
+        self.load_timings: LoadTimings = {}
         self._load_started = self._first_step_from = 0.0
+        self._timings_at: int | None = None  # the ring seq that ends the load's timing
         self.renderer: Any = None
         self.info: Any = None  # stage.StageInfo of the loaded stage
         self.camera: CameraState | None = None
@@ -544,13 +560,12 @@ class UsdSource:
             if restart:
                 self._restart()
             if load:
-                started = time.perf_counter()
-                self.load_timings = {}
+                started = self._begin_timing()  # the renderer swap counts in the load
                 if self.fresh_renderer and self.info is not None and not restart:
                     self._close_renderer()  # no second stage in a renderer (#155)
                     self._start_renderer()
                     self.load_timings["renderer_s"] = time.perf_counter() - started
-                self._load(load, started)
+                self._load(load, timed=True)
             modes = self._take_mode()  # against the stage loaded now
             if self.renderer is None or self.info is None or self.failed:
                 if timecode is not None:
@@ -875,15 +890,15 @@ class UsdSource:
         self.timecode = timecode
         self._budget = self.settle_steps
 
-    def _load(self, path: str, started: float | None = None) -> None:
+    def _load(self, path: str, timed: bool = False) -> None:
         """Open ``path`` and hand it to the renderer; its first frame ends the load, and
-        ``ok`` reports where the time went (``load_timings``, SPEC-27). ``started``: when
-        the load was taken (a fresh renderer's swap counts in it), else now."""
+        ``load_timings`` reports where the time went (SPEC-27). ``timed``: the caller
+        started the load's timing (a fresh renderer's swap counts in it); else it starts
+        here."""
         from .stage import open_stage
 
-        self._load_started = started if started is not None else time.perf_counter()
-        if started is None:
-            self.load_timings = {}
+        if not timed:
+            self._begin_timing()
         self.health("composing", os.path.basename(path))
         self._building_shown = False  # the load's own phases say what goes on now
         self._drain()
@@ -930,10 +945,12 @@ class UsdSource:
             lighting=info.lighting,
         )
         self.load_timings["populate_s"] = time.perf_counter() - t
-        self._first_step_from = time.perf_counter()
+        t = time.perf_counter()
         if self.environment_shown != "stage" and hasattr(self.renderer, "set_environment"):
             self._show_environment(self.environment_shown, info.up_axis)
             self._sky_compiling(self.environment_shown)  # under the loading label
+        self.load_timings["environment_s"] = time.perf_counter() - t
+        self._first_step_from = time.perf_counter()
         self.failed = False
         self._first_frame = True
         # the frame ``ok`` names must come: a few frames past the first, however settled
@@ -977,6 +994,20 @@ class UsdSource:
         ms = (time.perf_counter() - started) * 1000
         with self.frames.frame(w, h, timestamp=time.time(), render_ms=ms) as dst:
             _fill(dst, pixels)
+        if self._timings_at is not None and self.frames.ring.seq >= self._timings_at:
+            self._timings_at = None
+            now = time.perf_counter()
+            self.load_timings["first_frame_s"] = now - self._first_step_from
+            self.load_timings["total_s"] = now - self._load_started
+            timings = {k: round(v, 3) for k, v in self.load_timings.items()}
+            self.control.emit("load_timings", path=self.info.path if self.info else "", **timings)
+
+    def _begin_timing(self) -> float:
+        """A load starts: its timing starts over (the one place it does). Returns now."""
+        self.load_timings = {}
+        self._timings_at = None
+        self._load_started = time.perf_counter()
+        return self._load_started
 
     def _finish(self, op: Any, started: float) -> None:
         self.renderer.finish(op, lambda pixels: self._publish(pixels, started))
@@ -987,11 +1018,9 @@ class UsdSource:
             self._first_frame = False
             self._compiling_sky = False
             name = self.info.name if self.info is not None else ""
-            now = time.perf_counter()
-            self.load_timings["first_frame_s"] = now - self._first_step_from
-            self.load_timings["total_s"] = now - self._load_started
-            timings = {k: round(v, 3) for k, v in self.load_timings.items()}
-            self.health("ok", name, seq=self.frames.ring.seq + IN_FLIGHT, timings=timings)
+            seq = self.frames.ring.seq + IN_FLIGHT
+            self._timings_at = seq  # the load's timing ends with the frame ``ok`` names
+            self.health("ok", name, seq=seq)
             if self._building_shown:  # a collision ask still waits on its overlay
                 self._building_shown = False
                 self._show_building(True)

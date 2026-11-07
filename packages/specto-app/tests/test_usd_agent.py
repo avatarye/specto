@@ -153,6 +153,7 @@ def test_snap_of_a_usd_view_reports_the_stage_renderer_frame_and_camera():
         "sky_fetch": {},
         "hdri_fetch": {},
         "fallback_reason": "",
+        "load_timings": {},
     }
 
 

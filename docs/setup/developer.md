@@ -470,6 +470,29 @@ uv run specto plugin path                      # the marketplace, plugin and ski
 The plugin's MCP server runs `specto-mcp`, and fleet members use the `specto` CLI, so both
 must be on the PATH of whatever runs them (the plan warns when they are not).
 
+## Profiling a usd load
+
+`tools/bench_usd_load.py` times a usd view's stage loads in the frame source alone, with no
+app and no window. It loads stages with the command line the view uses, over a few
+rounds, and prints the source's own split of each load (`load_timings`, also in `snap`):
+- the renderer swap;
+- the stage opened with usd-core;
+- the renderer's stage populated;
+- the environment set up;
+- the time to the stage's first complete frame.
+
+Run it on the GPU tier, under `tools/gpu_guard.py` and the heavy-run slot. The public
+sample world for it is Isaac 4.5's Simple_Warehouse from NVIDIA's public content bucket
+(about 500 MB, under NVIDIA's terms; local use only, never committed).
+`tools/fetch_sample_usd.py` fetches it, and with `--textures 1x1` makes a copy whose
+PNGs are 1x1 images, so the same stage and materials load without the texture decode:
+
+```text
+uv run --no-sync python tools/fetch_sample_usd.py <scratch>/full
+uv run --no-sync python tools/fetch_sample_usd.py <scratch>/flat --textures 1x1
+uv run --no-sync python tools/bench_usd_load.py --work <scratch>/run     <scratch>/full/Isaac/Environments/Simple_Warehouse/full_warehouse.usd     <scratch>/flat/Isaac/Environments/Simple_Warehouse/full_warehouse.usd --repeat 3
+```
+
 ## Common failures
 
 - **The app fails in `Specto.Native` after a pull.** The plugin is a build artefact: any

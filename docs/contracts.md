@@ -753,11 +753,15 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   id, `view:<id>`, `@<label>` or `canvas`; `meta.host` = `host.snapshot()` (a usd view's
   carries `specto_app.views.usd_meta.UsdSnapMeta`: `path, renderer, renderer_asked, mode,
   frame_size, camera, look_through, camera_speed, environment, environment_note, sky,
-  hdri, sky_controls, ground, sky_fetch, hdri_fetch, fallback_reason`; the environment
-  fields, SPEC-31:
+  hdri, sky_controls, ground, sky_fetch, hdri_fetch, fallback_reason, load_timings`; the
+  environment fields, SPEC-31:
   what lights the stage, why it is not the choice, the sky's controls in effect and the
   runtime fetches' `{cached, fetching, queued, done, total, error}`; `fallback_reason`,
-  SPEC-26: why the stub USD source plays, "" when it does not), `meta.links` the links in and out
+  SPEC-26: why the stub USD source plays, "" when it does not; `load_timings`,
+  SPEC-27: where the shown stage's load spent its seconds, `renderer_s` (a fresh
+  renderer's swap), `open_s`, `populate_s`, `environment_s`, `first_frame_s` (to the
+  frame `ok` names) and `total_s`, `{}` while a load runs or after a failed one),
+  `meta.links` the links in and out
   with their resolve state, `meta.rect` the on-screen rect;
   `layout` one line per view and link) and `shell.locate {name}` (the window rect of a
   shell item by `objectName`: `slot:kobi`, `header:kobi`, `close:kobi`,

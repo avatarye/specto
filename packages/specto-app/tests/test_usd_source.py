@@ -390,24 +390,32 @@ def test_compiling_shaders_says_first_run_only_on_a_cold_shader_cache(tmp_path, 
         src.close()
 
 
-def test_a_load_reports_where_its_time_went_with_its_first_frame(fake, stage_file):
-    """SPEC-27: the ``ok`` that ends a load carries ``timings`` (seconds): the stage opened
-    with usd-core, the renderer's stage populated, the first frame drawn, all of it; with
+def test_a_load_reports_where_its_time_went_once_its_named_frame_is_out(fake, stage_file):
+    """SPEC-27: once the frame its ``ok`` names is in the ring, a load reports
+    ``load_timings`` (seconds): the stage opened with usd-core, the renderer's stage
+    populated, the environment set up, from there to that frame, all of it; with
     ``--fresh-renderer`` a load after the first also says what the renderer swap cost."""
     src = spawn(fake, "--fresh-renderer")
     try:
-        src.wait_event("ready")
+        ready = src.wait_event("ready")
         src.send("load", path=str(stage_file))
-        first = wait_health(src, "ok")["timings"]
-        assert set(first) == {"open_s", "populate_s", "first_frame_s", "total_s"}
+        ok = wait_health(src, "ok")
+        first = src.wait_event("load_timings", timeout=20)
+        assert first.pop("path") == str(stage_file)
+        keys = {"open_s", "populate_s", "environment_s", "first_frame_s", "total_s"}
+        assert set(first) == keys
         assert all(isinstance(v, float) and v >= 0 for v in first.values())
-        assert (
-            first["total_s"]
-            >= first["open_s"] + first["populate_s"] + first["first_frame_s"] - 0.01
-        )
+        parts = sum(first[k] for k in keys - {"total_s"})
+        assert first["total_s"] >= parts - 0.01
+        reader = RingReader.open(ready["ring"])
+        try:
+            assert reader.latest().seq >= ok["seq"]  # the named frame is out by now
+        finally:
+            reader.close()
         src.send("load", path=str(stage_file))
-        again = wait_health(src, "ok")["timings"]
-        assert set(again) == {"renderer_s", "open_s", "populate_s", "first_frame_s", "total_s"}
-        assert again["total_s"] >= again["renderer_s"]
+        wait_health(src, "ok")
+        again = src.wait_event("load_timings", timeout=20)
+        again.pop("path")
+        assert set(again) == keys | {"renderer_s"} and again["total_s"] >= again["renderer_s"]
     finally:
         src.close()

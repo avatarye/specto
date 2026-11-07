@@ -287,7 +287,7 @@ def rtx_launcher(width: int, height: int) -> list[str]:
     """``specto-usd-source`` with the RTX renderer (#137), a fresh renderer for each stage
     after the first: both #155 crashes were GPU page faults about 3 s after a stage was
     attached to a running renderer. A fresh one costs 1-1.5 s more per switch, up to 4 s
-    after a large stage (SPEC-27, tools/bench_usd_load.py), next to the 4-7 s the first
+    after a large stage (SPEC-27, tools/bench_usd_load.py), next to the 5-7 s the first
     frame of a large world takes either way."""
     argv = [sys.executable, "-m", "specto_app.usd.source", "--renderer", "rtx"]
     return [*argv, "--width", str(width), "--height", str(height), "--fresh-renderer"]
@@ -947,6 +947,9 @@ class UsdHost(Stepping, QuickViewHost):
         # carries while the view shows the test pattern; told once in a notice
         self.fallback = ""
         self._fallback_told = False
+        # where the shown stage's load spent its time (the source's ``load_timings``,
+        # SPEC-27); cleared when a load starts or fails
+        self.load_timings: dict[str, float] = {}
         #: the loading label (#156): {file, phase} from the open or reload until the new
         #: stage's first complete frame is on screen; None: the picture shows
         self.cover: dict[str, str] | None = None
@@ -1177,6 +1180,7 @@ class UsdHost(Stepping, QuickViewHost):
     def _load(self) -> None:
         if self.source is None or self.path is None:
             return
+        self.load_timings = {}
         self.set_health("loading", f"{PHASES['composing']} {Path(self.path).name}")
         if self.cover is None:
             self._begin_cover(COVER_PHASES["composing"])
@@ -1257,9 +1261,10 @@ class UsdHost(Stepping, QuickViewHost):
         elif name == "ring":
             if self.frame_item is not None:
                 self.frame_item.setProperty("ring", params.get("name", ""))
+        elif name == "load_timings":
+            if params.get("path") == self.path:  # not a stage the user stepped past
+                self.load_timings = {k: v for k, v in params.items() if k != "path"}
         elif name == "health":
-            if params.get("state") == "ok" and isinstance(params.get("timings"), dict):
-                self.stage["load_timings"] = dict(params["timings"])  # snap (SPEC-27)
             seq = params.get("seq")
             self._on_phase(
                 str(params.get("state", "")),
@@ -1574,6 +1579,7 @@ class UsdHost(Stepping, QuickViewHost):
             self.set_health("ok", self._ok_message())
             self._first_frame_out(seq)
         elif state == "error":
+            self.load_timings = {}
             self._uncover()
             self.set_health("error", message or "the renderer failed")
         else:
@@ -2424,7 +2430,7 @@ class UsdHost(Stepping, QuickViewHost):
             "renderer": str(self.stage.get("renderer", "")),
             "renderer_note": str(self.stage.get("renderer_note", "")),
             "fallback_reason": self.fallback,
-            "load_timings": dict(self.stage.get("load_timings") or {}),
+            "load_timings": dict(self.load_timings),
             "renderer_warnings": list(self.stage.get("warnings") or []),
             "up_axis": self.stage.get("up_axis"),
             "bounds": self.stage.get("bounds"),

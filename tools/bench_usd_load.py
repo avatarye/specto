@@ -4,24 +4,26 @@ between picking a world and its first frame go.
     uv run --no-sync --with psutil python tools/gpu_guard.py --log <guard.log> -- \\
         uv run --no-sync python tools/bench_usd_load.py --work <scratch> STAGE [STAGE ...]
         [--renderer rtx] [--fresh-renderer | --reuse-renderer] [--repeat 2]
-        [--size 1280x720] [--py-spy]
+        [--size 1280x720] [--py-spy [--py-spy-idle]]
 
-Runs ``specto_app.usd.source`` as the usd view does (``views.usd_view.rtx_launcher``:
-``--fresh-renderer`` unless ``--reuse-renderer``), with no app and no window, and
-loads each STAGE in turn, ``--repeat`` times over (the second round is the reload of a
-world the process has seen). Every event the source sends is stamped on arrival;
-each load is the time from its ``load`` request to:
-- ``composing``: the source took it and opens the stage with usd-core;
-- ``loaded``: the stage info is out, then the renderer's stage is populated;
-- ``first frame``: the renderer has the stage; the first render step starts;
-- ``ok``: the stage's first complete frame is in the ring. It carries the source's own
-  split of the load (``timings``: the renderer swap, the stage opened, the renderer's
-  stage populated, the first frame drawn, all of it), which the table shows.
+Runs ``specto_app.usd.source`` with the command line the usd view uses
+(``views.usd_view.rtx_launcher``, ``--fresh-renderer`` unless ``--reuse-renderer``, or
+``storm_launcher``), with no app and no window, and loads each STAGE in turn,
+``--repeat`` times over (the second round reloads worlds the process has seen). Every
+event the source sends is stamped on arrival; each load's row has the time from its
+``load`` request to its phases (``composing``: the stage opens with usd-core; ``loaded``:
+the stage info is out; ``first frame``: the phase in which the renderer gets the stage
+and draws; ``ok``: the stage's first complete frame is named) and the source's own split
+of it (``load_timings``, sent once that frame is in the ring: the renderer swap, the
+stage opened, the renderer's stage populated, the environment set up, from there to
+the frame ``ok`` names, all of it), which the table shows.
 
 The renderer's own start (``compiling shaders``, the first ``ready``) is timed apart.
 The ovrtx log (``--log-file``) is kept in ``--work`` for its own timings. ``--py-spy``
-records a native-frame profile of the source process (``py-spy record --native``, a
-speedscope JSON per run) into ``--work``. Writes ``<work>/usd_load.json`` and prints a table.
+records a native-frame profile of the source process (``py-spy record --native``,
+``--idle`` with ``--py-spy-idle`` so waits show too; a speedscope JSON) into ``--work``.
+Writes ``<work>/usd_load.json`` and prints a table. A public stage to use, and how to
+make its texture-less variant, is in docs/setup/developer.md ("Profiling a usd load").
 Use public stages only (no private depot paths in what this writes).
 """
 
@@ -44,17 +46,21 @@ from console_utf8 import utf8_stdio  # noqa: E402
 
 class Run:
     def __init__(self, ns: argparse.Namespace) -> None:
+        # specto_core (pydantic) before any PySide6 module: the other way round, shiboken's
+        # signature hook inspects pydantic while pydantic still imports itself
+        import specto_core  # noqa: F401
         from specto_app.frames.control import FrameSourceProcess
+        from specto_app.views.usd_view import rtx_launcher, storm_launcher
 
         self.ns = ns
         self.work: Path = ns.work
         self.work.mkdir(parents=True, exist_ok=True)
         self.log_file = self.work / "ovrtx.log"
         w, h = (int(v) for v in ns.size.split("x"))
-        argv = [sys.executable, "-m", "specto_app.usd.source", "--renderer", ns.renderer]
-        argv += ["--width", str(w), "--height", str(h), "--log-file", str(self.log_file)]
-        if ns.renderer == "rtx" and not ns.reuse_renderer:
-            argv.append("--fresh-renderer")
+        argv = (rtx_launcher if ns.renderer == "rtx" else storm_launcher)(w, h)
+        if ns.reuse_renderer:
+            argv = [a for a in argv if a != "--fresh-renderer"]
+        argv += ["--log-file", str(self.log_file)]
         self.t0 = time.monotonic()
         # the source's stderr (its own and the renderer's lines) goes whole to a file
         self.stderr = open(self.work / "source-stderr.log", "w", encoding="utf-8")  # noqa: SIM115
@@ -104,6 +110,7 @@ class Run:
                     str(out),
                     "--rate",
                     "100",
+                    *(["--idle"] if self.ns.py_spy_idle else []),
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.STDOUT,
@@ -128,7 +135,9 @@ class Run:
         row = {"stage": Path(path).name, "sent": sent, **{k: round(v, 3) for k, v in marks.items()}}
         if end.get("state") == "error":
             row["error"] = end.get("message")
-        row["timings"] = end.get("timings") or {}  # the source's own split (SPEC-27)
+            return row
+        timings = self.until(lambda e: e["event"] == "load_timings", 60)
+        row["timings"] = {k: v for k, v in timings.items() if k not in ("t", "event", "path")}
         return row
 
     def close(self) -> None:
@@ -151,6 +160,7 @@ def main() -> int:
     ap.add_argument("--size", default="1280x720")
     ap.add_argument("--timeout", type=float, default=600.0, help="seconds a load may take")
     ap.add_argument("--py-spy", action="store_true", help="profile the source with py-spy")
+    ap.add_argument("--py-spy-idle", action="store_true", help="py-spy samples waits too")
     ns = ap.parse_args()
     utf8_stdio()
     run = Run(ns)
@@ -170,9 +180,10 @@ def main() -> int:
         run.close()
         report["events"] = run.events
         (ns.work / "usd_load.json").write_text(json.dumps(report, indent=1), encoding="utf-8")
-    split = ("renderer_s", "open_s", "populate_s", "first_frame_s", "total_s")
+    split = ("renderer_s", "open_s", "populate_s", "environment_s", "first_frame_s", "total_s")
     print(
-        "\nround  stage                    to ok  renderer      open  populate  1st frame     total"
+        "\nround  stage                    to ok  renderer      open  populate  environ.  "
+        "1st frame     total"
     )
     for row in report["loads"]:
         t = row.get("timings", {})

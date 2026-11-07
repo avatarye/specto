@@ -405,9 +405,17 @@ def test_a_faked_capability_runs_the_stub_source_not_its_renderer(monkeypatch):
 
 
 def test_snap_reports_where_the_last_load_spent_its_time(host: UsdHost, tmp_path: Path, spin):
-    """SPEC-27: the source's ``ok`` carries its load's ``timings``; ``snap`` keeps them."""
-    host.receive("data", stages(tmp_path / "w", "valley"))
+    """SPEC-27: the source's ``load_timings`` for the stage shown go to ``snap``; a new
+    load clears them, and so does a failed one; a stage stepped past is not taken."""
+    host.receive("data", stages(tmp_path / "w", "valley", "ridge"))
     spin(until=lambda: health(host)["status"] == "ok")
     timings = {"open_s": 0.3, "populate_s": 0.7, "first_frame_s": 6.9, "total_s": 8.0}
-    host._on_event("health", {"state": "ok", "message": "valley.usda", "timings": timings})
+    host._on_event("load_timings", {"path": host.path, **timings})
     assert host.snapshot()["load_timings"] == timings
+    host._on_event("load_timings", {"path": "elsewhere.usda", "total_s": 1.0})
+    assert host.snapshot()["load_timings"] == timings
+    host.step_item(1)  # a new load
+    assert host.snapshot()["load_timings"] == {}
+    host._on_event("load_timings", {"path": host.path, **timings})
+    host._on_event("health", {"state": "error", "message": "boom"})
+    assert host.snapshot()["load_timings"] == {}
