@@ -15,6 +15,12 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The real-mouse GUI tools cannot collide on a shared desktop (SPEC-7):
+  `tools/gui_session.py` and `gui_drive.py` drive the desktop only while holding the
+  desktop lock (they take it themselves when not run under `desktop_lock.py run`, and
+  refuse a desktop another session holds). `--fresh` (also in `gui_qtdrive.py`) wipes
+  only a folder a GUI session created, or an empty one. A session given no `--project`
+  runs on a folder of its own under the temp dir.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the

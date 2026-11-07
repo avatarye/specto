@@ -39,6 +39,7 @@ from typing import Any
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import gui_scratch  # noqa: E402
 from console_utf8 import utf8_stdio  # noqa: E402
 from gui_platform import kill_tree, popen_kwargs  # noqa: E402
 from gui_refs import Unresolved, has_refs, resolve_refs, tokens  # noqa: E402
@@ -384,9 +385,7 @@ class QtFlow:
         if not words or words[0].startswith("#"):
             return
         while words and words[0] in ("win:", "posix:", "mouse:", "driver:"):
-            if words[0] in ("win:", "posix:") and (words[0] == "win:") != (
-                sys.platform == "win32"
-            ):
+            if words[0] in ("win:", "posix:") and (words[0] == "win:") != (sys.platform == "win32"):
                 return
             if words[0] == "mouse:":  # the real-mouse executor's line (gui_drive.py)
                 return
@@ -933,9 +932,8 @@ def welcome(flow: QtFlow, project: Path, *, prefix: str, recent: bool, only: boo
 def run_session(ns: argparse.Namespace) -> list[dict[str, Any]]:
     """One app process, the flows in order; a list of per-flow results."""
     results: list[dict[str, Any]] = []
-    if ns.fresh and ns.project.exists():
-        shutil.rmtree(ns.project)
-    ns.project.mkdir(parents=True, exist_ok=True)
+    # --fresh wipes only a folder a GUI session created, or an empty one (SPEC-7)
+    gui_scratch.prepare_project(ns.project, fresh=ns.fresh)
     ep_path = ns.project / ".specto" / "endpoint.json"
     if ep_path.exists():
         ep_path.unlink()

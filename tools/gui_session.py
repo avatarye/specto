@@ -1,11 +1,16 @@
 """Launch specto-app on screen, run one or more gui_drive flows against it, kill it.
 
     uv run python tools/desktop_lock.py run <name> -- <pyauto python> tools/gui_session.py \\
-        --project <folder> --out out/verify/m2 [--fresh] [--app-log <file>] flow1.txt [flow2.txt ...]
+        [--project <folder>] --out out/verify/m2 [--fresh] [--app-log <file>] flow1.txt ...
 
 Runs with the pyautogui venv's interpreter (see gui_drive.py); the app itself starts
-through ``uv run specto-app --project <folder> --inline-jobs`` from this repo. Only the
-app process this script started is killed. ``--fresh`` wipes the project folder first.
+through ``uv run specto-app --project <folder> --inline-jobs`` from this repo. The
+session drives the desktop only while it holds the desktop lock (SPEC-7): under
+``desktop_lock.py run`` it uses that lock, otherwise it takes it itself (waiting up to
+``--lock-wait`` seconds) and refuses a desktop another session holds. Only the app
+process tree this script started is killed. Without ``--project`` the session runs on a
+folder of its own under the temp dir, removed at the end; ``--fresh`` wipes the project
+folder first, but only one a GUI session created (``gui_scratch``) or an empty one.
 The app keeps its settings (model choice, recents, trust list) in
 ``<project>/.specto/gui-user`` unless ``SPECTO_USER_DIR`` is already set (#89).
 """
@@ -14,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -23,6 +27,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
+import desktop_lock  # noqa: E402
+import gui_scratch  # noqa: E402
 from console_utf8 import utf8_stdio  # noqa: E402
 from gui_platform import kill_tree, popen_kwargs  # noqa: E402
 
@@ -51,7 +57,6 @@ def welcome(
     ``only`` the card is screenshotted again after the attempt (a refusal stays on the
     card) and the app is left on the welcome screen."""
     import pyautogui
-
     from gui_platform import activate, client_origin, find_window, screenshot, shot_region
 
     hwnd = None
@@ -90,7 +95,12 @@ def welcome(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--project", required=True, type=Path)
+    ap.add_argument(
+        "--project",
+        type=Path,
+        default=None,
+        help="the project folder (default: a new one of this session's own, removed after)",
+    )
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--fresh", action="store_true")
     ap.add_argument("--app-log", type=Path, default=None)
@@ -113,18 +123,40 @@ def main() -> int:
         action="store_true",
         help="with --welcome: screenshot the card after the attempt and stop (a refusal)",
     )
+    ap.add_argument(
+        "--lock-wait",
+        type=float,
+        default=3600.0,
+        help="seconds to wait for the desktop lock when not run under desktop_lock.py",
+    )
     ap.add_argument("flows", nargs="*", type=Path)
     ns = ap.parse_args()
     # the flow log is a file: a chip's glyph (the peers chip's U+25BE) must not kill the
     # run with UnicodeEncodeError under a cp1252 default (#147's fix, here too)
     utf8_stdio()
-    if ns.fresh and ns.project.exists():
-        shutil.rmtree(ns.project)
-    ns.project.mkdir(parents=True, exist_ok=True)
+    own_root = ns.project is None
+    try:
+        if own_root:
+            ns.project = gui_scratch.session_root()
+            print(f"[OK] session project {ns.project}")
+        else:
+            gui_scratch.prepare_project(ns.project, fresh=ns.fresh)
+        with desktop_lock.held(f"gui-session-{os.getpid()}", ns.lock_wait):
+            return session(ns)
+    except SystemExit as e:
+        print(e)
+        return 2
+    finally:
+        if own_root and ns.project is not None and not ns.keep:
+            gui_scratch.remove_session_root(ns.project)
+
+
+def session(ns: argparse.Namespace) -> int:
+    """Start the app on ``ns.project``, run the flows, end the app's process tree."""
     ep = ns.project / ".specto" / "endpoint.json"
     if ep.exists():
         ep.unlink()
-    log = open(ns.app_log, "w", encoding="utf-8") if ns.app_log else None
+    log = open(ns.app_log, "w", encoding="utf-8") if ns.app_log else None  # noqa: SIM115  (closed in finally)
     cmd = ["uv", "run", "specto-app", *ns.extra.split()]
     if not ns.pool:
         cmd.append("--inline-jobs")
@@ -164,6 +196,9 @@ def main() -> int:
             print("[ERROR] endpoint never appeared")
             return 1
         time.sleep(1.5)
+        if not ns.flows:
+            print("[OK] no flows")
+            return 0
         from gui_drive import Driver
 
         d = Driver(ns.project, ns.out, f"Specto - {ns.project.name}")
