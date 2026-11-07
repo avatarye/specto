@@ -29,6 +29,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 
 DISABLE_ENV = "SPECTO_DISABLE_CAPABILITIES"
+FAKE_ENV = "SPECTO_FAKE_CAPABILITIES"
 INSTALL_HINT = "install the specto-app[rtx] extra (needs pypi.nvidia.com)"
 OPENUSD_ENV = "SPECTO_OPENUSD"
 STORM_HINT = (
@@ -138,17 +139,35 @@ def detect_storm(prefix: str | None = None) -> MachineCapability:
     return MachineCapability(name="storm", present=True, reason=f"OpenUSD imaging at {prefix}")
 
 
+def _named(env: str) -> set[str]:
+    return {n.strip() for n in os.environ.get(env, "").split(",") if n.strip()}
+
+
+def faked() -> set[str]:
+    """The capabilities named in ``SPECTO_FAKE_CAPABILITIES`` (comma-separated): present
+    for every choice (the renderer, the quotas, the notes) without detecting them, while
+    the usd view still runs the stub USD source in their place, so a scripted flow plays
+    a machine with ovrtx and never starts a renderer (SPEC-36)."""
+    return _named(FAKE_ENV)
+
+
 def machine_capabilities() -> dict[str, MachineCapability]:
     """Every machine capability of this process's Python, detected now; the ones named in
     ``SPECTO_DISABLE_CAPABILITIES`` (comma-separated) are absent without asking, so tests
-    and scripted flows can run as on a machine without them."""
-    off = {n.strip() for n in os.environ.get(DISABLE_ENV, "").split(",") if n.strip()}
+    and scripted flows can run as on a machine without them; the ones named in
+    ``SPECTO_FAKE_CAPABILITIES`` are present without asking (:func:`faked`). Disabled
+    wins over faked."""
+    off, fake = _named(DISABLE_ENV), faked()
     detect = {"ovrtx": detect_ovrtx, "storm": detect_storm}
-    reason = f"disabled by {DISABLE_ENV}"
-    return {
-        name: MachineCapability(name=name, present=False, reason=reason) if name in off else d()
-        for name, d in detect.items()
-    }
+
+    def one(name: str) -> MachineCapability:
+        if name in off:
+            return MachineCapability(name=name, present=False, reason=f"disabled by {DISABLE_ENV}")
+        if name in fake:
+            return MachineCapability(name=name, present=True, reason=f"faked by {FAKE_ENV}")
+        return detect[name]()
+
+    return {name: one(name) for name in detect}
 
 
 def rtx_first(platform: str | None = None) -> bool:

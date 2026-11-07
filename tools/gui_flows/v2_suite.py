@@ -664,6 +664,22 @@ SUITE: dict[str, dict] = {
             }
         ],
     },
+    "open-usd-rtx": {
+        # SPEC-34, SPEC-36: on a machine with ovrtx (faked: the stub USD source plays the
+        # renderer) a second stage's usd view collapses the first, one live RTX view per
+        # canvas, with the notice; expand and Undo swap them back
+        "seed": seed("v2-open-usd-seed.py", "{project}"),
+        "sessions": [
+            {
+                "flows": ["v2-open-usd-rtx.txt"],
+                "env": {
+                    "SPECTO_USD_STUB_PHASE_MS": "200",
+                    "SPECTO_DISABLE_CAPABILITIES": "storm",
+                    "SPECTO_FAKE_CAPABILITIES": "ovrtx",
+                },
+            }
+        ],
+    },
     "fresh-tree": {
         # #125: a new project's file tree fills the visible canvas at any window height
         "seed": seed("v2-39-seed.py", "{project}"),

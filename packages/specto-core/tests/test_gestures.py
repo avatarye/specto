@@ -13,8 +13,9 @@ from specto_core.canvas_example import worked_example
 from specto_core.errors import InvalidArgs, NotFound
 from specto_core.gestures import OPEN_GAP, OPEN_SIZE
 from specto_core.live_canvas import LiveCanvas
+from specto_core.machine import MachineCapability
 from specto_core.names import is_name
-from specto_core.quotas import Quotas
+from specto_core.quotas import Quotas, view_cost_of
 
 
 @pytest.fixture
@@ -310,11 +311,14 @@ def _costed(quotas: Quotas | None = None) -> tuple[LiveCanvas, str]:
     The other view types' costs are the app's (``specto-app`` tests/test_open_make_room)."""
     plugins = app_plugins()
 
+    rtx = {"ovrtx": MachineCapability(name="ovrtx", present=True)}
+
     def view_cost(view: dict):
-        """The manifest's cost as it stands: a usd view counts an RTX view, as where
-        auto renders with RTX (SPEC-36's machine cases: test_usd_view)."""
+        """As the engine costs a view (``Engine.view_cost``), on a Windows machine with
+        ovrtx: an auto usd view counts an RTX view (SPEC-36's other machines:
+        test_usd_view)."""
         m = plugins.view(view["type"])
-        return m.cost if m is not None else None
+        return view_cost_of(view, m.cost, lambda: rtx, "win32") if m is not None else None
 
     live = LiveCanvas.headless("demo", quotas=quotas, view_cost=view_cost)
     return live, file_tree_of(live.data["views"])

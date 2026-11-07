@@ -294,3 +294,26 @@ def test_on_macos_auto_is_storm_and_the_explicit_renderers_still_win(monkeypatch
     assert not rtx_first() and usd_renderer({}, rtx) == "storm"
     monkeypatch.setattr(sys, "platform", "win32")
     assert rtx_first() and usd_renderer({}, rtx) == "rtx"
+
+
+def test_a_renderer_changed_from_storm_to_auto_counts_from_that_submit(monkeypatch):
+    """The cost follows the params at every submit: storm beside an RTX view is free;
+    changed to auto where auto renders with RTX it counts and the change is refused
+    with the fix; where auto renders with Storm the change goes through."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    engine = _engine_with_ovrtx(True)
+    engine.live.submit(_two_stages(engine, "storm"), origin=AGENT, label="rtx and storm")
+    doc = engine.live.document()
+    doc["views"]["tamu"]["params"]["renderer"] = "auto"
+    with pytest.raises(CanvasInvalid) as e:
+        engine.live.submit(doc, origin=AGENT, label="tamu on auto")
+    [problem] = e.value.problems
+    assert problem["message"].startswith("quota rtx_views=1 would be exceeded")
+    assert engine.live.data["views"]["tamu"]["params"]["renderer"] == "storm"
+
+    engine = _engine_with_ovrtx(False, storm=True)
+    engine.live.submit(_two_stages(engine, "storm"), origin=AGENT, label="two stages")
+    doc = engine.live.document()
+    doc["views"]["tamu"]["params"]["renderer"] = "auto"
+    engine.live.submit(doc, origin=AGENT, label="tamu on auto")
+    assert engine.live.data["views"]["tamu"]["params"]["renderer"] == "auto"

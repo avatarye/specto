@@ -100,7 +100,7 @@ from specto_core.contents import ContentEntry, ContentValue
 from specto_core.errors import SpectoError
 from specto_core.kinds import Item, ViewManifest
 from specto_core.links import CameraValue, Collection, Selection, TimeValue
-from specto_core.machine import openusd_prefix, usd_renderer
+from specto_core.machine import faked, openusd_prefix, usd_renderer
 from specto_core.timebase import OWN_TIMELINE
 
 from ..theme import COLORS
@@ -293,17 +293,17 @@ def source_command(view: dict[str, Any], caps: Capabilities, width: int, height:
     Storm (#143) otherwise, where ``caps()`` has ``storm`` (the OpenUSD imaging build; on
     macOS ``auto`` is always Storm); the stub USD source where it has neither.
     ``caps`` is not called for an explicit rtx (detecting ovrtx starts a child Python).
-    Every source speaks the stub USD source's protocol."""
+    A renderer whose capability is faked (``SPECTO_FAKE_CAPABILITIES``, scripted flows)
+    is played by the stub. Every source speaks the stub USD source's protocol."""
     params = view.get("params") or {}
     asked = params.get("renderer") or "auto"
-    if asked == "rtx":
-        return rtx_launcher(width, height)
-    found = caps()
+    fake = faked()
+    found: Mapping[str, Any] = {} if asked == "rtx" else caps()
     if usd_renderer(params, found) == "rtx":
-        return rtx_launcher(width, height)
+        return stub_launcher(width, height) if "ovrtx" in fake else rtx_launcher(width, height)
     storm = found.get("storm")
     if storm is not None and storm.present:
-        return storm_launcher(width, height)
+        return stub_launcher(width, height) if "storm" in fake else storm_launcher(width, height)
     return stub_launcher(width, height)
 
 

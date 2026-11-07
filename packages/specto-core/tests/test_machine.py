@@ -55,3 +55,23 @@ def test_a_capability_named_in_specto_disable_capabilities_is_absent(monkeypatch
     cap = machine_capabilities()["ovrtx"]
     assert not cap.present
     assert cap.reason == "disabled by SPECTO_DISABLE_CAPABILITIES"
+
+
+def test_a_capability_named_in_specto_fake_capabilities_is_present_without_detection(
+    monkeypatch,
+):
+    """Scripted flows run as on a machine with ovrtx (SPEC-36): the capability is
+    present without detecting it; disabled wins over faked."""
+    from specto_core import machine
+
+    def never(*a, **k):
+        raise AssertionError("a faked capability is not detected")
+
+    monkeypatch.setattr(machine, "detect_ovrtx", never)
+    monkeypatch.setenv("SPECTO_DISABLE_CAPABILITIES", "storm")
+    monkeypatch.setenv("SPECTO_FAKE_CAPABILITIES", "ovrtx, storm")
+    caps = machine.machine_capabilities()
+    assert caps["ovrtx"].present
+    assert caps["ovrtx"].reason == "faked by SPECTO_FAKE_CAPABILITIES"
+    assert not caps["storm"].present  # disabled wins
+    assert machine.faked() == {"ovrtx", "storm"}

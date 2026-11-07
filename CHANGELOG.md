@@ -33,8 +33,15 @@ the release and move on their own schedule.
   last opened left the row 5 s behind, and it did not catch up on its own). The listing
   now stats each folder, about 20 us a folder locally and milliseconds over a network
   drive, and a listing no longer wanted (a new project, a new search) stops between
-  entries. A junction or link the
-  source follows (`follow_links`) shows its target's time.
+  entries. A junction or link the source follows (`follow_links`) shows its target's
+  time.
+- A usd view counts toward the one live RTX view per canvas only where its renderer is
+  RTX on this machine (SPEC-36). `auto` on macOS, or on a machine without ovrtx, renders
+  with Storm and no longer collapses another stage's view to make room. A view collapsed
+  under the old rule stays collapsed until you expand it (its header's expand, or a
+  double-click on its file). Scripted flows can play a machine with a capability through
+  `SPECTO_FAKE_CAPABILITIES` (comma-separated, e.g. `ovrtx`): present for every choice,
+  with the stub USD source in place of the renderer.
 - Gallery captions sit on the thumbnails (SPEC-6): each key overlays its tile's bottom
   edge, light text on a dark scrim that reads on light and dark images, and takes no row
   height, so more tiles fit. A time-linked gallery marks its current item (the frame at

@@ -1,0 +1,57 @@
+# v2 SPEC-34, SPEC-36: on a machine with ovrtx (SPECTO_FAKE_CAPABILITIES=ovrtx: auto
+# renders with RTX, the stub USD source plays the renderer) two stages double-clicked in
+# turn. The first opens its dedicated usd view; the second opens its own usd view too
+# (one live RTX view per canvas, ADR 0025), and the first collapses to its title bar to
+# make room, in the same undo step, with a notice naming it and the quota. A double-click
+# on the first stage again expands its view and collapses the second; the header's
+# expand on the second does the reverse, its notice naming the quota too; Undo brings the
+# first back live and the second collapsed. v2-open-usd-twice.txt is the same gesture
+# without ovrtx. Project: tools/gui_flows/v2-open-usd-seed.py <folder> (two of its four
+# stages). No picture is judged here.
+resize 1600 960
+wait 1500
+assert_found slot:@file_tree
+wait_until treeRow:@file_tree:worlds 20000
+expand @file_tree:worlds
+expand @file_tree:props
+wait_until treeRow:@file_tree:worlds/yard.usda 15000
+wait_until treeRow:@file_tree:props/crate.usda 15000
+# 1 the first stage: its dedicated usd view, live
+dblclick treeRow:@file_tree:worlds/yard.usda 0.6 0.5
+wait_until slot:@usd 15000
+wait 1200
+assert_text title:@usd yard.usda · worlds
+assert_meta @usd layout.collapsed null
+# 2 the second stage: its own usd view; the first collapses to make room, said in a notice
+dblclick treeRow:@file_tree:props/crate.usda 0.6 0.5
+wait_until slot:@usd#2 15000
+wait 1200
+assert_missing notice:error
+assert_text title:@usd#2 crate.usda · props
+assert_meta @usd layout.collapsed true
+assert_meta @usd#2 layout.collapsed null
+assert_text noticeText:info yard.usda · worlds collapsed to make room for crate.usda · props: at most 1 live RTX view per canvas
+shot open-usd-rtx-01-second-stage-collapses-the-first.png
+# 3 the first stage again: its view expands, the second collapses
+dblclick treeRow:@file_tree:worlds/yard.usda 0.6 0.5
+wait 1200
+assert_missing notice:error
+assert_missing slot:@usd#3
+assert_meta @usd layout.collapsed null
+assert_meta @usd#2 layout.collapsed true
+shot open-usd-rtx-02-double-click-again-expands-the-first.png
+# 4 the header's expand on the second: the first collapses, the notice names the quota
+click collapse:@usd#2
+wait 1200
+assert_missing notice:error
+assert_meta @usd layout.collapsed true
+assert_meta @usd#2 layout.collapsed null
+assert_text noticeText:info yard.usda · worlds collapsed to make room for crate.usda · props: at most 1 live RTX view per canvas
+shot open-usd-rtx-03-expand-the-second-collapses-the-first.png
+# 5 Undo: the first live again, the second collapsed
+click undoButton
+wait 1200
+assert_meta @usd layout.collapsed null
+assert_meta @usd#2 layout.collapsed true
+shot open-usd-rtx-04-undo.png
+print snap {"target": "canvas", "layout": true}

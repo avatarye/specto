@@ -363,3 +363,33 @@ def test_the_source_command_picks_the_renderer_process_for_a_view(monkeypatch):
         assert argv[argv.index("--width") + 1] == "64" and "--openusd" in argv
         argv = source_command(view(asked), caps(ovrtx=False, storm=False), 64, 48)
         assert module(argv) == "specto_app.frames.stub_usd_source"
+
+
+def test_a_faked_capability_runs_the_stub_source_not_its_renderer(monkeypatch):
+    """SPECTO_FAKE_CAPABILITIES makes the choice RTX or Storm (the quotas, the notes),
+    but the process is the stub USD source: a scripted flow never starts a renderer."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    from specto_app.views.usd_view import source_command
+    from specto_core.machine import MachineCapability
+
+    stub = "specto_app.frames.stub_usd_source"
+
+    def module(argv: list[str]) -> str:
+        return argv[argv.index("-m") + 1]
+
+    def caps(ovrtx: bool, storm: bool):
+        return lambda: {
+            "ovrtx": MachineCapability(name="ovrtx", present=ovrtx),
+            "storm": MachineCapability(name="storm", present=storm),
+        }
+
+    def view(renderer: str) -> dict:
+        return {"type": "usd", "params": {"renderer": renderer}}
+
+    monkeypatch.setenv("SPECTO_FAKE_CAPABILITIES", "ovrtx")
+    assert module(source_command(view("auto"), caps(True, False), 64, 48)) == stub
+    assert module(source_command(view("rtx"), caps(True, False), 64, 48)) == stub
+    monkeypatch.setenv("SPECTO_FAKE_CAPABILITIES", "storm")
+    assert module(source_command(view("storm"), caps(False, True), 64, 48)) == stub
+    monkeypatch.delenv("SPECTO_FAKE_CAPABILITIES")
+    assert module(source_command(view("auto"), caps(True, False), 64, 48)) != stub

@@ -60,17 +60,20 @@ def view_cost_of(
     view: dict[str, Any],
     cost: ViewCost,
     caps: Callable[[], Mapping[str, MachineCapability]],
+    platform: str | None = None,
 ) -> ViewCost:
     """What this view costs, from its type's cost and its params: an RTX view only where
     its renderer resolves to rtx on this machine (``usd_renderer``), so storm, and auto
     where it resolves to Storm (macOS, or no ovrtx), cost none (#132, SPEC-36).
     ``caps()`` (this machine's capabilities) is called only for auto where RTX comes
-    first: detecting ovrtx starts a child Python."""
+    first: detecting ovrtx starts a child Python. ``platform``: ``sys.platform`` when
+    None, as ``usd_renderer`` takes it."""
     if not cost.rtx_views:
         return cost
     params = view.get("params") or {}
     auto = (params.get("renderer") or "auto") == "auto"
-    if usd_renderer(params, caps() if auto and rtx_first() else {}) != "rtx":
+    found = caps() if auto and rtx_first(platform) else {}
+    if usd_renderer(params, found, platform) != "rtx":
         return cost.model_copy(update={"rtx_views": 0})
     return cost
 
