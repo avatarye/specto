@@ -328,3 +328,13 @@ def test_the_pose_is_the_track_at_t_then_params_then_zero():
     # a track that names none of this robot's joints does not drive it
     assert resolve_pose(actuated, {"arm/shoulder": 1.0}, {})[1] == "zero"
     assert resolve_pose(actuated, {}, {"bogus": 1.0})[1] == "zero"
+
+
+def test_samples_outside_the_joint_limits_are_counted_not_clamped(tmp_path: Path):
+    p = _csv(tmp_path, "time,elbow,wrist,spin\n0,0.5,3.0,9\n1,2.5,,9\n2,-2.0,0.1,9\n")
+    track = _decode(p)
+    limits = {"elbow": (-1.5, 1.5), "wrist": (-0.2, 0.2), "unknown": (0.0, 0.0)}
+    # elbow 2.5 and -2.0, wrist 3.0: three samples; spin has no limits (continuous)
+    assert track.outside(limits) == 3
+    # the values show as recorded (design amendment 17)
+    assert track.sample(TimeValue(t=1.0))["elbow"] == 2.5

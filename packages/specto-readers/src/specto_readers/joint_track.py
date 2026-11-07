@@ -28,7 +28,8 @@ per joint name, read from a table and sampled at the global clock's time.
   2026-11-07); a tie between two samples goes to the earlier one, and rows sharing a
   stamp to the **first row**. Before the first and after the last sample the end
   samples show. A joint whose cell is empty (``NaN``) at a row is not reported there:
-  it shows its own **nearest valid sample**.
+  it shows its own **nearest valid sample**. Values are never clamped into the joint's
+  limits (design amendment 17); :meth:`JointTrack.outside` counts the samples beyond them.
 """
 
 from __future__ import annotations
@@ -328,6 +329,19 @@ class JointTrack:
             return None
         t = float(value.t)
         return {name: _nearest(times, values, t) for name, (times, values) in self._columns.items()}
+
+    def outside(self, limits: Mapping[str, tuple[float, float]]) -> int:
+        """How many samples lie outside their joint's ``(lower, upper)`` limits: a health
+        note counts them. Values are never clamped (design amendment 17: a track shows
+        what was recorded); joints without limits (continuous) or unknown names count
+        nothing."""
+        total = 0
+        for name, (lower, upper) in limits.items():
+            column = self._columns.get(name)
+            if column is not None:
+                values = column[1]
+                total += int(np.count_nonzero((values < lower) | (values > upper)))
+        return total
 
     def unmatched(self, joint_names: list[str] | set[str]) -> list[str]:
         """The track's joint names that are not in ``joint_names`` (the URDF's): a health
