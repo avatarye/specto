@@ -37,6 +37,11 @@ the release and move on their own schedule.
 - The real-mouse GUI tools cannot collide on a shared desktop (SPEC-7):
   `tools/gui_session.py` and `gui_drive.py` drive the desktop only while holding the
   desktop lock (they take it themselves when not run under `desktop_lock.py run`, and
+  refuse a desktop another session holds; `gui_session.py --lock-wait` sets how long it
+  waits). `--fresh` (also in `gui_qtdrive.py` and the suite's reseeding) wipes, under
+  the lock, only a folder a GUI session created; delete a `--work` folder from before
+  this once. A session given no `--project` runs on a folder of its own under the temp
+  dir, and later sessions sweep old ones a killed session left.
   refuse a desktop another session holds). `--fresh` (also in `gui_qtdrive.py` and the
   suite's reseeding) wipes only a folder a GUI session created, or an empty one; delete
   a `--work` folder from before this once. A session given no `--project` runs on a

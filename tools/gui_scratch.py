@@ -2,11 +2,15 @@
 
 A session that creates its project folder (``prepare_project`` on a path that does not
 exist yet, ``session_root`` when no folder was named, or the suite's seeded projects)
-marks it with ``.specto/gui-scratch``: its owner, the folder's resolved path, the
-creating pid and a nonce. ``--fresh`` wipes a folder whose mark names that same path, or
-an empty folder, and refuses anything else, so a typo, a reused path or a copied folder
-can never delete someone's data. The mark lives under ``.specto/``, which the app's file
-tree never lists.
+marks it with ``.specto/gui-scratch``. ``--fresh`` wipes only a folder whose mark names
+that folder; an existing folder without one is never marked and never wiped (an empty one
+is used as it is, one with content is refused), so a typo, a reused path or a copied
+folder can never delete someone's data. The mark lives under ``.specto/``, which the
+app's file tree never lists.
+
+The mark counts by its path alone: a later session (another pid) must be able to wipe a
+folder an earlier one created, so the pid and nonce cannot be part of the match. They
+record who made it, for the sweep (``pid``: is the creator gone?) and for tracing.
 
     from gui_scratch import prepare_project, session_root, remove_session_root
 """
@@ -19,9 +23,10 @@ import secrets
 import shutil
 import tempfile
 import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from desktop_lock import pid_alive
+from gui_procs import pid_alive
 
 MARKER = Path(".specto") / "gui-scratch"
 #: the per-session roots' folder name prefix, under the temp dir
@@ -30,16 +35,33 @@ ROOT_PREFIX = "specto-gui-"
 SWEEP_AGE_S = 24 * 3600.0
 
 
-def owner(project: Path) -> dict | None:
-    """The mark's record (``path``, ``pid``, ``nonce``, ``created``), when it names this
-    folder; ``None`` for no mark, an unreadable one, or one copied from another folder."""
+@dataclass(frozen=True)
+class MarkRecord:
+    """What a mark records: the folder it names, its creator and when; ``kept`` for a
+    session folder left open with its app (``--keep``), which is never swept."""
+
+    path: str
+    pid: int
+    nonce: str
+    created: float
+    kept: bool = False
+
+
+def owner(project: Path) -> MarkRecord | None:
+    """The mark's record when it names this folder; ``None`` for no mark, an unreadable
+    one, or one copied from another folder (its path is not this one's)."""
     try:
-        info = json.loads((Path(project) / MARKER).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        raw = json.loads((Path(project) / MARKER).read_text(encoding="utf-8"))
+        record = MarkRecord(
+            path=str(raw["path"]),
+            pid=int(raw["pid"]),
+            nonce=str(raw["nonce"]),
+            created=float(raw["created"]),
+            kept=bool(raw.get("kept", False)),
+        )
+    except (OSError, ValueError, TypeError, KeyError):
         return None
-    if not isinstance(info, dict) or info.get("path") != str(Path(project).resolve()):
-        return None
-    return info
+    return record if record.path == str(Path(project).resolve()) else None
 
 
 def is_scratch(project: Path) -> bool:
@@ -47,45 +69,54 @@ def is_scratch(project: Path) -> bool:
     return owner(project) is not None
 
 
-def mark(project: Path) -> None:
-    """Mark ``project`` as a GUI session's own (a folder it created or just wiped)."""
+def mark(project: Path, *, kept: bool = False) -> None:
+    """Mark ``project`` as a GUI session's own: only a folder the session itself created
+    or just wiped (never one that was there before it)."""
     project = Path(project)
     marker = project / MARKER
     marker.parent.mkdir(parents=True, exist_ok=True)
-    record = {
-        "path": str(project.resolve()),
-        "pid": os.getpid(),
-        "nonce": secrets.token_hex(4),
-        "created": time.time(),
-    }
-    marker.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    record = MarkRecord(
+        path=str(project.resolve()),
+        pid=os.getpid(),
+        nonce=secrets.token_hex(4),
+        created=time.time(),
+        kept=kept,
+    )
+    marker.write_text(json.dumps(asdict(record)) + "\n", encoding="utf-8")
 
 
-def prepare_project(project: Path, *, fresh: bool) -> None:
-    """Make ``project`` ready for a session. A folder that does not exist is created and
-    marked. ``fresh`` first wipes a folder marked as this one, or an empty folder; any
-    other folder with content is refused (``SystemExit``) and left as it is."""
+def prepare_project(project: Path, *, fresh: bool) -> bool:
+    """Make ``project`` ready for a session; True when it is the session's own (created
+    here, or a session's folder ``fresh`` just wiped), which is then marked. A folder
+    that existed without a session's mark is never marked: ``fresh`` uses it as it is
+    when it is empty and refuses it (``SystemExit``) when it has content."""
     project = Path(project)
-    if fresh and project.exists():
-        if not is_scratch(project) and any(project.iterdir()):
-            raise SystemExit(
-                f"[ERROR] --fresh wipes only a folder a GUI session created; {project} has "
-                f"content and no {MARKER.as_posix()} mark naming it. Pick a new folder (or "
-                "leave --project out for a per-session one), or empty it yourself"
-            )
-        shutil.rmtree(project)
-    created = not project.exists()
-    project.mkdir(parents=True, exist_ok=True)
-    if created:
+    if not project.exists():
+        project.mkdir(parents=True)
         mark(project)
+        return True
+    if not fresh:
+        return is_scratch(project)
+    if is_scratch(project):
+        shutil.rmtree(project)
+        project.mkdir(parents=True)
+        mark(project)
+        return True
+    if any(project.iterdir()):
+        raise SystemExit(
+            f"[ERROR] --fresh wipes only a folder a GUI session created; {project} has "
+            f"content and no {MARKER.as_posix()} mark naming it. Pick a new folder (or "
+            "leave --project out for a per-session one), or empty it yourself"
+        )
+    return False  # someone's empty folder: used as it is, never marked
 
 
-def session_root() -> Path:
+def session_root(*, kept: bool = False) -> Path:
     """A new marked project folder of this session's own, under the temp dir
-    (``<temp>/specto-gui-<random>/project``)."""
+    (``<temp>/specto-gui-<random>/project``); ``kept`` when its app stays open."""
     project = Path(tempfile.mkdtemp(prefix=ROOT_PREFIX)) / "project"
     project.mkdir()
-    mark(project)
+    mark(project, kept=kept)
     return project
 
 
@@ -112,16 +143,15 @@ def remove_session_root(project: Path) -> None:
 
 def sweep_session_roots(max_age_s: float = SWEEP_AGE_S) -> list[Path]:
     """Remove the per-session roots older than ``max_age_s`` whose creating process is
-    gone (a session that was killed, or could not remove its root). Returns them."""
+    gone and that were not kept open (``--keep``: their app may still run). Returns
+    them."""
     swept: list[Path] = []
     now = time.time()
     for root in Path(tempfile.gettempdir()).glob(f"{ROOT_PREFIX}*"):
-        info = owner(root / "project")
-        if info is None or not root.is_dir():
+        record = owner(root / "project")
+        if record is None or record.kept or not root.is_dir():
             continue
-        if now - float(info.get("created", now)) < max_age_s:
-            continue
-        if isinstance(info.get("pid"), int) and pid_alive(info["pid"]):
+        if now - record.created < max_age_s or pid_alive(record.pid):
             continue
         _rmtree(root)
         if not root.exists():
@@ -131,6 +161,7 @@ def sweep_session_roots(max_age_s: float = SWEEP_AGE_S) -> list[Path]:
 
 __all__ = [
     "MARKER",
+    "MarkRecord",
     "is_scratch",
     "mark",
     "owner",

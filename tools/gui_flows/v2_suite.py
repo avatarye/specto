@@ -42,6 +42,7 @@ ROOT = HERE.parent.parent
 SESSION = HERE.parent / "gui_session.py"
 QTDRIVE = HERE.parent / "gui_qtdrive.py"
 sys.path.insert(0, str(HERE.parent))
+import desktop_lock  # noqa: E402
 import gui_scratch  # noqa: E402
 from console_utf8 import utf8_stdio  # noqa: E402
 
@@ -982,7 +983,9 @@ def run_entry(name: str, entry: dict, work: Path, out: Path) -> list[dict]:
     # try-it use), and a canvas, picks or settings left by the last run would show. Only a
     # folder a GUI session created (its mark) or an empty one is wiped (SPEC-7)
     try:
-        gui_scratch.prepare_project(project, fresh=True)
+        # under the desktop lock: never a folder a mouse-tier session holding it is using
+        with desktop_lock.held(f"v2-suite-{os.getpid()}"):
+            ours = gui_scratch.prepare_project(project, fresh=True)
     except SystemExit as e:
         why = f"{e} (a --work folder from before SPEC-7 carries no mark: delete {project} once)"
         return [{"entry": name, "flow": "seed", "ok": False, "seconds": 0.0, "error": why}]
@@ -996,7 +999,8 @@ def run_entry(name: str, entry: dict, work: Path, out: Path) -> list[dict]:
             return [{"entry": name, "flow": "seed", "ok": False, "seconds": time.monotonic() - t0,
                      "error": f"seed failed: {r.stdout}{r.stderr}"}]  # fmt: skip
     project.mkdir(parents=True, exist_ok=True)
-    gui_scratch.mark(project)  # a seed may have wiped and rebuilt it: ours all the same
+    if ours:  # created or wiped here; a seed may have rebuilt it: ours all the same
+        gui_scratch.mark(project)
     results: list[dict] = []
     for i, sess in enumerate(entry["sessions"]):
         cmd = session_cmd(tier, project, out, work, name, i, sess)

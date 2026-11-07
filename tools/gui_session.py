@@ -150,7 +150,7 @@ def main() -> int:
             if own_root:
                 for old in gui_scratch.sweep_session_roots():
                     print(f"[OK] swept an old session folder {old}")
-                ns.project = gui_scratch.session_root()
+                ns.project = gui_scratch.session_root(kept=ns.keep)
                 print(f"[OK] session project {ns.project}")
             else:
                 gui_scratch.prepare_project(ns.project, fresh=ns.fresh)

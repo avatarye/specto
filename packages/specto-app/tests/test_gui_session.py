@@ -84,11 +84,57 @@ def test_a_lock_whose_holder_is_gone_is_stale(lock):
     assert desktop_lock.acquire("me", 0) and holder(lock) == "me"
 
 
-def test_the_lock_is_written_whole(lock):
+def test_the_lock_appears_whole_and_leaves_nothing_behind(lock):
     assert desktop_lock.acquire("me", 0)
-    desktop_lock._write({"name": "me", "pid": 1, "since": 1.0, "beat": 2.0})
-    assert json.loads(lock.read_text(encoding="utf-8"))["beat"] == 2.0
-    assert not list(lock.parent.glob(f"{lock.name}.*.tmp"))
+    assert desktop_lock.read().name == "me" and desktop_lock.read().pid == os.getpid()
+    assert not [f for f in lock.parent.iterdir() if f != lock]  # no temp or aside files
+    desktop_lock.release("me")
+    assert not lock.exists() and not list(lock.parent.iterdir())
+
+
+def test_two_takers_of_one_stale_lock_end_with_one_holder(lock):
+    """Both judged the same stale lock. The first moves it aside and puts its own in
+    place; the second's takeover moves the first's fresh lock aside, sees it is not the
+    one it judged, and puts it back: one holder, never two."""
+    now = time.time()
+    stale = json.dumps({"name": "crashed", "pid": 0, "since": now})
+    lock.write_text(stale, encoding="utf-8")
+    judged = lock.read_text(encoding="utf-8")
+    assert desktop_lock.stale_reason(desktop_lock.LockInfo.parse(judged), now)
+    assert desktop_lock.take_over(judged) and desktop_lock._create("first")
+    assert not desktop_lock.take_over(judged)  # the second taker, late with its judgement
+    assert holder(lock) == "first"
+    assert not desktop_lock._create("second")
+    assert not [f for f in lock.parent.iterdir() if f != lock]
+
+
+def test_a_release_leaves_a_lock_that_is_no_longer_its_own(lock):
+    assert desktop_lock.acquire("me", 0)
+    lock.write_text(json.dumps({"name": "next", "pid": os.getpid(), "since": 1.0}), "utf-8")
+    desktop_lock.release("me")
+    assert holder(lock) == "next"
+
+
+def test_a_failing_beat_says_so_and_keeps_beating(lock, monkeypatch, capsys):
+    monkeypatch.setattr(desktop_lock, "BEAT_S", 0.05)
+    assert desktop_lock.acquire("me", 0)
+    calls = {"n": 0}
+    real_utime = os.utime
+
+    def flaky(path, *a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise PermissionError("held open")
+        return real_utime(path, *a, **kw)
+
+    monkeypatch.setattr(desktop_lock.os, "utime", flaky)
+    stop = desktop_lock._beating("me")
+    deadline = time.monotonic() + 5
+    while calls["n"] < 3 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    stop.set()
+    assert calls["n"] >= 3  # it went on after the failure
+    assert "beat for me failed" in capsys.readouterr().out
 
 
 def test_a_session_under_desktop_lock_run_uses_its_lock(lock, monkeypatch):
@@ -143,11 +189,16 @@ def test_fresh_refuses_a_folder_with_content_no_session_created(tmp_path):
     assert not gui_scratch.is_scratch(project) and (project / "notes.md").exists()
 
 
-def test_fresh_takes_an_empty_folder(tmp_path):
+def test_fresh_uses_someone_s_empty_folder_but_never_marks_it(tmp_path):
+    """An existing folder without a session's mark is never made wipeable."""
     project = tmp_path / "empty"
     project.mkdir()
-    gui_scratch.prepare_project(project, fresh=True)
-    assert gui_scratch.is_scratch(project)
+    assert gui_scratch.prepare_project(project, fresh=True) is False
+    assert project.is_dir() and not gui_scratch.is_scratch(project)
+    (project / "notes.md").write_text("theirs", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        gui_scratch.prepare_project(project, fresh=True)
+    assert (project / "notes.md").exists()
 
 
 def test_a_copied_marked_folder_is_not_the_copy_s_own(tmp_path):
@@ -165,7 +216,7 @@ def test_a_copied_marked_folder_is_not_the_copy_s_own(tmp_path):
         gui_scratch.prepare_project(copy, fresh=True)
     assert (copy / "data.txt").exists()
     record = gui_scratch.owner(original)
-    assert record["pid"] == os.getpid() and record["nonce"]
+    assert record.pid == os.getpid() and record.nonce and record.kept is False
 
 
 def test_fresh_waits_for_the_lock_before_it_wipes(tmp_path, lock, monkeypatch):
@@ -182,14 +233,19 @@ def test_fresh_waits_for_the_lock_before_it_wipes(tmp_path, lock, monkeypatch):
 
 
 def test_old_session_roots_whose_creator_is_gone_are_swept(tmp_path, monkeypatch):
+    """Swept: old, creator gone, not kept. Kept: a live creator, a young root, and a root
+    left open with its app (--keep), whose app may still run."""
+    from dataclasses import asdict, replace
+
     monkeypatch.setattr(gui_scratch.tempfile, "tempdir", str(tmp_path))
     old, mine, young = (gui_scratch.session_root() for _ in range(3))
-    for project, pid, age in ((old, 0, 2 * 86400), (mine, os.getpid(), 2 * 86400), (young, 0, 60)):
-        record = gui_scratch.owner(project)
-        record.update(pid=pid, created=time.time() - age)
-        (project / gui_scratch.MARKER).write_text(json.dumps(record), encoding="utf-8")
+    kept = gui_scratch.session_root(kept=True)
+    cases = ((old, 0, 2 * 86400), (mine, os.getpid(), 2 * 86400), (young, 0, 60))
+    for project, pid, age in (*cases, (kept, 0, 2 * 86400)):
+        record = replace(gui_scratch.owner(project), pid=pid, created=time.time() - age)
+        (project / gui_scratch.MARKER).write_text(json.dumps(asdict(record)), encoding="utf-8")
     assert gui_scratch.sweep_session_roots() == [old.parent]
-    assert not old.parent.exists() and mine.exists() and young.exists()
+    assert not old.parent.exists() and mine.exists() and young.exists() and kept.exists()
 
 
 def test_the_suite_wipes_only_its_own_entry_folders(tmp_path):
@@ -208,11 +264,47 @@ def test_the_suite_wipes_only_its_own_entry_folders(tmp_path):
     (result,) = suite.run_entry("x", entry, work, tmp_path / "out")
     assert not result["ok"] and "delete" in result["error"]
     assert (foreign / "mine.txt").read_text(encoding="utf-8") == "keep"
-    (foreign / "mine.txt").unlink()  # emptied by hand: the suite takes it from now on
+    import shutil
+
+    shutil.rmtree(foreign)  # deleted once by hand: the suite creates it, and owns it
     assert suite.run_entry("x", entry, work, tmp_path / "out") == []
+    assert gui_scratch.is_scratch(foreign)
     (foreign / "stale.txt").write_text("from the last run", encoding="utf-8")
     assert suite.run_entry("x", entry, work, tmp_path / "out") == []
     assert not (foreign / "stale.txt").exists() and (foreign / "seeded.txt").exists()
+
+
+def test_the_suite_and_qtdrive_reseed_under_the_desktop_lock(tmp_path, monkeypatch):
+    """A wipe never touches a folder a mouse-tier session holding the lock is using: the
+    suite's reseed and gui_qtdrive's --fresh both run inside desktop_lock.held."""
+    import contextlib
+
+    spec = importlib.util.spec_from_file_location(
+        "v2_suite_t2", _PATH.parent / "gui_flows" / "v2_suite.py"
+    )
+    suite = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(suite)
+    events: list[str] = []
+
+    @contextlib.contextmanager
+    def held(name, wait_s=3600.0):
+        events.append(f"lock {name.split('-')[0]}")
+        yield
+        events.append("unlock")
+
+    real_prepare = gui_scratch.prepare_project
+
+    def prepare(project, *, fresh):
+        events.append(f"prepare fresh={fresh}")
+        return real_prepare(project, fresh=fresh)
+
+    monkeypatch.setattr(suite.desktop_lock, "held", held)
+    monkeypatch.setattr(suite.gui_scratch, "prepare_project", prepare)
+    entry = {"seed": lambda project: None, "sessions": []}
+    assert suite.run_entry("x", entry, tmp_path / "work", tmp_path / "out") == []
+    assert events == ["lock v2", "prepare fresh=True", "unlock"]
+    src = (_PATH.parent / "gui_qtdrive.py").read_text(encoding="utf-8")
+    assert "with desktop_lock.held(" in src.split("def run_session", 1)[1].split("ep_path", 1)[0]
 
 
 def test_no_project_means_a_per_session_root(tmp_path, monkeypatch):
