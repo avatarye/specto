@@ -107,8 +107,14 @@ class CompositeItems:
     def __init__(self, resolvers: Iterable[ItemResolver] = ()) -> None:
         self.resolvers: list[ItemResolver] = list(resolvers)
 
-    def add(self, resolver: ItemResolver) -> None:
-        if resolver not in self.resolvers:
+    def add(self, resolver: ItemResolver, *, first: bool = False) -> None:
+        """Add ``resolver`` last, or ``first`` (a view serving extra roles of an item the
+        link runtime also knows: the urdf view's meshes, SPEC-43)."""
+        if resolver in self.resolvers:
+            return
+        if first:
+            self.resolvers.insert(0, resolver)
+        else:
             self.resolvers.append(resolver)
 
     def remove(self, resolver: ItemResolver) -> None:

@@ -145,6 +145,23 @@ _TYPE_DEFAULTS: dict[str, tuple[str, ...]] = {
         "params:environment_rotation",
     ),
     "html": ("net:web",),  # a user's page: its files and the network, no params
+    # the urdf view's VIEW panel and footer (SPEC-43); its pose (params.joints, a slider
+    # release) and panels go through the host's messages, the package paths are the agent's
+    "urdf": (
+        "params:view_mode",
+        "params:up",
+        "params:environment",
+        "params:environment_intensity",
+        "params:environment_background",
+        "params:environment_rotation",
+        "params:show_grid",
+        "params:show_frames",
+        "params:show_joint_axes",
+        "params:show_com",
+        "params:camera_speed",
+        "params:camera_mode",
+        "params:panels",
+    ),
 }
 
 #: The view param that turns a type's network grants off (``network: false``).

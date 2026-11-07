@@ -148,7 +148,8 @@ frames", "run 02 video"), shown after the name in the header.
 
 Every view type has one role, given in the reference: a browser (file tree, gallery, scratch \
 pad) shows many items of a collection and outputs a selection; a viewer (image, markdown, json, \
-html, pdf, preview) shows the one selected item in its native form; a player (video, usd) is a \
+html, pdf, preview, urdf) shows the one selected item in its native form; a player (video, \
+usd) is a \
 viewer whose item has a timeline; a scene (3D, map) places many items in one space. Compose by \
 role: a browser's selection feeds a viewer or player (a gallery picks the frame, an image view or \
 the video shows it), rather than asking one view to both browse and show.
@@ -188,6 +189,18 @@ the stage path, the renderer running, the frame size, the camera, the camera mod
 environment that shows (with environment_note when it is not the choice, or the sky's fetch \
 progress), the sky and hdri named and sky_controls in effect. Specto only views USD: never \
 edit USD files, and say so when asked to change a stage.
+
+For a robot description (.urdf), use one urdf view: a viewer for one robot at a time, \
+read-only, never the root view, fed like the usd view (screener ["@urdf"]); a double-click on \
+a .urdf opens one. Pose it through params.joints ({joint name: value}, radians and metres, \
+clamped into the limits); never edit the URDF. Its meshes resolve through params.package_paths \
+({package name: folder} or a list of folders), then the nearest package.xml, then \
+ROS_PACKAGE_PATH and AMENT_PREFIX_PATH; a mesh not found draws as a placeholder and turns \
+health warn, and snap lists it with its cause, so set package_paths when snap says a package \
+was not found. Other params: view_mode (lit|unlit|wireframe|collision|visual_collision), up \
+(z by default), environment, show_grid, show_frames, show_joint_axes, show_com, camera_speed, \
+camera_mode. snap reports the robot, its links and joints, the pose and its source, the \
+selected links, the missing meshes and the camera.
 
 All files come from the project source: the fixed node "project" at the canvas origin, left of the \
 file tree, with one output, project.all_files. Nobody moves, resizes, deletes or locks it, and \

@@ -166,7 +166,7 @@ NAV_KEYS = (
     "drag turns and walks, right-drag looks (W A S D Q E fly, wheel sets speed), "
     "middle-drag pans, wheel dollies, Alt+drag orbits, F frames"
 )
-VIEW_KEYS = {"3d": NAV_KEYS, "usd": NAV_KEYS}
+VIEW_KEYS = {"3d": NAV_KEYS, "usd": NAV_KEYS, "urdf": NAV_KEYS}
 #: the status bar's line while the wiring layer shows (#82)
 WIRING_HINT = "wiring layer: ` or Esc leaves, click a link dot to open the link"
 HINT_SEP = "  ·  "
