@@ -28,6 +28,11 @@ the release and move on their own schedule.
   because QtWebEngine offers no release that pays off. `tools/bench_gpu_release.py`
   measures it all on the GPU tier. Also fixed: gallery thumbnails could stay half faded
   in when the app was busy.
+- 3d view meshes, follow-ups (SPEC-58): when Babylon's MTL loader cannot take the hook
+  that strips texture map options, the view's health says so ("OBJ texture map options
+  are not stripped"). Two resolves converting one DAE at once no longer fail with "the
+  conversion wrote no readable GLB": the second waits for the first. A crashed
+  conversion's temporaries are swept from the cache after an hour.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the

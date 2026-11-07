@@ -363,31 +363,36 @@ def test_two_threads_converting_one_dae_do_not_spoil_each_other(
 
 
 def test_a_passing_sharing_violation_is_tried_again(monkeypatch: pytest.MonkeyPatch):
-    """Another process reading the converted mesh holds it for a moment: a rename onto it,
-    or a read of it, waits that out (on Windows; elsewhere PermissionError is final)."""
+    """Another process reading the converted mesh holds it for a moment (Windows' sharing
+    or lock violation, winerror 32 or 33): a rename onto it, or a read of it, waits that
+    out. A real access-denied (winerror 5), or any other error, is raised at once."""
     from specto_readers import scenecache
 
-    monkeypatch.setattr(scenecache.sys, "platform", "win32")
     monkeypatch.setattr(scenecache, "SHARING_WAIT_S", 0.0)
-    calls: list[int] = []
 
-    def busy_twice() -> str:
-        calls.append(1)
-        if len(calls) < 3:
-            raise PermissionError(13, "in use")
-        return "done"
+    def failing(winerror: int, times: int):
+        calls: list[int] = []
 
-    assert scenecache.retry_sharing(busy_twice) == "done" and len(calls) == 3
+        def fn() -> str:
+            calls.append(1)
+            if len(calls) <= times:
+                e = PermissionError(13, "in use")
+                e.winerror = winerror  # what Windows sets; settable on any platform
+                raise e
+            return "done"
 
-    def always_busy() -> str:
-        raise PermissionError(13, "in use")
+        return fn, calls
 
+    for code in (32, 33):
+        fn, calls = failing(code, 2)
+        assert scenecache.retry_sharing(fn) == "done" and len(calls) == 3
+    fn, calls = failing(32, scenecache.SHARING_TRIES)
     with pytest.raises(PermissionError):
-        scenecache.retry_sharing(always_busy)
-    monkeypatch.setattr(scenecache.sys, "platform", "linux")
-    calls.clear()
+        scenecache.retry_sharing(fn)
+    assert len(calls) == scenecache.SHARING_TRIES
+    fn, calls = failing(5, 1)  # access denied: final
     with pytest.raises(PermissionError):
-        scenecache.retry_sharing(busy_twice)
+        scenecache.retry_sharing(fn)
     assert len(calls) == 1
 
 
@@ -449,8 +454,9 @@ def test_a_dead_runs_temporaries_are_swept_from_the_cache(tmp_path: Path):
     assert scenecache.sweep_stale(cache) == len(stale)
     assert sorted(p.name for p in cache.iterdir()) == sorted(keep)
     # the names it sweeps are the names the writers make
-    made = scenecache.unique_temp(cache, "k", scenecache.CONVERT_SUFFIX)
-    assert scenecache.is_temp(made.name) and scenecache.is_temp(made.name + ".log")
+    made = scenecache.unique_temp(cache, "k", scenecache.CONVERT_TEMP_SUFFIX)
+    log = made.name.removesuffix(scenecache.CONVERT_TEMP_SUFFIX) + scenecache.CONVERT_LOG_SUFFIX
+    assert scenecache.is_temp(made.name) and scenecache.is_temp(log)
     # a conversion sweeps on its way
     (cache / ".dead.9.9.convert.glb").write_bytes(b"x")
     os.utime(cache / ".dead.9.9.convert.glb", (old, old))

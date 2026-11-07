@@ -47,7 +47,8 @@ from typing import Any
 import numpy as np
 
 from .scenecache import (
-    CONVERT_SUFFIX,
+    CONVERT_LOG_SUFFIX,
+    CONVERT_TEMP_SUFFIX,
     cache_folder,
     cached,
     retry_sharing,
@@ -279,7 +280,8 @@ def _convert_bounded(src: Path, out: Path, stamp: dict[str, int]) -> None:
         sys.executable, "-I", "-m", "specto_readers.dae",
         str(src.resolve()), str(out.resolve()), json.dumps(stamp),
     ]  # fmt: skip
-    log = out.with_name(out.name + ".log")  # .<key>...convert.glb.log: CONVERT_LOG_SUFFIX
+    # the log takes out's unique name with the converter's log ending (the sweep knows it)
+    log = out.with_name(out.name.removesuffix(CONVERT_TEMP_SUFFIX) + CONVERT_LOG_SUFFIX)
     win = sys.platform == "win32"
     try:
         with log.open("wb") as fh:
@@ -322,7 +324,7 @@ def convert(src: Path | str, dst: Path | str) -> dict[str, Any]:
     """Convert one DAE to a GLB at ``dst`` (bounded; written whole or not at all); returns
     the GLB's record: ``{source, count, bounds}``."""
     src, dst = Path(src), Path(dst)
-    fresh = unique_temp(dst.parent, dst.name, CONVERT_SUFFIX)
+    fresh = unique_temp(dst.parent, dst.name, CONVERT_TEMP_SUFFIX)
     try:
         _convert_bounded(src, fresh, source_stamp(src))
         os.replace(fresh, dst)
@@ -351,7 +353,7 @@ def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
         if rec is None:
             cache.mkdir(parents=True, exist_ok=True)
             sweep_stale(cache)
-            fresh = unique_temp(cache, key, CONVERT_SUFFIX)
+            fresh = unique_temp(cache, key, CONVERT_TEMP_SUFFIX)
             try:
                 _convert_bounded(src, fresh, stamp)
                 try:

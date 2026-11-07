@@ -1,9 +1,18 @@
 """The 3D view's resolve-time cache (``<cache>/scene3d``): one folder, records written whole
 or not at all.
 
-A record is the scene entry ``prepare_scene`` returned for a file, as JSON, named by the
-file's identity (``cache_key``: path, size, mtime); derived files (point buffers, kd-trees,
-GLBs) sit beside it. ``cached`` reads a record that still holds, else makes and writes it.
+- **Records**: a record is the scene entry ``prepare_scene`` returned for a file, as JSON,
+  named by the file's identity (``cache_key``: path, size, mtime); derived files (point
+  buffers, kd-trees, GLBs) sit beside it. ``cached`` reads a record that still holds,
+  else makes and writes it; a record that cannot be written is skipped.
+- **Temporaries**: every temporary Specto writes is named by ``unique_temp``
+  (``.<stem>.<pid>.<thread><suffix>``) with one of three endings: ``write_atomic``'s
+  ``.tmp``, the DAE converter's ``.convert.glb`` and its child's ``.convert.glb.log``.
+- **Retry**: ``retry_sharing`` tries an operation again over a Windows sharing or lock
+  violation (another process has the file open for the moment); any other error,
+  access-denied included, is raised at once.
+- **Sweep**: ``sweep_stale`` removes temporaries of those names older than an hour (a
+  crashed process's), nothing else, and nothing in a linked folder.
 """
 
 from __future__ import annotations
@@ -12,7 +21,6 @@ import contextlib
 import json
 import os
 import re
-import sys
 import threading
 import time
 from collections.abc import Callable
@@ -29,20 +37,25 @@ def cache_folder(cache_dir: Path | str) -> Path:
 
 
 #: how often, and how far apart, a Windows sharing violation is tried again: a rename onto
-#: a file another thread or process has open (reading it, or renaming onto it) fails with
-#: PermissionError for the moment that lasts
+#: a file another thread or process has open (reading it, or renaming onto it) fails for
+#: the moment that lasts
 SHARING_TRIES = 20
 SHARING_WAIT_S = 0.025
+#: ERROR_SHARING_VIOLATION and ERROR_LOCK_VIOLATION; ERROR_ACCESS_DENIED (5) is a real
+#: refusal and is not tried again
+SHARING_WINERRORS = (32, 33)
 
 
 def retry_sharing[T](fn: Callable[[], T]) -> T:
-    """``fn()``, tried again while it meets a sharing violation (PermissionError on
-    Windows); the last one is raised. Elsewhere a PermissionError is final."""
+    """``fn()``, tried again while it meets a Windows sharing or lock violation; the last
+    one is raised. Any other error, a real access-denied included, is raised at once."""
     for attempt in range(SHARING_TRIES):
         try:
             return fn()
-        except PermissionError:
-            if sys.platform != "win32" or attempt == SHARING_TRIES - 1:
+        except OSError as e:
+            if getattr(e, "winerror", None) not in SHARING_WINERRORS:
+                raise
+            if attempt == SHARING_TRIES - 1:
                 raise
             time.sleep(SHARING_WAIT_S)
     raise AssertionError("unreachable")
@@ -51,9 +64,9 @@ def retry_sharing[T](fn: Callable[[], T]) -> T:
 #: the temporaries Specto writes here, by what they end in: write_atomic's, the DAE
 #: converter's GLB and its child's log (``unique_temp`` names them all)
 TMP_SUFFIX = ".tmp"
-CONVERT_SUFFIX = ".convert.glb"
-CONVERT_LOG_SUFFIX = CONVERT_SUFFIX + ".log"
-TEMP_SUFFIXES = (TMP_SUFFIX, CONVERT_SUFFIX, CONVERT_LOG_SUFFIX)
+CONVERT_TEMP_SUFFIX = ".convert.glb"
+CONVERT_LOG_SUFFIX = CONVERT_TEMP_SUFFIX + ".log"
+TEMP_SUFFIXES = (TMP_SUFFIX, CONVERT_TEMP_SUFFIX, CONVERT_LOG_SUFFIX)
 _TEMP_NAME = re.compile(
     r"^\..+\.\d+\.\d+(?:" + "|".join(re.escape(s) for s in TEMP_SUFFIXES) + r")$"
 )
@@ -140,14 +153,10 @@ def cached(
 __all__ = [
     "CACHE_SUBDIR",
     "CONVERT_LOG_SUFFIX",
-    "CONVERT_SUFFIX",
-    "STALE_AFTER_S",
-    "TEMP_SUFFIXES",
-    "TMP_SUFFIX",
+    "CONVERT_TEMP_SUFFIX",
     "Record",
     "cache_folder",
     "cached",
-    "is_temp",
     "read_record",
     "retry_sharing",
     "sweep_stale",
