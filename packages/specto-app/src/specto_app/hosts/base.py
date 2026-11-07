@@ -228,6 +228,14 @@ class QuickViewHost(QObject):
 
     healthChanged = Signal(str, str)
 
+    #: while paused, the item is out of the scene (contracts section 11, SPEC-3): the
+    #: window deletes its scene-graph nodes and with them the GPU memory they hold
+    #: (atlases, render targets, a video's render context); on resume it goes back into
+    #: its slot and rebuilds them, its own state (scroll, zoom, selection) untouched. Set
+    #: by the views whose items rebuild by themselves; a view whose GPU memory lives
+    #: elsewhere (an image's decoded texture, a web page) frees what it can in ``pause``.
+    release_when_paused: bool = False
+
     def __init__(self, ctx: HostContext, view_id: str, manifest: ViewManifest) -> None:
         super().__init__()
         self.ctx = ctx

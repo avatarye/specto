@@ -200,6 +200,10 @@ class VideoBridge(QObject):
 class VideoHost(Stepping, QuickViewHost):
     """One live video view; see the module docstring."""
 
+    #: paused, the item leaves the scene: its node frees mpv's render context and the
+    #: frame buffer, which hold nearly all of a video's GPU memory (SPEC-3)
+    release_when_paused = True
+
     def __init__(
         self,
         ctx: HostContext,
@@ -713,7 +717,8 @@ class VideoHost(Stepping, QuickViewHost):
 
     # -- shell pause API -----------------------------------------------------------------
     def pause(self) -> None:
-        """Off screen: stop decoding work (playback); the decoder stays."""
+        """Off screen: stop decoding work (playback); the decoder stays, the render
+        context goes with the item's node (``release_when_paused``)."""
         self._was_playing = not self.playback_paused
         if self.mpv is not None and not self.playback_paused:
             self.mpv.pause()
@@ -723,6 +728,10 @@ class VideoHost(Stepping, QuickViewHost):
         super().resume()
         if self._was_playing and self.mpv is not None:
             self.mpv.play()
+        elif self.loaded and self.mpv is not None:
+            # the render context comes back with the item and mpv decodes a fresh frame
+            # for it, the one after the frame shown: land back on the frame shown
+            self.seek_frame(self.frame, following=True)
         self._was_playing = False
 
     # -- following a time ------------------------------------------------------------------

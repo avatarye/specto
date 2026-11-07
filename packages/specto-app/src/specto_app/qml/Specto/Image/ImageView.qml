@@ -26,6 +26,17 @@ Item {
     property string viewId: ""
     property QtObject bridge: null
     property url source: ""
+    // paused (SPEC-3): the Image lets go of its picture and its texture; zoom, centre,
+    // crop and the reported status stay until it is shown again and decodes anew
+    property bool released: false
+    property bool letGo: false  // follows `released`, once the view as it was is kept
+    onReleasedChanged: {
+        // the view as it was comes back through the restore path once the picture is ready
+        if (released && img.status === Image.Ready) {
+            navZoom = zoom; navCx = centerX(); navCy = centerY(); navFit = fit; navPending = true
+        }
+        letGo = released
+    }
     property string caption: ""
     // where the view is in its collection (hosts.stepping sets them)
     property int stepIndex: -1
@@ -179,7 +190,7 @@ Item {
         Image {
             id: img
             objectName: "image"
-            source: root.source
+            source: root.letGo ? "" : root.source
             asynchronous: true
             cache: false
             autoTransform: true
@@ -191,6 +202,7 @@ Item {
             // the shader draws it while channels show (its texture stays the source)
             opacity: root.channelFx ? 0 : 1
             onStatusChanged: {
+                if (root.letGo) return  // let go while paused: nothing to report
                 if (status === Image.Ready) {
                     if (root.navPending) root.applyNav()
                     else if (root.fit) root.fitImage()
