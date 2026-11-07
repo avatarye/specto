@@ -60,7 +60,8 @@ def test_the_gpu_and_mouse_tiers_stay_small():
     mouse = [f for f, (t, _) in suite.TIERS.items() if t == suite.MOUSE]
     gpu = [f for f, (t, _) in suite.TIERS.items() if t == suite.GPU]
     assert mouse == ["v2-185-drag-out.txt"]
-    assert len(gpu) <= 31  # SPEC-31 added the usd view's environment light (RTX)
+    # SPEC-31 added the usd view's environment light (RTX), SPEC-42 the mesh formats (WebGL)
+    assert len(gpu) <= 32
     assert len(suite.all_flows()) - len(gpu) - len(mouse) >= 65
 
 
