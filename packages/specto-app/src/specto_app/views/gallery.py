@@ -69,7 +69,7 @@ import os
 import re
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from PySide6.QtCore import QByteArray, QCoreApplication, QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtQuick import QQuickItem
@@ -94,6 +94,21 @@ DEFAULT_BATCH = 16
 SNAPSHOT_KEYS_CAP = 256
 TILE_EPS = 0.5  # px: a remembered size within this of the shown one is the same size
 DATA, SELECTION, TIME = "data", "selection", "time"
+#: arrival entries kept pending (not delivered yet) at most, and how many deliveries
+#: an entry waits for before it is forgotten (SPEC-59)
+PENDING_CAP = 1000
+PENDING_DELIVERIES = 2
+
+
+class NewPill(NamedTuple):
+    """The "+N new" pill: how many arrivals are not seen yet, the index of the first
+    (-1 for none)."""
+
+    count: int
+    first: int
+
+
+NO_NEW = NewPill(0, -1)
 SORTS: tuple[str, ...] = ("key", "name", "time")
 
 GALLERY_PLUGIN = PluginManifest(name="app-gallery", version="0.2.0", views=[])
@@ -128,8 +143,7 @@ class GalleryItemLike(Protocol):
     def stats(self) -> dict[str, Any]: ...
     def set_caption(self, text: str) -> None: ...
     def after_frame(self, fn: Callable[[], None]) -> None: ...
-
-    def set_new(self, count: int, first: int) -> None: ...
+    def set_new(self, new: NewPill) -> None: ...
 
     # callbacks the host installs; the adapter wires them to the item's signals
     on_selected: Callable[[int, int], None] | None
@@ -373,9 +387,9 @@ class NativeGallery:
             with contextlib.suppress(RuntimeError, TypeError):
                 self.item.statsChanged.disconnect(once)
 
-    def set_new(self, count: int, first: int) -> None:
-        self.root.setProperty("newCount", int(count))
-        self.root.setProperty("newFirst", int(first))
+    def set_new(self, new: NewPill) -> None:
+        self.root.setProperty("newCount", int(new.count))
+        self.root.setProperty("newFirst", int(new.first))
 
     def cell_rect(self, index: int) -> Any:
         """The tile's cell in scene coordinates (``QRectF``), empty when scrolled out."""
@@ -432,12 +446,11 @@ class GalleryHost(QuickViewHost):
         self._pump_timer: QTimer | None = None
         self._pump_pending = False
         self._in_pump = False
-        # the "+N new" pill (SPEC-59): the keys that arrived while watching and are not
-        # seen yet; the keys before an arrival notice and the generation it came at,
-        # until the collection it announced swaps in
+        # the "+N new" pill (SPEC-59): the keys of the items that arrived and are not
+        # seen yet, and the arrival entries ("<source>:<rel>") no delivered collection
+        # has held yet, each with the deliveries it has waited through
         self._new_keys: set[str] = set()
-        self._before: set[str] | None = None
-        self._arrival_gen = -1
+        self._pending: dict[str, int] = {}
         self.bridge = GalleryBridge(self)
 
         if gallery is None:
@@ -565,21 +578,40 @@ class GalleryHost(QuickViewHost):
 
     # -- arrivals: the "+N new" pill (SPEC-59) ------------------------------------------
     def on_arrivals(self, payload: dict[str, Any]) -> None:
-        """Files arrived in a watched folder (``link.arrivals``): the collection that
-        holds them is still resolving; remember what was there before it."""
-        if payload.get("added") and self._before is None:
-            self._before = set(self.keys)
-            self._arrival_gen = self.collection.generation if self.collection else -1
+        """Files arrived in a folder an intaker of this view watches (``link.arrivals``):
+        its ``arrived`` entries wait for the collection that holds them. The oldest
+        go once more than ``PENDING_CAP`` wait."""
+        for entry in payload.get("arrived") or []:
+            self._pending.setdefault(str(entry), 0)
+        while len(self._pending) > PENDING_CAP:
+            del self._pending[next(iter(self._pending))]
 
     def _take_arrivals(self) -> None:
-        """After a reload: once the announced collection is in, its new keys join the
-        pill's; keys gone since drop out. Shows the count and the first's index."""
-        gen = self.collection.generation if self.collection is not None else -1
-        if self._before is not None and gen > self._arrival_gen:
-            self._new_keys |= set(self.keys) - self._before
-            self._before = None
+        """After a reload (a delivery, whatever resolved it): an item holding a pending
+        entry is new; an entry no item holds waits one more delivery, and after
+        ``PENDING_DELIVERIES`` of them it is forgotten (a file the screener drops, a
+        resolve that failed). Keys gone since drop out. Shows the count and the first."""
+        if self._pending:
+            held = {
+                f"{it.meta.get('source', 0)}:{rel}": it.key
+                for it in self.items
+                for rel in (it.meta.get("rel") or {}).values()
+            }
+            for entry in list(self._pending):
+                key = held.get(entry)
+                if key is not None:
+                    self._new_keys.add(key)
+                    del self._pending[entry]
+                elif self._pending[entry] + 1 >= PENDING_DELIVERIES:
+                    del self._pending[entry]
+                else:
+                    self._pending[entry] += 1
         self._new_keys &= self._index_of.keys()
         self._show_new()
+
+    def pending_arrivals(self) -> int:
+        """How many arrival entries wait for a collection that holds them."""
+        return len(self._pending)
 
     def ack_arrivals(self) -> None:
         """The pill retired: nothing is new any more."""
@@ -587,12 +619,12 @@ class GalleryHost(QuickViewHost):
         self._show_new()
 
     def _show_new(self) -> None:
-        new = self._new_state()
-        self.gallery.set_new(new["count"], new["first"])
+        self.gallery.set_new(self._new_state())
 
-    def _new_state(self) -> dict[str, int]:
-        first = min((self._index_of[k] for k in self._new_keys), default=-1)
-        return {"count": len(self._new_keys), "first": first}
+    def _new_state(self) -> NewPill:
+        if not self._new_keys:
+            return NO_NEW
+        return NewPill(len(self._new_keys), min(self._index_of[k] for k in self._new_keys))
 
     def _ordered(self, items: list[Item]) -> list[Item]:
         by, desc = self.sort.lstrip("-"), self.sort.startswith("-")
@@ -1129,7 +1161,7 @@ class GalleryHost(QuickViewHost):
             "count": len(self.items),
             "sort": self.sort,
             # the "+N new" pill: arrivals not seen yet, the index of the first (SPEC-59)
-            "new": self._new_state(),
+            "new": self._new_state()._asdict(),
             "collection": {
                 "link": self.collection.link if self.collection else None,
                 "generation": self.collection.generation if self.collection else None,

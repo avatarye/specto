@@ -36,11 +36,12 @@ the release and move on their own schedule.
   Such paths are now judged by their text first, through one allowlist
   (`specto_core.pathguard`: a relative path, a drive path, or a POSIX path), and refused
   before anything is read.
-
-- A watched gallery shows its "+N new" pill again (SPEC-59): files arriving in the folder
-  its intaker watches are counted once their collection swaps in, a click scrolls to the
-  first of them, and the pill retires when they are in view. `snap` reports the gallery's
-  `new` (`count`, `first`).
+- A gallery with auto-update on shows its "+N new" pill again (SPEC-59): files arriving
+  in the folders its intaker watches count as new once the gallery shows them, a click
+  scrolls to the first of them, and the pill retires when they are in view. The
+  arrivals event names the files that arrived (`arrived`), so a filter edit or a rescan
+  landing in between marks nothing. `snap` reports the gallery's `new` (`count`,
+  `first`).
 - The web build leaves no truncated HDRI behind (SPEC-45): each `.hdr` streams into a
   `.part` beside it and is renamed into place once its sha256 matches, and a source
   checkout's `specto_web.hdri_source` serves a cached `.hdr` only at the manifest's

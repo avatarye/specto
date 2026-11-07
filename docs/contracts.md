@@ -324,9 +324,12 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   out or open a device.
 - Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread runs the
   kind's watcher every `watch_interval_s`; a changed listing posts to the runtime,
-  `poll()` emits the event `link.arrivals {link, added, removed}` and re-resolves the
-  link once the folder has been quiet for `watch_debounce_s`; the new collection
-  generation swaps in. The resolve re-runs the whole intaker (ADR 0016 note). `engine.close()`
+  `poll()` emits the event `link.arrivals {link, target, added, removed, changed,
+  arrived}` and re-resolves the link once the folder has been quiet for
+  `watch_debounce_s`; the new collection generation swaps in. `arrived` names the
+  added entries as the watcher does (the intaker's: `<source index>:<rel path>`,
+  what an item's `meta.source` and `meta.rel` hold), at most `ARRIVALS_CAP` (1000) of
+  them; `added` counts them all (SPEC-59). The resolve re-runs the whole intaker (ADR 0016 note). `engine.close()`
   stops and joins the watchers.
 - Auto-update and refresh (#102): `params.watch` is off by default; the file tree's intaker
   is on unless it says false (#115: new canvases write it, a submit or load that leaves it
@@ -608,7 +611,8 @@ class GalleryHost(QuickViewHost):  # one per live view
     def snapshot(self) -> dict: ...  # structured state for snap
 
     # optional: pause(), resume(), on_release(), on_restore(), snapshot_image(),
-    # health_hint(), dispose()
+    # health_hint(), dispose(), on_arrivals(payload): a link.arrivals for one of the
+    # view's inputs (SPEC-59)
     release_when_paused = True  # optional: paused release_delay_s (3 s), the item leaves the scene
 
 
@@ -620,8 +624,9 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   with health `error`, never a crash.
 - The registry (`HostRegistry`) follows `engine.live`: it creates a host on first use for
   a view in the document, attaches it to the link runtime (already-resolved inputs are
-  replayed), routes `on_patch` with only that view's ops, disposes it when the view
-  leaves the document. Exceptions in a host land in the view's health.
+  replayed), routes `on_patch` with only that view's ops and `on_arrivals` with the
+  `link.arrivals` payloads for its inputs, disposes it when the view leaves the
+  document. Exceptions in a host land in the view's health.
 - Item lifecycle: the shell calls `hosts.attach(view_id, slot)` from the view's QML slot
   (`objectName "slot:<id>"`) and `detach` when it goes; the item is re-parented and
   resized to the slot, held in a hidden holder item in between. Culling (section 12) calls
@@ -800,7 +805,9 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   SPEC-26: why the stub USD source plays, "" when it does not; `load_timings`,
   SPEC-27: where the shown stage's load spent its seconds, `renderer_s` (a fresh
   renderer's swap), `open_s`, `populate_s`, `environment_s`, `first_frame_s` (to the
-  frame `ok` names) and `total_s`, `{}` while a load runs or after a failed one),
+    frame `ok` names) and `total_s`, `{}` while a load runs or after a failed one; a
+  gallery's carries `new {count, first}`, the arrivals not seen yet and the index of
+  the first, SPEC-59),
   `meta.links` the links in and out
   with their resolve state, `meta.rect` the on-screen rect;
   `layout` one line per view and link) and `shell.locate {name}` (the window rect of a

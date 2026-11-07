@@ -88,6 +88,9 @@ from .timebase import GlobalClock, TimeValue
 LINK_JOB_KIND = "link.resolve"
 #: the project source's one output port, as an ``outputs`` key
 PROJECT_OUT = (PROJECT_ID, PROJECT_PORT)
+#: how many arrived entries a change notice and ``link.arrivals`` name (SPEC-59);
+#: ``added`` counts them all
+ARRIVALS_CAP = 1000
 DEFAULT_WATCH_INTERVAL_S = 1.0
 DEFAULT_WATCH_DEBOUNCE_S = 0.5
 #: a per-pick Python link waits this long after a burst of picks before it runs the
@@ -207,10 +210,12 @@ def stop_all_watches(*, join: bool = True) -> int:
 
 class LinkWatch:
     """One watched link's poller: a daemon thread that lists the sources every
-    ``interval_s`` and posts ``(link id, added, removed, changed)`` on ``changes`` when
-    the listing differs from the last one. The first listing is the baseline. The
-    thread holds its owner (the runtime) only weakly and ends with it, so a dropped
-    engine never leaves a watcher behind; ``stop(join=True)`` ends it now."""
+    ``interval_s`` and posts ``(link id, added, removed, changed, arrived)`` on
+    ``changes`` when the listing differs from the last one (``arrived``: the added
+    entries' keys as the watcher names them, at most ``ARRIVALS_CAP``, SPEC-59). The first
+    listing is the baseline. The thread holds its owner (the runtime) only weakly and
+    ends with it, so a dropped engine never leaves a watcher behind; ``stop(join=True)``
+    ends it now."""
 
     def __init__(
         self,
@@ -265,12 +270,13 @@ class LinkWatch:
         before, self.table = self.table, table
         if before is None:
             return False
-        added = sum(1 for k in table if k not in before)
+        arrived = [k for k in table if k not in before]
+        added = len(arrived)
         removed = sum(1 for k in before if k not in table)
         changed = sum(1 for k, v in table.items() if k in before and before[k] != v)
         if not (added or removed or changed):
             return False
-        self.changes.put((self.link_id, added, removed, changed))
+        self.changes.put((self.link_id, added, removed, changed, arrived[:ARRIVALS_CAP]))
         return True
 
     def _orphaned(self) -> bool:
@@ -408,9 +414,9 @@ class LinkRuntime:
         self._last_pick: dict[str, float] = {}
         self._watches: dict[str, LinkWatch] = {}
         self._changes: queue.SimpleQueue = queue.SimpleQueue()
-        #: link id -> (time of the last change notice, added, removed, changed) not yet
-        #: resolved: the debounce window
-        self._arrivals: dict[str, tuple[float, int, int, int]] = {}
+        #: link id -> (time of the last change notice, added, removed, changed, arrived
+        #: entries) not yet resolved: the debounce window
+        self._arrivals: dict[str, tuple[float, int, int, int, list[str]]] = {}
         #: latest value each output port emitted; the project source is always there
         self.outputs: dict[tuple[str, str], Any] = {PROJECT_OUT: FilesValue(root=self.root)}
         #: every file of the project folder as the project intaker last found them (None
@@ -1069,14 +1075,15 @@ class LinkRuntime:
             out.append(lid)
         while True:
             try:
-                lid, added, removed, changed = self._changes.get_nowait()
+                lid, added, removed, changed, arrived = self._changes.get_nowait()
             except queue.Empty:
                 break
             if lid not in self._watches:
                 continue  # a notice from a watcher already stopped
-            _, a, r, c = self._arrivals.get(lid, (now, 0, 0, 0))
-            self._arrivals[lid] = (now, a + added, r + removed, c + changed)
-        for lid, (since, added, removed, changed) in list(self._arrivals.items()):
+            _, a, r, c, names = self._arrivals.get(lid, (now, 0, 0, 0, []))
+            names = names + [k for k in arrived if k not in names]
+            self._arrivals[lid] = (now, a + added, r + removed, c + changed, names[:ARRIVALS_CAP])
+        for lid, (since, added, removed, changed, arrived) in list(self._arrivals.items()):
             if now - since < self.watch_debounce_s:
                 continue
             del self._arrivals[lid]
@@ -1091,6 +1098,7 @@ class LinkRuntime:
                     "added": added,
                     "removed": removed,
                     "changed": changed,
+                    "arrived": arrived,
                 },
             )
             self.resolve(lid)
