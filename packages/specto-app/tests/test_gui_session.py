@@ -91,17 +91,26 @@ def test_a_session_takes_the_lock_itself_and_frees_it(lock):
 
 
 def test_a_second_process_waits_and_gets_the_lock_when_the_first_exits(lock, holder_process):
+    """A waiter keeps retrying while the holder runs, and gets the lock once it exits."""
+    import threading
+
     start, release = holder_process
     proc = start()
     assert desktop_lock.acquire("me", 0) is None
     with pytest.raises(SystemExit, match="holder"):
         with desktop_lock.held("me", wait_s=0):
             pytest.fail("drove the desktop without the lock")
+    got: list = []
+    waiter = threading.Thread(target=lambda: got.append(desktop_lock.acquire("me", 30)))
+    waiter.start()
+    time.sleep(4 * desktop_lock.POLL_S)
+    assert waiter.is_alive() and not got  # still waiting on the live holder
     release()
     proc.wait(30)
-    f = desktop_lock.acquire("me", 10)
-    assert f is not None
-    desktop_lock.release(f, "me")
+    waiter.join(30)
+    assert got and got[0] is not None
+    desktop_lock.release(got[0], "me")
+    assert desktop_lock.is_free()
 
 
 def test_a_killed_holder_frees_the_lock_at_once(lock, holder_process):
