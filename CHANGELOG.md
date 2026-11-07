@@ -59,6 +59,15 @@ the release and move on their own schedule.
   stays `ok`, but the status line and `snap`'s `fallback_reason` now name what is missing (ovrtx
   not installed, no OpenUSD imaging build) with the fix, and one notice says it. A
   fallback a test or scripted flow asks for (a disabled or faked capability) stays silent.
+- Gallery thumbnail cache follow-ups (SPEC-17). Thumbnails of files that were deleted or
+  changed leave `.specto/cache/thumbs/`, pruned in the background at most once a day
+  when a gallery opens; a file outside the project whose folder is missing (a drive not
+  plugged in) keeps its thumbnail. Long code and JSON lines wrap on excerpt cards instead
+  of being cut at the edge, continuations keeping their indent. Big images (2 MP and up)
+  keep their thumbnail on disk too, so a reopened project reads a 12 MP PNG's thumbnail
+  in under a millisecond instead of decoding it again (about 200 ms); smaller images
+  decode as before. A video inside an archive shows its poster frame: the member, up to
+  512 MB, is copied to a temporary file for libmpv and removed again.
 - Paused galleries, images and videos give back their GPU memory (SPEC-3, ADR 0030). A
   paused view is one off-screen, collapsed or behind the overworld. After 3 s paused,
   the view leaves the scene: the gallery's atlas and the video's frame buffer and mpv

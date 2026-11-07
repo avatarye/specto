@@ -412,10 +412,13 @@ class GalleryHost(QuickViewHost):
         self.decoded = 0
         self.failed = 0
         self.pushed_bytes = 0
-        # where the non-image thumbnails came from: rendered by a job, the disk cache, memory
+        # where the thumbnails came from: rendered by a job, the disk cache (big images
+        # too, SPEC-17), memory; an image decoded afresh is not counted
         self.thumbs = {"rendered": 0, "disk": 0, "memory": 0}
         self._memory = thumbs.memory_for(ctx.engine)
         self._cache_dir = thumbs.cache_dir_for(ctx.project_root)
+        # thumbnails of files gone or changed leave the disk cache, once a day (SPEC-17)
+        thumbs.maybe_prune(self.jobs, self._cache_dir, ctx.project_root)
         self._palette: dict[str, str] | None = None
         self._gesture = False
         self._pump_timer: QTimer | None = None
@@ -726,7 +729,12 @@ class GalleryHost(QuickViewHost):
         def on_done(job: JobInfo) -> None:
             self._on_batch(idx, job, None if image else (refs, px))
 
-        if image:
+        if image and self._cache_dir is not None:
+            # big images keep their thumbnail on disk (SPEC-17)
+            job = thumbs.submit_images(
+                self.jobs, refs, request, self._cache_dir, canvas=self.view_id, on_done=on_done
+            )
+        elif image:
             from specto_readers import submit_decode_batch
 
             job = submit_decode_batch(
@@ -793,6 +801,8 @@ class GalleryHost(QuickViewHost):
                 self.pushed_bytes += spec.nbytes
                 if rendered is not None:
                     self._remember(rendered[0][n], rendered[1], res)
+                elif res.spec.meta.get("cache") == "disk":
+                    self.thumbs["disk"] += 1  # a big image's thumbnail read back
             else:
                 self.gallery.set_failed(i)
                 self.failed += 1

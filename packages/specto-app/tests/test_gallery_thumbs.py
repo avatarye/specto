@@ -214,3 +214,172 @@ def test_a_changed_file_gets_a_new_thumbnail(project: Project):
     reopened.receive("data", collection_of(project.root / "data", names))
     reopened.pump()
     assert fake2.pixels[reopened.index_of("notes")] == fake.pixels[notes]
+
+
+# -- SPEC-17: the cache follow-ups --------------------------------------------------------
+
+
+def cached_pngs(project: Project) -> list[Path]:
+    return sorted((project.root / ".specto" / "cache" / "thumbs").rglob("*.png"))
+
+
+def test_thumbnails_of_deleted_or_changed_files_are_pruned(project: Project):
+    from specto_app import thumbs
+
+    names = write_fixtures(project.root / "data")
+    host, _ = open_gallery(project)
+    host.receive("data", collection_of(project.root / "data", names))
+    host.pump()
+    assert len(cached_pngs(project)) == len(names) - 1  # every kind but the small image
+    (project.root / "data" / "notes.md").unlink()
+    pose = project.root / "data" / "pose.json"
+    pose.write_text('{"frame": 13}', encoding="utf-8")
+
+    kept, removed = thumbs.prune_cache(thumbs.cache_dir_for(project.root), project.root)
+
+    assert (kept, removed) == (len(names) - 3, 2)
+    sources = {thumbs.cached_source(p) for p in cached_pngs(project)}
+    assert str(project.root / "data" / "notes.md") not in sources
+    assert str(pose) not in sources
+
+
+def test_a_source_outside_the_project_on_a_missing_folder_is_kept(project: Project, tmp_path):
+    """A drive that is not plugged in is no deleted file: its thumbnails stay."""
+    from specto_app import thumbs
+
+    elsewhere = tmp_path / "usb" / "data"
+    write_fixtures(elsewhere)
+    host, _ = open_gallery(project)
+    host.receive("data", collection_of(elsewhere, ["notes.md"]))
+    host.pump()
+    shutil.rmtree(tmp_path / "usb")
+
+    kept, removed = thumbs.prune_cache(thumbs.cache_dir_for(project.root), project.root)
+
+    assert (kept, removed) == (1, 0)
+
+
+def test_opening_a_gallery_prunes_the_cache_once_a_day(project: Project):
+    from specto_app import thumbs
+
+    names = write_fixtures(project.root / "data")
+    host, _ = open_gallery(project)
+    host.receive("data", collection_of(project.root / "data", names))
+    host.pump()
+    (project.root / "data" / "notes.md").unlink()
+    stamp = Path(thumbs.cache_dir_for(project.root)) / thumbs.PRUNE_STAMP
+    stamp.touch()  # pruned two days ago
+    old = stamp.stat().st_mtime - 2 * 86400
+    os.utime(stamp, (old, old))
+    thumbs._pruned.clear()
+
+    open_gallery(project)  # the prune is a job: inline here
+
+    assert len(cached_pngs(project)) == len(names) - 2
+    assert stamp.stat().st_mtime > old + 86400
+    (project.root / "data" / "report.html").unlink()
+    open_gallery(project)  # pruned today already: nothing more
+    assert len(cached_pngs(project)) == len(names) - 2
+
+
+def test_a_long_code_line_wraps_on_the_card(project: Project):
+    from specto_app import thumbs
+
+    def inked_rows(text: str) -> int:
+        path = project.root / "long.txt"
+        path.write_text(text, encoding="utf-8")
+        arr = thumbs.excerpt_card(str(path), "text", 256, thumbs.palette())
+        return int(((arr[..., :3].astype(int).sum(axis=2) < 3 * 110).sum(axis=1) > 0).sum())
+
+    short, long = inked_rows("x" * 10), inked_rows("x" * 400)
+    assert long > 2 * short, "the line stopped at the card's edge instead of wrapping"
+
+
+def test_wrapped_code_keeps_every_character_and_its_indent(project: Project):
+    from PIL import Image, ImageDraw
+
+    from specto_app import thumbs
+
+    d = ImageDraw.Draw(Image.new("RGBA", (10, 10)))
+    font = thumbs._font("mono", 12)
+    line = '    "path": "' + "/very/long/segment" * 12 + '"'
+    rows = thumbs._wrap_code(d, line, font, 200.0)
+    assert len(rows) > 2
+    assert all(d.textlength(r, font=font) <= 200.0 for r in rows)
+    assert all(r.startswith("    ") for r in rows)  # continuations keep the indent
+    assert "".join(r[4:] for r in rows) == line[4:]
+
+
+def big_png(path: Path, w: int = 2400, h: int = 1600) -> None:
+    import numpy as np
+
+    rng = np.random.default_rng(1)
+    small = (rng.random((h // 8, w // 8, 3)) * 255).astype("uint8")
+    Image.fromarray(small).resize((w, h)).save(path)
+
+
+def test_big_images_are_cached_on_disk_and_small_ones_are_not(project: Project):
+    data = project.root / "data"
+    names = write_fixtures(data)  # frame.jpg: 64 x 48, cheap to decode again
+    big_png(data / "big.png")
+    names.append("big.png")
+    host, fake = open_gallery(project)
+    host.receive("data", collection_of(data, names))
+    host.pump()
+    assert len(cached_pngs(project)) == len(names) - 1  # the small image only is not
+    first = fake.pixels[host.index_of("big")]
+
+    reopened, fake2 = open_gallery(project)
+    reopened.receive("data", collection_of(data, names))
+    reopened.pump()
+
+    counts = reopened.snapshot()["decode"]["thumbs"]
+    assert counts["disk"] == len(names) - 1 and counts["rendered"] == 0
+    assert fake2.pixels[reopened.index_of("big")] == first
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="no ffmpeg to make the clip")
+def test_a_video_inside_an_archive_shows_its_poster_frame(project: Project):
+    import zipfile
+
+    from specto_app import thumbs
+    from specto_core.containers import join_virtual
+
+    if thumbs.libmpv() is None:
+        pytest.skip("no libmpv (build the native plugin)")
+    clip = project.root / "redblue.mp4"
+    subprocess.run(
+        ["ffmpeg", "-loglevel", "error", "-y",
+         "-f", "lavfi", "-i", "color=red:s=96x32:d=2:r=10",
+         "-f", "lavfi", "-i", "color=blue:s=96x32:d=2:r=10",
+         "-filter_complex", "vstack", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip)],
+        check=True,
+    )  # fmt: skip
+    archive = project.root / "data" / "clips.zip"
+    archive.parent.mkdir(parents=True)
+    with zipfile.ZipFile(archive, "w") as z:
+        z.write(clip, "takes/redblue.mp4")
+    clip.unlink()
+    member = join_virtual(str(archive), "takes/redblue.mp4")
+    st = archive.stat()
+    col = Collection(
+        items=[
+            Item(
+                key="redblue",
+                parts={".mp4": member},
+                meta={"stat": {".mp4": [st.st_size, st.st_mtime_ns]}},
+            )
+        ],
+        root=str(archive.parent),
+    )
+    host, fake = open_gallery(project)
+
+    host.receive("data", col)
+    host.pump()
+
+    assert fake.failed_idx == set()
+    assert fake.pushed[0][:2] == (96, 64)  # a poster, not a 3:2 kind card
+    assert close(pixel(fake, 0, 0.5, 0.1), (255, 0, 0), 60)
+    assert close(pixel(fake, 0, 0.5, 0.9), (0, 0, 255), 60)
+    leftovers = [p for p in Path(thumbs.tempfile.gettempdir()).glob("specto-poster-*")]
+    assert leftovers == []
