@@ -77,6 +77,14 @@ the release and move on their own schedule.
   are not stripped"). Two resolves converting one DAE at once no longer fail with "the
   conversion wrote no readable GLB": the second waits for the first. A crashed
   conversion's temporaries are swept from the cache after an hour.
+- A usd view's stage load now reports where its time went (SPEC-27). The source's `ok`
+  carries `timings` (the renderer swap, the stage opened, the renderer's stage populated,
+  the first frame drawn, the total), and `snap` shows them as `load_timings`.
+  `tools/bench_usd_load.py` times loads in the source alone, fresh or reused renderer,
+  with an optional py-spy profile. On a public 26k-prim warehouse with warm caches, a
+  reload takes 8-9 s. The first frame takes 6-7 s of it, of which textures are 1.5-3 s;
+  the fresh renderer adds 1-1.5 s. ovrtx 0.6.0 offers no way to turn its texture cache
+  on.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the
