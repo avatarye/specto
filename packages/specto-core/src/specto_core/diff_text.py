@@ -83,4 +83,97 @@ def value_at(doc: dict[str, Any], pointer: str) -> Any:
         return None
 
 
-__all__ = ["describe_patch", "value_at"]
+#: how many phrases a derived label lists before "and N more changes"
+LABEL_PHRASES = 3
+
+
+def patch_label(patch: list[dict[str, Any]]) -> str:
+    """A submit's label from its patch, for a submit that gave none (SPEC-18): one phrase
+    per view or link it changed, in patch order ("moved kobi", "added image 'Rear'",
+    "relabelled tamu 'rear'"). Links added or removed with a view added or removed in the
+    same patch are part of that view's phrase."""
+    order: list[tuple[str, str]] = []
+    ops: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for op in patch:
+        parts = [p for p in op.get("path", "").split("/") if p]
+        key = (
+            (parts[0], parts[1])
+            if len(parts) >= 2 and parts[0] in ("views", "links")
+            else (
+                "root",
+                ".".join(parts) or "/",
+            )
+        )
+        if key not in ops:
+            order.append(key)
+            ops[key] = []
+        ops[key].append({**op, "parts": parts[2:] if key[0] != "root" else parts})
+    whole = {
+        oid
+        for (section, oid), group in ops.items()
+        if section == "views" and any(not op["parts"] for op in group)
+    }
+    view_removed = any(
+        section == "views" and op["op"] == "remove" and not op["parts"]
+        for (section, _), group in ops.items()
+        for op in group
+    )
+    phrases = [
+        phrase
+        for key in order
+        if (phrase := _object_phrase(key, ops[key], whole, view_removed)) is not None
+    ]
+    if len(phrases) > LABEL_PHRASES:
+        shown = phrases[: LABEL_PHRASES - 1]
+        return f"{', '.join(shown)} and {len(phrases) - len(shown)} more changes"
+    if len(phrases) > 1:
+        return f"{', '.join(phrases[:-1])} and {phrases[-1]}"
+    return phrases[0] if phrases else ""
+
+
+def _object_phrase(
+    key: tuple[str, str], group: list[dict[str, Any]], whole_views: set[str], view_removed: bool
+) -> str | None:
+    section, oid = key
+    if section == "root":
+        return "set the root view" if oid == "root_view" else f"changed {oid}"
+    head = group[0]
+    if not head["parts"]:  # the whole object added, removed or replaced
+        if section == "links":
+            if head["op"] == "remove":  # a remove op names no ends: the cascade's guess
+                return None if view_removed else f"removed link {oid}"
+            value = head.get("value") or {}
+            ends = {(value.get(end) or {}).get("view") for end in ("source", "target")}
+            if ends & whole_views:
+                return None  # part of its new view's phrase
+            return f"linked {_ends(value)}" if head["op"] == "add" else f"changed link {oid}"
+        if head["op"] == "add":
+            value = head.get("value") or {}
+            return f"added {value.get('type', 'view')} {value.get('label', oid)!r}"
+        return f"removed {oid}" if head["op"] == "remove" else f"replaced {oid}"
+    if section == "links":
+        return f"changed link {oid}"
+    fields = {
+        tuple(op["parts"][:2]) if op["parts"][0] == "layout" else (op["parts"][0],) for op in group
+    }
+    if fields <= {("layout", "position"), ("layout", "size")}:
+        return {
+            frozenset({("layout", "position")}): f"moved {oid}",
+            frozenset({("layout", "size")}): f"resized {oid}",
+        }.get(frozenset(fields), f"moved and resized {oid}")
+    if fields == {("label",)}:
+        return f"relabelled {oid} {group[0].get('value')!r}"
+    if fields == {("layout", "collapsed")}:
+        return f"{'collapsed' if group[0].get('value') else 'expanded'} {oid}"
+    if fields == {("params",)}:
+        names = sorted({op["parts"][1] for op in group if len(op["parts"]) > 1})
+        return f"set {oid} {', '.join(names)}" if names else f"set {oid} params"
+    return f"changed {oid}"
+
+
+def _ends(link: dict[str, Any]) -> str:
+    src, dst = link.get("source") or {}, link.get("target") or {}
+    return f"{src.get('view')} to {dst.get('view')}"
+
+
+__all__ = ["describe_patch", "patch_label", "value_at"]

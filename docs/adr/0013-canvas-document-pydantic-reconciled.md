@@ -39,6 +39,15 @@ Measured on Sonnet (bench, `tools/bench/prompt_bench.py`): the move from 705-719
 
 Considered and not chosen: a JSON Patch (RFC 6902) argument (the same cut, but the model writes op lists and paths instead of the shape it reads); a seventh tool `edit_canvas` (the same cut, at the cost of ADR 0017's six-tool contract and a drift toward per-gesture tools).
 
+## Amendment 2026-11-07: the turn-start conflict is per field; a submit's label may come from its patch (SPEC-18)
+
+Point 5 refused a whole object as soon as the user had touched it mid-turn. That refused two submits that did not contradict the user: a whole document read before a drag (its stale copy of the dragged view differs from the live one, though the agent never meant to change it), and an edit of another field of a view the user moved (a relabel of a view the user dragged).
+
+1. **Three-way merge against the turn start.** `LiveCanvas.mark` keeps a copy of the views and links as the turn began (the newest four marks). A non-user submit with `since` merges each view or link the user changed after the mark three ways (`edits.three_way`): a field only one side changed takes that side's value, objects merge key by key, lists and other values are whole. A field both sides changed differently, or an object one side removed while the other changed it, is a turn-start conflict, refused as before with the live entry and the conflicting fields named. A stale whole document therefore keeps the user's drag and lands its own change; an object the user closed stays closed unless the agent changed it. A merged document is validated again before the usual submit rules. A `since` that no `mark` returned has no turn-start copy and refuses as point 5 did.
+2. **A label from the patch.** A submit without a label gets one from its patch (`diff_text.patch_label`: "moved kobi", "added image 'Rear'", "relabelled tamu 'rear'", up to three phrases). The tool description and the system prompt let the agent leave the label out of a plain move, resize or relabel, which saves the label's tokens on the commonest turn. Point 7's strip still shows a label.
+
+Considered and not chosen: closing SPEC-18 as low value now that edits exist. Edits made the stale whole document rare, but point 5 also refused edits of a dragged view's other fields, which the merge accepts. Also not chosen: a field-level merge of lists (a position is one value: half of the user's drag and half of the agent's move would be neither).
+
 ## Considered options
 
 - Commands only (HLD 3.4): rejected as too slow for agent composition.

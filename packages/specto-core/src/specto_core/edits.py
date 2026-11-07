@@ -210,12 +210,53 @@ def _ends(link: Any) -> set[str]:
     }
 
 
+class _Missing:
+    """An absent key or object, apart from ``None`` (a JSON null is a value)."""
+
+    def __repr__(self) -> str:
+        return "MISSING"
+
+
+#: what ``three_way`` takes and returns for an object or key that is not there
+MISSING: Any = _Missing()
+
+
+def three_way(base: Any, live: Any, agent: Any, path: str = "") -> tuple[Any, list[str]]:
+    """Merge the agent's copy of one object with the live one against the turn-start copy
+    (SPEC-18): a field only one side changed takes that side's value, a field both
+    changed alike is kept, objects merge key by key, and anything else (a list or value
+    both changed differently, or one side removed what the other changed) is a conflict.
+    Returns the merged value (``MISSING``: absent) and the conflicting field paths
+    (dotted, ``""`` for the whole object)."""
+    if agent == base:
+        return live, []
+    if live in (base, agent):
+        return agent, []
+    if all(isinstance(v, dict) for v in (base, live, agent)):
+        merged: dict[str, Any] = {}
+        conflicts: list[str] = []
+        for key in dict.fromkeys([*base, *live, *agent]):
+            value, clash = three_way(
+                base.get(key, MISSING),
+                live.get(key, MISSING),
+                agent.get(key, MISSING),
+                f"{path}.{key}" if path else key,
+            )
+            conflicts += clash
+            if value is not MISSING:
+                merged[key] = value
+        return merged, conflicts
+    return live, [path]
+
+
 __all__ = [
     "EDITABLE",
+    "MISSING",
     "REFUSED",
     "already_removed",
     "edit_problems",
     "merge_edits",
     "merge_patch",
+    "three_way",
     "unknown_ids",
 ]

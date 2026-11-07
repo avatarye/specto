@@ -15,6 +15,13 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The agent's change and yours both land when you edit the canvas while it works
+  (SPEC-18, ADR 0013 amendment). Its submit is merged field by field with what you
+  changed since its turn began: you drag a view while it relabels the view, and both
+  stick; a whole document it read before your drag keeps your drag. Only a field you
+  both changed is refused, and the agent tries again on your version. The agent may also
+  leave the label out of a plain move, resize or relabel; the app writes it from the
+  change ("moved kobi").
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the
