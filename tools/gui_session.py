@@ -37,9 +37,12 @@ def app_env(project: Path, environ: dict[str, str]) -> dict[str, str]:
     """The app's environment: a scratch user settings dir inside the project (kept across
     sessions on it, so a relaunch still finds the recent list; ``--fresh`` wipes it) unless
     the caller set one, and unbuffered output so the app's [OK]/[WARN] lines reach the log
-    before it is killed."""
+    before it is killed. Not the session's desktop lock name: the app spawns agent
+    sessions and launchers, and a GUI run started from one of them must take the lock
+    itself (SPEC-7)."""
     env = {**environ, "PYTHONUNBUFFERED": "1"}
     env.setdefault("SPECTO_USER_DIR", str(project / ".specto" / "gui-user"))
+    env.pop(desktop_lock.LOCK_NAME_ENV, None)
     return env
 
 

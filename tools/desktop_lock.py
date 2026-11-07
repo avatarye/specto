@@ -34,8 +34,9 @@ import tempfile
 import threading
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
-from typing import IO, Any
+from typing import IO
 
 LOCK = Path(
     os.environ.get("SPECTO_DESKTOP_LOCK", Path(tempfile.gettempdir()) / "specto-desktop.lock")
@@ -43,9 +44,9 @@ LOCK = Path(
 #: how often a waiter tries the lock again
 POLL_S = 0.5
 #: set while the lock is held, for the holder's children: the name it is held under
-ENV_NAME = "SPECTO_DESKTOP_LOCK_NAME"
+LOCK_NAME_ENV = "SPECTO_DESKTOP_LOCK_NAME"
 #: set by nested_display.py: the command drives a display of its own, not the desktop
-ENV_PRIVATE = "SPECTO_PRIVATE_DISPLAY"
+PRIVATE_DISPLAY_ENV = "SPECTO_PRIVATE_DISPLAY"
 
 
 def sidecar() -> Path:
@@ -54,7 +55,8 @@ def sidecar() -> Path:
 
 
 def _try_lock(f: IO[bytes]) -> bool:
-    """Lock byte 0 of the open lock file without waiting (the file is never written)."""
+    """Lock byte 0 of the open lock file without waiting (the file is never written): the
+    same primitive as the board's ``tools/heavy_slot.py``."""
     try:
         f.seek(0)
         if os.name == "nt":
@@ -134,52 +136,64 @@ def is_free() -> bool:
     return False
 
 
-#: this process's hold: the open lock file, its name and how many ``held`` blocks share it
-_hold: dict[str, Any] = {"file": None, "name": "", "count": 0}
+@dataclass
+class Hold:
+    """This process's hold: the open lock file, the name it is held under and how many
+    ``held`` blocks (threads) share it."""
+
+    file: IO[bytes] | None = None
+    name: str = ""
+    count: int = 0
+
+
+_hold = Hold()
+#: guards ``_hold``, and is kept across ``acquire`` so that two threads arriving with no
+#: hold never both try the OS lock (the second would wait on its own process)
 _hold_lock = threading.Lock()
 
 
 @contextlib.contextmanager
 def held(name: str, wait_s: float = 3600.0) -> Iterator[None]:
     """Drive the desktop (or wipe a GUI project folder) only while holding its lock
-    (SPEC-7). Inside ``run`` or a ``held`` of a parent process (ENV_NAME set) the lock is
-    already held: pass through. Threads of one process share one hold, freed when the
-    last of them leaves; while it is held ENV_NAME is set, so children pass through.
+    (SPEC-7). Inside ``run`` or a ``held`` of a parent process (LOCK_NAME_ENV set) the
+    lock is already held: pass through, but only while the OS lock is in fact taken. A
+    name whose holder is gone (the parent ended; the variable leaked into a process that
+    is no child of a holder, such as an agent session the app started) decides nothing:
+    the lock is taken here. Threads of one process share one hold, freed when the last of
+    them leaves; while it is held LOCK_NAME_ENV is set, so children pass through.
     ``SystemExit`` when someone else holds it past ``wait_s``. A private display
-    (ENV_PRIVATE) needs none."""
-    if os.environ.get(ENV_PRIVATE):
+    (PRIVATE_DISPLAY_ENV) needs none."""
+    if os.environ.get(PRIVATE_DISPLAY_ENV):
         yield
         return
     with _hold_lock:
-        sharing = _hold["count"] > 0
-        if sharing:
-            _hold["count"] += 1
-        parent_holds = not sharing and bool(os.environ.get(ENV_NAME))
+        parent_holds = not _hold.count and bool(os.environ.get(LOCK_NAME_ENV)) and not is_free()
+        if _hold.count:
+            _hold.count += 1
+        elif not parent_holds:
+            f = acquire(name, wait_s)  # under _hold_lock: one taker per process
+            if f is None:
+                raise SystemExit(
+                    f"[ERROR] the desktop lock is held by {holder_name()}: another GUI "
+                    "session is driving the desktop; wait for it, or run under "
+                    "`tools/desktop_lock.py run <name> -- ...`"
+                )
+            _hold.file, _hold.name, _hold.count = f, name, 1
+            os.environ[LOCK_NAME_ENV] = name
     if parent_holds:
         yield
         return
-    if not sharing:
-        f = acquire(name, wait_s)
-        if f is None:
-            raise SystemExit(
-                f"[ERROR] the desktop lock is held by {holder_name()}: another GUI session is "
-                "driving the desktop; wait for it, or run under "
-                "`tools/desktop_lock.py run <name> -- ...`"
-            )
-        with _hold_lock:
-            _hold.update(file=f, name=name, count=_hold["count"] + 1)
-            os.environ[ENV_NAME] = name
     try:
         yield
     finally:
         with _hold_lock:
-            _hold["count"] -= 1
-            last = _hold["count"] == 0
+            _hold.count -= 1
+            last = _hold.count == 0
             if last:
-                f, held_name = _hold["file"], _hold["name"]
-                _hold.update(file=None, name="")
-                os.environ.pop(ENV_NAME, None)
-        if last:
+                f, held_name = _hold.file, _hold.name
+                _hold.file, _hold.name = None, ""
+                os.environ.pop(LOCK_NAME_ENV, None)
+        if last and f is not None:
             release(f, held_name)
 
 

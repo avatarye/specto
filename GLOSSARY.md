@@ -512,6 +512,10 @@ _Avoid_: author, owner, blame
 A mark on a view, group or window frame that makes any move, resize, relink or delete fail with the lock holder and the unlock command.
 _Avoid_: pin, freeze, protect
 
+**Desktop lock**:
+The test tools' OS file lock (`tools/desktop_lock.py`) that one GUI session, a run of `gui_session.py` or `gui_drive.py` driving the real mouse on the shared desktop, holds for as long as it runs; a wipe of a GUI project folder waits for it too. Nothing to do with a view's Lock or with the Scratch pad (the GUI tools' marked scratch folders are `gui_scratch`'s).
+_Avoid_: mutex, semaphore, the lock (say which)
+
 ### Agents and clients
 
 **Agent session**:

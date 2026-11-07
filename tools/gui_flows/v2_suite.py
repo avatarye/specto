@@ -973,7 +973,7 @@ def session_cmd(
     return cmd
 
 
-def seed_entry(name: str, entry: dict, project: Path, t0: float) -> str:
+def seed_entry(entry: dict, project: Path) -> str:
     """Wipe and seed an entry's folder (under the caller's desktop lock): only a folder a
     GUI session created, which the seed then rebuilds and the mark keeps ours. The
     failure's text, ``""`` when seeded."""
@@ -1005,9 +1005,14 @@ def run_entry(name: str, entry: dict, work: Path, out: Path) -> list[dict]:
         # the wipe and the seed under the desktop lock: never a folder a mouse-tier
         # session holding it is using; a seed runs only on a folder that is ours (SPEC-7)
         with desktop_lock.held(f"v2-suite-{os.getpid()}"):
-            failure = seed_entry(name, entry, project, t0)
-    except SystemExit as e:
-        failure = f"{e} (a --work folder from before SPEC-7 carries no mark: delete it once)"
+            try:
+                failure = seed_entry(entry, project)
+            except SystemExit as e:  # prepare_project refused the folder
+                failure = (
+                    f"{e} (a --work folder from before SPEC-7 carries no mark: delete it once)"
+                )
+    except SystemExit as e:  # the desktop lock: someone held it past the wait
+        failure = str(e)
     if failure:
         return [{"entry": name, "flow": "seed", "ok": False,
                  "seconds": time.monotonic() - t0, "error": failure}]  # fmt: skip

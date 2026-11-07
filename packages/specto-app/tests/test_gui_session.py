@@ -36,14 +36,21 @@ def test_an_explicit_user_dir_wins(tmp_path):
     assert env["SPECTO_USER_DIR"] == str(tmp_path / "mine")
 
 
+def test_the_app_does_not_inherit_the_session_s_lock_name(tmp_path):
+    """The app spawns agent sessions and launchers; a GUI run started from one of them
+    must take the lock itself, not pass through on the session's name."""
+    env = gui_session.app_env(tmp_path / "proj", {desktop_lock.LOCK_NAME_ENV: "gui-session-1"})
+    assert desktop_lock.LOCK_NAME_ENV not in env
+
+
 # -- the desktop lock --------------------------------------------------------------------------
 @pytest.fixture
 def lock(tmp_path, monkeypatch):
     path = tmp_path / "desktop.lock"
     monkeypatch.setattr(desktop_lock, "LOCK", path)
     monkeypatch.setenv("SPECTO_DESKTOP_LOCK", str(path))  # for child processes
-    monkeypatch.delenv(desktop_lock.ENV_NAME, raising=False)
-    monkeypatch.delenv(desktop_lock.ENV_PRIVATE, raising=False)
+    monkeypatch.delenv(desktop_lock.LOCK_NAME_ENV, raising=False)
+    monkeypatch.delenv(desktop_lock.PRIVATE_DISPLAY_ENV, raising=False)
     return path
 
 
@@ -86,8 +93,8 @@ def test_a_session_takes_the_lock_itself_and_frees_it(lock):
     with desktop_lock.held("gui-session-1", wait_s=0):
         assert not desktop_lock.is_free()
         assert desktop_lock.holder_name().startswith("gui-session-1 (pid ")
-        assert os.environ[desktop_lock.ENV_NAME] == "gui-session-1"  # for its children
-    assert desktop_lock.is_free() and desktop_lock.ENV_NAME not in os.environ
+        assert os.environ[desktop_lock.LOCK_NAME_ENV] == "gui-session-1"  # for its children
+    assert desktop_lock.is_free() and desktop_lock.LOCK_NAME_ENV not in os.environ
 
 
 def test_a_second_process_waits_and_gets_the_lock_when_the_first_exits(lock, holder_process):
@@ -157,24 +164,70 @@ def test_threads_of_one_process_share_one_hold(lock):
 def test_a_child_of_a_holder_passes_through(lock, monkeypatch):
     f = desktop_lock.acquire("v2-mouse", 0)
     try:
-        monkeypatch.setenv(desktop_lock.ENV_NAME, "v2-mouse")
+        monkeypatch.setenv(desktop_lock.LOCK_NAME_ENV, "v2-mouse")
         with desktop_lock.held("gui-session-1", wait_s=0):  # would wait on its parent
             assert desktop_lock.holder_name().startswith("v2-mouse ")
     finally:
         desktop_lock.release(f, "v2-mouse")
 
 
+def test_a_lock_name_left_by_a_gone_parent_does_not_skip_the_lock(lock, monkeypatch):
+    """The name says a parent holds the lock, but the lock is free (that parent ended,
+    or the variable leaked into a process that is no child of a holder): take it."""
+    monkeypatch.setenv(desktop_lock.LOCK_NAME_ENV, "gone-parent")
+    with desktop_lock.held("gui-session-2", wait_s=0):
+        assert not desktop_lock.is_free()
+        assert desktop_lock.holder_name().startswith("gui-session-2 (pid ")
+    assert desktop_lock.is_free()
+
+
+def test_two_threads_entering_at_once_share_one_hold(lock, monkeypatch):
+    """Two threads reach ``held`` with nobody holding: the second must join the first's
+    hold, not try the OS lock for itself (it would wait on its own process, and with no
+    wait give up)."""
+    import threading
+
+    real_acquire = desktop_lock.acquire
+
+    def slow_acquire(name, wait_s):
+        time.sleep(0.3)  # widen the window between "nobody holds" and "I hold"
+        return real_acquire(name, wait_s)
+
+    monkeypatch.setattr(desktop_lock, "acquire", slow_acquire)
+    inside, leave = threading.Barrier(2, timeout=10), threading.Event()
+    errors: list[BaseException] = []
+
+    def worker(name: str) -> None:
+        try:
+            with desktop_lock.held(name, wait_s=0):
+                inside.wait()
+                leave.wait(10)
+        except BaseException as e:
+            errors.append(e)
+            inside.abort()
+
+    threads = [threading.Thread(target=worker, args=(f"t{i}",)) for i in range(2)]
+    for t in threads:
+        t.start()
+    time.sleep(1.0)
+    leave.set()
+    for t in threads:
+        t.join(10)
+    assert errors == []
+    assert desktop_lock.is_free()
+
+
 def test_a_private_display_needs_no_lock(lock, holder_process, monkeypatch):
     start, _ = holder_process
     start()
-    monkeypatch.setenv(desktop_lock.ENV_PRIVATE, "1")
+    monkeypatch.setenv(desktop_lock.PRIVATE_DISPLAY_ENV, "1")
     with desktop_lock.held("gui-session-1", wait_s=0):
         pass
 
 
 def test_desktop_lock_run_tells_its_command_the_lock_name(lock, tmp_path):
     out = tmp_path / "env.txt"
-    code = f"import os; open({str(out)!r}, 'w').write(os.environ[{desktop_lock.ENV_NAME!r}])"
+    code = f"import os; open({str(out)!r}, 'w').write(os.environ[{desktop_lock.LOCK_NAME_ENV!r}])"
     assert desktop_lock.run("v2-mouse", [sys.executable, "-c", code], 0) == 0
     assert out.read_text(encoding="utf-8") == "v2-mouse" and desktop_lock.is_free()
 
