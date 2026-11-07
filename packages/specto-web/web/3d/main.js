@@ -57,7 +57,7 @@
   const SETTLE_MAX_MS = 60000; // a splat that never reports settled stops costing frames here
   const PLAIN_MESH = "#9ea4ab";  // a mesh whose file has no material (STL; OBJ without MTL)
   const UNITLESS = [".stl", ".obj"];
-  let loaderWarning = "";      // a loader patch that could not install: said in health
+  let mtlWarning = "";         // the MTL loader hook could not install: said in an ok health
   let meshScale = 1;           // metres per STL/OBJ unit, from the host (mesh_unit)
 
   let engine = null, scene = null, camera = null, root = null, lights = [];
@@ -123,8 +123,8 @@
     // name; Babylon's MTL loader strips only map_bump's -bm (resolve checks the same names)
     const mtl = BABYLON.MTLFileLoader;
     if (!mtl || typeof mtl._GetTexture !== "function") {
-      loaderWarning = "OBJ texture map options are not stripped (Babylon's MTL loader has no _GetTexture)";
-      Specto.log("warn", loaderWarning);
+      mtlWarning = "OBJ texture map options are not stripped (Babylon's MTL loader has no _GetTexture)";
+      Specto.log("warn", mtlWarning);
     } else if (!mtl._spectoOptions) {
       const getTexture = mtl._GetTexture;
       mtl._GetTexture = function (rootUrl, value) {
@@ -534,7 +534,7 @@
       setError(msg);
       Specto.setHealth("error", msg);
     } else {
-      Specto.setHealth("ok", order.length + " items" + (loaderWarning ? " · " + loaderWarning : ""));
+      Specto.setHealth("ok", order.length + " items" + (mtlWarning ? " · " + mtlWarning : ""));
     }
     renderList();
     updateCount();

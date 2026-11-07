@@ -39,7 +39,6 @@ import struct
 import subprocess
 import sys
 import threading
-import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,7 +46,15 @@ from typing import Any
 
 import numpy as np
 
-from .scenecache import cache_folder, cached, retry_sharing, write_atomic
+from .scenecache import (
+    CONVERT_SUFFIX,
+    cache_folder,
+    cached,
+    retry_sharing,
+    sweep_stale,
+    unique_temp,
+    write_atomic,
+)
 
 CONVERTED_SUFFIX = ".glb"
 #: what a converted mesh's name ends with (case-insensitively)
@@ -230,11 +237,6 @@ def _child_main(argv: list[str]) -> int:
 OUTPUT_TAIL_BYTES = 8 * 1024
 
 
-def _unique(folder: Path, stem: str, suffix: str) -> Path:
-    """A file name no other process or thread is using right now."""
-    return folder / f".{stem}.{os.getpid()}.{threading.get_ident()}{suffix}"
-
-
 def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
     """The child and everything it started (a venv launcher runs the real Python as its
     own child): ``taskkill /T`` on Windows, the child's process group elsewhere."""
@@ -277,7 +279,7 @@ def _convert_bounded(src: Path, out: Path, stamp: dict[str, int]) -> None:
         sys.executable, "-I", "-m", "specto_readers.dae",
         str(src.resolve()), str(out.resolve()), json.dumps(stamp),
     ]  # fmt: skip
-    log = out.with_name(out.name + ".log")
+    log = out.with_name(out.name + ".log")  # .<key>...convert.glb.log: CONVERT_LOG_SUFFIX
     win = sys.platform == "win32"
     try:
         with log.open("wb") as fh:
@@ -320,7 +322,7 @@ def convert(src: Path | str, dst: Path | str) -> dict[str, Any]:
     """Convert one DAE to a GLB at ``dst`` (bounded; written whole or not at all); returns
     the GLB's record: ``{source, count, bounds}``."""
     src, dst = Path(src), Path(dst)
-    fresh = _unique(dst.parent, dst.name, ".convert")
+    fresh = unique_temp(dst.parent, dst.name, CONVERT_SUFFIX)
     try:
         _convert_bounded(src, fresh, source_stamp(src))
         os.replace(fresh, dst)
@@ -330,31 +332,6 @@ def convert(src: Path | str, dst: Path | str) -> dict[str, Any]:
     if rec is None:
         raise DaeError(f"{src.name}: the conversion wrote no readable GLB")
     return rec
-
-
-#: temporaries older than this in the cache are a crashed run's: swept before converting
-STALE_AFTER_S = 3600.0
-
-
-def sweep_stale(cache: Path, now: float | None = None) -> int:
-    """Remove a dead run's leftovers from the cache folder: ``.*.convert*``, ``.*.tmp`` and
-    ``*.log`` files older than ``STALE_AFTER_S``; returns how many went."""
-    now = time.time() if now is None else now
-    gone = 0
-    try:
-        entries = list(cache.iterdir())
-    except OSError:
-        return 0
-    for p in entries:
-        name = p.name
-        temp = name.startswith(".") and (".convert" in name or name.endswith(".tmp"))
-        if not (temp or name.endswith(".log")):
-            continue
-        with contextlib.suppress(OSError):
-            if now - p.stat().st_mtime > STALE_AFTER_S:
-                p.unlink()
-                gone += 1
-    return gone
 
 
 def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
@@ -374,7 +351,7 @@ def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
         if rec is None:
             cache.mkdir(parents=True, exist_ok=True)
             sweep_stale(cache)
-            fresh = _unique(cache, key, ".convert.glb")
+            fresh = unique_temp(cache, key, CONVERT_SUFFIX)
             try:
                 _convert_bounded(src, fresh, stamp)
                 try:
@@ -423,7 +400,6 @@ __all__ = [
     "CONVERTER_VERSION",
     "CONVERT_TIMEOUT_S",
     "DAE_MAX_BYTES",
-    "STALE_AFTER_S",
     "DaeAsset",
     "DaeError",
     "convert",
@@ -434,7 +410,6 @@ __all__ = [
     "read_asset",
     "scene_info",
     "source_stamp",
-    "sweep_stale",
     "to_gltf_frame",
     "version_of",
     "with_record",

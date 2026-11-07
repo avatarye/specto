@@ -430,24 +430,67 @@ def _alive(pid: int) -> bool:
 
 
 def test_a_dead_runs_temporaries_are_swept_from_the_cache(tmp_path: Path):
-    """A crashed process leaves its temporaries; a conversion sweeps those older than an
-    hour, never a live one, a record or a converted mesh."""
+    """SPEC-58: a crashed process leaves its temporaries (``unique_temp``'s names: write_atomic's
+    ``.tmp``, the converter's ``.convert.glb`` and its ``.convert.glb.log``); a conversion sweeps
+    those older than an hour, never a live one, a record, a converted mesh, or a file of
+    the same ending that is not one of Specto's (another tool's ``old.log``)."""
+    from specto_readers import scenecache
+
     cache = tmp_path / "cache" / "scene3d"
     cache.mkdir(parents=True)
-    stale = [".k.1.2.convert.glb", ".k.1.2.convert.glb.log", ".x.json.1.2.tmp", "old.log"]
-    keep = [".k.3.4.convert.glb", "k.dae.json", "k.dae.glb"]
-    old = time.time() - 2 * dae.STALE_AFTER_S
+    stale = [".k.1.2.convert.glb", ".k.1.2.convert.glb.log", ".x.json.1.2.tmp"]
+    keep = [".k.3.4.convert.glb", "k.dae.json", "k.dae.glb", "old.log", ".notes.log", "a.tmp"]
+    old = time.time() - 2 * scenecache.STALE_AFTER_S
     for name in stale + keep:
         (cache / name).write_bytes(b"x")
     for name in stale + keep[1:]:
         os.utime(cache / name, (old, old))
-    assert dae.sweep_stale(cache) == len(stale)
+    assert [scenecache.is_temp(n) for n in stale] == [True] * 3
+    assert scenecache.sweep_stale(cache) == len(stale)
     assert sorted(p.name for p in cache.iterdir()) == sorted(keep)
+    # the names it sweeps are the names the writers make
+    made = scenecache.unique_temp(cache, "k", scenecache.CONVERT_SUFFIX)
+    assert scenecache.is_temp(made.name) and scenecache.is_temp(made.name + ".log")
     # a conversion sweeps on its way
     (cache / ".dead.9.9.convert.glb").write_bytes(b"x")
     os.utime(cache / ".dead.9.9.convert.glb", (old, old))
     prepare_scene(write_dae(tmp_path / "robot.dae"), tmp_path / "cache")
     assert not (cache / ".dead.9.9.convert.glb").exists()
+
+
+def test_the_sweep_leaves_a_linked_cache_folder_alone(tmp_path: Path):
+    """A scene3d folder that is a junction or link points at files that are not this
+    cache's: nothing is swept there."""
+    from specto_readers import scenecache
+
+    real = tmp_path / "elsewhere"
+    real.mkdir()
+    (real / ".k.1.2.tmp").write_bytes(b"x")
+    old = time.time() - 2 * scenecache.STALE_AFTER_S
+    os.utime(real / ".k.1.2.tmp", (old, old))
+    link = tmp_path / "scene3d"
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(real), str(link))
+    else:
+        link.symlink_to(real, target_is_directory=True)
+    try:
+        assert scenecache.sweep_stale(link) == 0
+        assert (real / ".k.1.2.tmp").exists()
+    finally:
+        os.rmdir(link) if sys.platform == "win32" else link.unlink()
+
+
+def test_the_page_and_resolve_strip_the_same_map_options():
+    """The 3d page strips an MTL texture map's options before Babylon builds the URL;
+    resolve strips them before it checks the file. The two tables must agree."""
+    main_js = Path(__file__).parents[2] / "specto-web" / "web" / "3d" / "main.js"
+    text = main_js.read_text(encoding="utf-8")
+    m = re.search(r"const MAP_OPTIONS = (\{[^}]*\});", text)
+    assert m, "MAP_OPTIONS not found in main.js"
+    page = json.loads(m.group(1))
+    assert page == scene3d._MAP_OPTIONS
 
 
 def test_only_the_tail_of_the_childs_output_is_read_and_bad_bytes_pass(tmp_path: Path):

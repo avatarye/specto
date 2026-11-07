@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -47,11 +48,57 @@ def retry_sharing[T](fn: Callable[[], T]) -> T:
     raise AssertionError("unreachable")
 
 
+#: the temporaries Specto writes here, by what they end in: write_atomic's, the DAE
+#: converter's GLB and its child's log (``unique_temp`` names them all)
+TMP_SUFFIX = ".tmp"
+CONVERT_SUFFIX = ".convert.glb"
+CONVERT_LOG_SUFFIX = CONVERT_SUFFIX + ".log"
+TEMP_SUFFIXES = (TMP_SUFFIX, CONVERT_SUFFIX, CONVERT_LOG_SUFFIX)
+_TEMP_NAME = re.compile(
+    r"^\..+\.\d+\.\d+(?:" + "|".join(re.escape(s) for s in TEMP_SUFFIXES) + r")$"
+)
+#: temporaries older than this are a crashed run's: swept before a conversion
+STALE_AFTER_S = 3600.0
+
+
+def unique_temp(folder: Path, stem: str, suffix: str) -> Path:
+    """``.<stem>.<pid>.<thread><suffix>`` in ``folder``: no other process or thread uses
+    the name while this one lives."""
+    return folder / f".{stem}.{os.getpid()}.{threading.get_ident()}{suffix}"
+
+
+def is_temp(name: str) -> bool:
+    """Whether a file name is one of ``unique_temp``'s with a ``TEMP_SUFFIXES`` ending."""
+    return bool(_TEMP_NAME.match(name))
+
+
+def sweep_stale(folder: Path, now: float | None = None) -> int:
+    """Remove a dead run's temporaries (``is_temp``) older than ``STALE_AFTER_S`` from
+    ``folder``; nothing else, and nothing when the folder is a link or junction (its
+    files are someone else's). Returns how many went."""
+    try:
+        if folder.is_symlink() or folder.is_junction():
+            return 0
+        entries = list(folder.iterdir())
+    except OSError:
+        return 0
+    now = time.time() if now is None else now
+    gone = 0
+    for p in entries:
+        if not is_temp(p.name):
+            continue
+        with contextlib.suppress(OSError):
+            if p.is_file() and now - p.stat().st_mtime > STALE_AFTER_S:
+                p.unlink()
+                gone += 1
+    return gone
+
+
 def write_atomic(data: bytes, dst: Path) -> None:
-    """``dst`` gets ``data`` whole or not at all: a temporary beside it (``.<name>.<pid>.
-    <thread>.tmp``, so concurrent writers never share one), then a rename, tried again
-    over a passing sharing violation."""
-    tmp = dst.with_name(f".{dst.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    """``dst`` gets ``data`` whole or not at all: a temporary beside it (``unique_temp``,
+    so concurrent writers never share one), then a rename, tried again over a passing
+    sharing violation."""
+    tmp = unique_temp(dst.parent, dst.name, TMP_SUFFIX)
     try:
         tmp.write_bytes(data)
         retry_sharing(lambda: os.replace(tmp, dst))
@@ -92,11 +139,19 @@ def cached(
 
 __all__ = [
     "CACHE_SUBDIR",
+    "CONVERT_LOG_SUFFIX",
+    "CONVERT_SUFFIX",
+    "STALE_AFTER_S",
+    "TEMP_SUFFIXES",
+    "TMP_SUFFIX",
     "Record",
     "cache_folder",
     "cached",
+    "is_temp",
     "read_record",
     "retry_sharing",
+    "sweep_stale",
+    "unique_temp",
     "write_atomic",
     "write_record",
 ]
