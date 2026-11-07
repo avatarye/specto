@@ -47,7 +47,7 @@ from typing import Any
 
 import numpy as np
 
-from .scenecache import cache_folder, cached, write_atomic
+from .scenecache import cache_folder, cached, retry_sharing, write_atomic
 
 CONVERTED_SUFFIX = ".glb"
 #: what a converted mesh's name ends with (case-insensitively)
@@ -157,7 +157,7 @@ def glb_record(path: Path) -> dict[str, Any] | None:
     """A converted mesh's ``asset.extras.specto`` (its source stamp, count and bounds), or
     None when the file is missing, not a GLB, or not one Specto wrote."""
     try:
-        with path.open("rb") as fh:
+        with retry_sharing(lambda: path.open("rb")) as fh:
             head = fh.read(20)
             if len(head) < 20:
                 return None
@@ -367,8 +367,10 @@ def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
 
     def make() -> dict[str, Any]:
         side = converted_path(src)
-        rec = _matches(side, stamp)
-        glb = side
+        in_cache = cache / f"{key}{CONVERTED_TAIL}"
+        glb, rec = side, _matches(side, stamp)
+        if rec is None and (cached_rec := _matches(in_cache, stamp)) is not None:
+            glb, rec = in_cache, cached_rec  # an earlier run fell back to the cache
         if rec is None:
             cache.mkdir(parents=True, exist_ok=True)
             sweep_stale(cache)
@@ -377,9 +379,12 @@ def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
                 _convert_bounded(src, fresh, stamp)
                 try:
                     write_atomic(fresh.read_bytes(), side)
-                except OSError:  # the DAE's folder cannot take it: the cache can
-                    glb = cache / f"{key}{CONVERTED_TAIL}"
-                    os.replace(fresh, glb)
+                except OSError:
+                    if _matches(side, stamp) is None:
+                        # the DAE's folder cannot take it (and nobody else wrote it): the
+                        # cache can
+                        glb = in_cache
+                        retry_sharing(lambda: os.replace(fresh, in_cache))
             finally:
                 fresh.unlink(missing_ok=True)
             rec = glb_record(glb)
@@ -397,7 +402,19 @@ def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
         glb = Path((scene.get("files") or {}).get("glb", ""))
         return _matches(glb, stamp) is not None
 
-    return cached(cache / f"{key}.dae.json", make, valid)
+    # one conversion of a DAE at a time in this process: a second thread waits and reads
+    # what the first wrote (other processes meet it through the GLB's record)
+    with _key_lock(key):
+        return cached(cache / f"{key}.dae.json", make, valid)
+
+
+_KEY_LOCKS: dict[str, threading.Lock] = {}
+_KEY_LOCKS_GUARD = threading.Lock()
+
+
+def _key_lock(key: str) -> threading.Lock:
+    with _KEY_LOCKS_GUARD:
+        return _KEY_LOCKS.setdefault(key, threading.Lock())
 
 
 __all__ = [

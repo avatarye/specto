@@ -328,22 +328,67 @@ def test_the_converter_imports_nothing_from_the_data_folder_or_the_current_one(
     assert scene["count"] == 48 and not marker.exists()
 
 
-def test_two_threads_converting_one_dae_do_not_spoil_each_other(tmp_path: Path):
-    """Each conversion has a temporary of its own (process and thread in its name); the
-    one that loses the race for the converted mesh beside the DAE (on Windows a rename
-    onto a file another thread is replacing fails) falls back to the cache. Both scenes
-    hold, and no temporary is left."""
+def test_two_threads_converting_one_dae_do_not_spoil_each_other(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """SPEC-58: two resolve threads on one DAE. The second used to read the converted mesh
+    while the first renamed its own over it; on Windows the read met a sharing violation,
+    glb_record said None, and that thread raised "wrote no readable GLB" (4 of 30 calls in a
+    loop at a 1 us switch interval). Now one conversion runs per DAE at a time in a process:
+    the second thread waits and reads what the first wrote."""
     src = write_dae(tmp_path / "robot.dae")
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        scenes = list(pool.map(lambda _i: prepare_scene(src, tmp_path / "cache"), range(2)))
-    assert [s["count"] for s in scenes] == [48, 48]
-    for scene in scenes:
-        rec = dae.glb_record(Path(scene["files"]["glb"]))
-        assert rec is not None and rec["source"] == dae.source_stamp(src)
+    runs: list[int] = []
+    real = dae._convert_bounded
+
+    def counted(*args):
+        runs.append(1)
+        return real(*args)
+
+    monkeypatch.setattr(dae, "_convert_bounded", counted)
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            scenes = list(pool.map(lambda _i: prepare_scene(src, tmp_path / "cache"), range(3)))
+    finally:
+        sys.setswitchinterval(old)
+    assert runs == [1]
+    assert [s["count"] for s in scenes] == [48, 48, 48]
+    side = dae.converted_path(src)
+    assert {s["files"]["glb"] for s in scenes} == {str(side)}
+    assert dae.glb_record(side)["source"] == dae.source_stamp(src)
     key = scene3d.cache_key(src)
-    left = {p.name for p in (tmp_path / "cache" / "scene3d").iterdir()}
-    assert left <= {f"{key}.dae.json", f"{key}.dae.glb"}, left
+    assert [p.name for p in (tmp_path / "cache" / "scene3d").iterdir()] == [f"{key}.dae.json"]
     assert not [p.name for p in tmp_path.iterdir() if p.name.startswith(".")]
+
+
+def test_a_passing_sharing_violation_is_tried_again(monkeypatch: pytest.MonkeyPatch):
+    """Another process reading the converted mesh holds it for a moment: a rename onto it,
+    or a read of it, waits that out (on Windows; elsewhere PermissionError is final)."""
+    from specto_readers import scenecache
+
+    monkeypatch.setattr(scenecache.sys, "platform", "win32")
+    monkeypatch.setattr(scenecache, "SHARING_WAIT_S", 0.0)
+    calls: list[int] = []
+
+    def busy_twice() -> str:
+        calls.append(1)
+        if len(calls) < 3:
+            raise PermissionError(13, "in use")
+        return "done"
+
+    assert scenecache.retry_sharing(busy_twice) == "done" and len(calls) == 3
+
+    def always_busy() -> str:
+        raise PermissionError(13, "in use")
+
+    with pytest.raises(PermissionError):
+        scenecache.retry_sharing(always_busy)
+    monkeypatch.setattr(scenecache.sys, "platform", "linux")
+    calls.clear()
+    with pytest.raises(PermissionError):
+        scenecache.retry_sharing(busy_twice)
+    assert len(calls) == 1
 
 
 def test_a_killed_conversion_takes_its_process_tree_and_leaves_no_files(

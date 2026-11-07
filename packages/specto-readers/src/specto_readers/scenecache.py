@@ -11,7 +11,9 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import sys
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,13 +27,34 @@ def cache_folder(cache_dir: Path | str) -> Path:
     return Path(cache_dir) / CACHE_SUBDIR
 
 
+#: how often, and how far apart, a Windows sharing violation is tried again: a rename onto
+#: a file another thread or process has open (reading it, or renaming onto it) fails with
+#: PermissionError for the moment that lasts
+SHARING_TRIES = 20
+SHARING_WAIT_S = 0.025
+
+
+def retry_sharing[T](fn: Callable[[], T]) -> T:
+    """``fn()``, tried again while it meets a sharing violation (PermissionError on
+    Windows); the last one is raised. Elsewhere a PermissionError is final."""
+    for attempt in range(SHARING_TRIES):
+        try:
+            return fn()
+        except PermissionError:
+            if sys.platform != "win32" or attempt == SHARING_TRIES - 1:
+                raise
+            time.sleep(SHARING_WAIT_S)
+    raise AssertionError("unreachable")
+
+
 def write_atomic(data: bytes, dst: Path) -> None:
     """``dst`` gets ``data`` whole or not at all: a temporary beside it (``.<name>.<pid>.
-    <thread>.tmp``, so concurrent writers never share one), then a rename."""
+    <thread>.tmp``, so concurrent writers never share one), then a rename, tried again
+    over a passing sharing violation."""
     tmp = dst.with_name(f".{dst.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         tmp.write_bytes(data)
-        os.replace(tmp, dst)
+        retry_sharing(lambda: os.replace(tmp, dst))
     except OSError:
         tmp.unlink(missing_ok=True)
         raise
@@ -73,6 +96,7 @@ __all__ = [
     "cache_folder",
     "cached",
     "read_record",
+    "retry_sharing",
     "write_atomic",
     "write_record",
 ]
