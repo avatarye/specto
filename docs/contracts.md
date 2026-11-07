@@ -503,7 +503,11 @@ before. Thumbnails and posters never open an audio device.
 - Jobs (`specto_core.jobs`): `JobManager.submit(kind, fn, *args, on_done=, **kw) ->
   JobInfo`, `cancel`, `status`, `list`; `InlineJobManager` (tests), `ThreadJobManager`
   (core, link resolves), `PoolJobManager` (app: `cores - 2` processes, no Qt in workers,
-  results in shared memory). `fn(*args, progress=...)` returns a picklable value or a
+  results in shared memory). Pool workers run below normal priority
+  (`specto_readers.pool.lower_priority`: `BELOW_NORMAL_PRIORITY_CLASS` on Windows,
+  `nice(5)` elsewhere; SPEC-1), so decoding on every core never takes the CPU from the GUI
+  and render threads; `SPECTO_WORKER_PRIORITY=normal` keeps them level.
+  `fn(*args, progress=...)` returns a picklable value or a
   `BufferSpec`; `progress` is a `jobs.Progress`: `progress(p, message)` reports and
   `progress.cancelled()` says the job was cancelled (the pool sends `("cancel", id)` to
   the running worker), so a long job stops; a job that never asks runs on and its result
