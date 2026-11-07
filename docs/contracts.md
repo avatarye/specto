@@ -303,7 +303,14 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   the scene's `missing`. The items host serves a part's trailing path that starts with
   `@root/` from the root of the resolver that answers for the link (`ItemResolver.root`,
   None by default), never outside it, and only an MTL, a buffer or an image
-  (`scheme.ROOT_SUFFIXES`).
+  (`scheme.ROOT_SUFFIXES`). A trailing path's text (and the text after `@root/`) passes
+  `specto_core.pathguard` before any filesystem call (SPEC-61, ADR 0006 amended): an
+  allowlist, shared with the page host's asset paths (`scheme.resolve_asset`, whose
+  decoded URL path may not be rooted either) and xacro's includes (section 10), that
+  accepts only a relative path, a Windows drive path or a POSIX single-slash path, so a
+  network path (`\\host\share`, `\??\UNC\host`), an NT object or device path, a reserved
+  device name or a stream name is refused by its text and never makes the machine connect
+  out or open a device.
 - Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread runs the
   kind's watcher every `watch_interval_s`; a changed listing posts to the runtime,
   `poll()` emits the event `link.arrivals {link, added, removed}` and re-resolves the
@@ -530,8 +537,10 @@ the transport-agnostic handler; `specto_app.endpoint.LocalEndpoint` serves it;
       value as an arg), and `$(eval ...)` sees only a short list of plain builtins
       (`list dict map str float int round len abs min max bool`; never `type` or `vars`);
     - every file xacro reads (includes and `load_yaml` files) and every include glob:
-      the path text is checked first (device paths and reserved names, network paths and
-      anything outside the root's folder, the project and the approved packages are
+      the path text is checked first (`specto_core.pathguard`'s allowlist on the text
+      as written and again on the absolute path: NT object, device and drive-less paths
+      and reserved names are refused, a network path only inside the allowed folders,
+      and anything outside the root's folder, the project and the approved packages is
       refused before anything opens), then it is opened non-blocking, must be a regular
       file, the handle's final path is checked, and it is read once (at most 32 MB),
       hashed, and must be approved too, except during the Approve of that exact root and

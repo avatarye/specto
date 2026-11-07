@@ -583,7 +583,7 @@ A stored expected state of a recipe's views, used to check the recipe still work
 _Avoid_: baseline, fixture, reference image
 
 **Trust**:
-The user's approval of one exact content (by hash) to run code, regardless of who wrote it. Given only by the user's click in the window (a view's Approve, an approval card); no command, tool or peer gives it.
+The user's approval of one exact content (by hash) to run code, regardless of who wrote it. Given only by the user's click in the window (a view's Approve, an approval card); no command, tool or peer gives it. Distinct from the path guard's accepted path forms (`specto_core.pathguard`, ADR 0006 amended, SPEC-61): those say what text may become a path at all (relative, a drive path, a POSIX single-slash path) and no approval widens them.
 _Avoid_: signing, allowlist, permission
 
 **Approval card**:

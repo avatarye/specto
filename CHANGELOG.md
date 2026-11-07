@@ -15,6 +15,14 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Security fix (SPEC-61): a path in a note's image (relative, or a page asset's), an
+  OBJ's material map or a xacro include can no longer make Specto connect to another
+  machine. On Windows a network path there (`\\host\share\x.png`, or the `\??\UNC\...`
+  spelling) replaced the folder it was meant to sit in, and merely looking for the file
+  connected out over SMB, which can hand the user's Windows sign-in hash to that host.
+  Such paths are now judged by their text first, through one allowlist
+  (`specto_core.pathguard`: a relative path, a drive path, or a POSIX path), and refused
+  before anything is read.
 - The web build leaves no truncated HDRI behind (SPEC-45): each `.hdr` streams into a
   `.part` beside it and is renamed into place once its sha256 matches, and a source
   checkout's `specto_web.hdri_source` serves a cached `.hdr` only at the manifest's

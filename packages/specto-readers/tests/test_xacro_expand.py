@@ -379,6 +379,29 @@ def test_device_and_network_paths_are_refused_before_anything_opens(tmp_path: Pa
             expand_xacro(root, find_package=_no_packages, trusted=Approvals(root), _confine=False)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="Windows NT object paths")
+def test_nt_object_and_rooted_paths_are_refused_by_the_shared_guard(tmp_path: Path):
+    """SPEC-61: an NT object path (a ``??`` prefix before ``UNC``) reaches a share past a
+    blocklist; the shared path guard is an allowlist (relative or a drive path), checked
+    on the include's text before abspath could rewrite it."""
+    for target, why in (
+        (r"\??\UNC\server\share\x.xacro", "device path"),
+        ("/??/UNC/server/share/x.xacro", "device path"),
+        (r"\??\C:\Windows\x.xacro", "device path"),
+        (r"\Device\HarddiskVolume1\x.xacro", "rooted path"),
+    ):
+        root = _write(tmp_path / "obj.xacro", _robot(f'<xacro:include filename="{target}"/>'))
+        for confine in (True, False):
+            with pytest.raises(XacroError, match=why):
+                expand_xacro(
+                    root,
+                    find_package=_no_packages,
+                    trusted=Approvals(root),
+                    approved_root_sha=_approval(root),
+                    _confine=confine,
+                )
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows reserved device names")
 def test_reserved_names_with_trailing_spaces_dots_or_superscripts_are_refused(tmp_path: Path):
     for name in ("AUX .x", "lpt1  .xacro", "CON .txt", "COM¹", "lpt³.xacro", "nul."):

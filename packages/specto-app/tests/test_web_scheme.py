@@ -3,12 +3,14 @@ item paths, page hosts. No Qt."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from urllib.parse import quote
 
 import pytest
 
 from specto_app.web.capabilities import TILE_HOSTS, Capabilities
+from specto_app.web.items import ItemTable
 from specto_app.web.scheme import (
     ByteRange,
     content_type,
@@ -289,3 +291,131 @@ def test_requests_not_served_are_warned_once_without_debug(capsys):
     assert err.count("[WARN]") == 2 and "nope.css" in err and "fonts.googleapis.com" in err
     assert record(log, dict(ok), debug=True) == f"[OK] scheme {ok}"
     assert record(log, dict(missing), debug=True, seen=seen) is not None  # debug: every one
+
+
+_UNREADABLE_RELS = (
+    r"\\localhost\C$\x.png",  # UNC
+    "//localhost/C$/x.png",
+    r"\??\UNC\localhost\C$\x.png",  # NT object paths
+    "/??/UNC/localhost/C$/x.png",
+    r"\\?\UNC\localhost\C$\x.png",  # long UNC
+    r"\\.\pipe\x.png",  # device
+    r"\Device\HarddiskVolume1\x.png",  # drive-less rooted
+    r"\localhost\C$\x.png",
+    "C:x.png",  # drive-relative
+    "a.txt:b.png",  # stream
+    "NUL.png",  # device name
+)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path forms")
+@pytest.mark.parametrize("anchor", ["", "@root/"])
+@pytest.mark.parametrize("rel", _UNREADABLE_RELS)
+def test_resolve_relative_never_hands_a_network_or_device_path_to_the_disk(
+    tmp_path, monkeypatch, anchor, rel
+):
+    """SPEC-61: a UNC rel replaced the base in ``(base / rel).resolve()`` and Windows
+    connected out over SMB (an untrusted note's image, an MTL's map). The rel, and the
+    text after ``@root/``, go through the shared allowlist before any filesystem call."""
+    import pathlib
+
+    from specto_app.web.scheme import resolve_relative
+
+    part = tmp_path / "note.md"
+    part.write_text("x", encoding="utf-8")
+    calls = []
+
+    def boom(*_a, **_k):
+        calls.append(1)
+        raise AssertionError("a filesystem call")
+
+    for name in ("resolve", "is_file", "stat", "exists", "absolute"):
+        monkeypatch.setattr(pathlib.Path, name, boom)
+    for name in ("stat", "lstat", "open", "listdir", "scandir"):
+        monkeypatch.setattr(os, name, boom)
+    monkeypatch.setattr(os.path, "realpath", boom)
+    try:
+        got = resolve_relative(part, anchor + rel, tmp_path)
+    except AssertionError as e:
+        got = e
+    finally:
+        monkeypatch.undo()  # before anything reports: pytest itself stats files
+    assert calls == [] and got is None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path forms")
+def test_a_percent_encoded_unc_segment_never_reaches_the_disk(tmp_path, monkeypatch):
+    """The same through the items host: one URL segment ``%2F%2Flocalhost%2FC$%2Fx.png``
+    decodes to a UNC path (``//localhost/...``; a ``%5C`` form never parses, since a
+    segment may hold no backslash), and ``@root/%2F%3F%3F%2FUNC%2F...`` to an NT object
+    path after the anchor; both parse, reach ``resolve_relative`` and are refused before
+    anything resolves."""
+    import pathlib
+
+    from specto_app.web.scheme import locate_item, parse_item_rel_path
+
+    part = tmp_path / "model.obj"
+    part.write_text("v 0 0 0\n", encoding="utf-8")
+    items = ItemTable()
+    items.set_items("l1", [{"key": "m", "parts": {".obj": str(part)}}])
+    caps = Capabilities.of({"read:link:l1": None})
+    calls = []
+
+    def boom(*_a, **_k):
+        calls.append(1)
+        raise AssertionError("a filesystem call")
+
+    nt_object = "%2F%3F%3F%2FUNC%2Flocalhost%2FC$%2Fx.png"
+    paths = {
+        "/l1/m/obj/%2F%2Flocalhost%2FC$%2Fx.png": "//localhost/C$/x.png",
+        f"/l1/m/obj/@root/{nt_object}": "@root//??/UNC/localhost/C$/x.png",
+    }
+    for path, rel in paths.items():
+        assert parse_item_rel_path(path)[3] == rel  # the segment parses: the guard is reached
+    monkeypatch.setattr(pathlib.Path, "resolve", boom)
+    monkeypatch.setattr(os.path, "realpath", boom)
+    got_all = []
+    for path in paths:
+        try:
+            got_all.append(
+                locate_item(
+                    "items", path, "v1.page", caps_of=lambda _p: caps, items=items, entry={}
+                )
+            )
+        except AssertionError as e:
+            got_all.append(e)
+    monkeypatch.undo()
+    assert calls == [] and got_all == [None, None]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path forms")
+@pytest.mark.parametrize(
+    "url_path",
+    [r"/\\localhost\C$\x.png", r"/\??\UNC\localhost\C$\x.png", "/C:/x.png", r"/\.\pipe\x"],
+)
+def test_resolve_asset_never_hands_a_rooted_path_to_the_disk(tmp_path, monkeypatch, url_path):
+    """SPEC-61, the page host: ``url.path()`` arrives decoded, so a note's
+    ``![x](/%5C%5Chost%5Cshare%5Cx.png)`` reached ``(root / rel).resolve()`` as a UNC path
+    that replaced the root (realpath ran on ``\\\\localhost\\C$\\x.png`` on main)."""
+    import pathlib
+
+    from specto_app.web.scheme import resolve_asset
+
+    calls = []
+
+    def boom(*_a, **_k):
+        calls.append(1)
+        raise AssertionError("a filesystem call")
+
+    for name in ("resolve", "is_file", "is_dir", "stat", "exists", "absolute"):
+        monkeypatch.setattr(pathlib.Path, name, boom)
+    for name in ("stat", "lstat", "open", "listdir", "scandir"):
+        monkeypatch.setattr(os, name, boom)
+    monkeypatch.setattr(os.path, "realpath", boom)
+    try:
+        got = resolve_asset(tmp_path, url_path)
+    except AssertionError as e:
+        got = e
+    finally:
+        monkeypatch.undo()
+    assert calls == [] and got is None

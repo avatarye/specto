@@ -54,6 +54,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
 from specto_core.containers import is_virtual, open_source, real_path
+from specto_core.pathguard import path_refusal
 
 from .capabilities import Capabilities, tile_host_allowed
 
@@ -154,10 +155,21 @@ def read_source(path: Path | str, rng: ByteRange | None = None) -> bytes:
         return fh.read(rng.length)
 
 
+def _rooted(rel: str) -> bool:
+    """``rel`` names a root itself (a leading separator, or a drive colon second), so
+    joined onto a base it would replace the base. Text only."""
+    return rel[:1] in ("\\", "/") or rel[1:2] == ":"
+
+
 def resolve_asset(root: Path, url_path: str) -> Path | None:
     """Map a URL path to a file under ``root``; ``None`` if it escapes or is missing.
-    A directory path serves its ``index.html``."""
+    A directory path serves its ``index.html``. The text after the leading slashes may
+    not be rooted and passes ``specto_core.pathguard`` before any filesystem call: a
+    note's ``![x](/\\\\host\\share\\x.png)`` reaches the page host decoded, as a UNC path
+    that would replace ``root`` and make Windows connect out (SPEC-61)."""
     rel = url_path.lstrip("/")
+    if _rooted(rel) or path_refusal(rel):
+        return None
     root = root.resolve()
     candidate = (root / rel).resolve() if rel else root
     try:
@@ -277,11 +289,16 @@ def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Pa
     """``rel`` resolved next to ``part`` (a note's image), or, when it starts with
     ``@root/``, under ``root``: the part itself (the page fetches an OBJ by that path) or
     what it may name (``ROOT_SUFFIXES``); ``None`` when it escapes that folder, there is no
-    root, it names anything else, or it is not a file."""
+    root, it names anything else, or it is not a file. The rel, and the text after
+    ``@root/``, pass ``specto_core.pathguard``'s allowlist before any filesystem call: a
+    UNC, device or NT object path would replace the base, and Windows would connect out
+    to it (SPEC-61)."""
+    if _rooted(rel) or path_refusal(rel):
+        return None
     head, _, rest = rel.partition("/")
     anchored = head == ROOT_ANCHOR
     if anchored:
-        if root is None or not rest:
+        if root is None or not rest or _rooted(rest) or path_refusal(rest):
             return None
         base, rel = Path(root).resolve(), rest
     else:

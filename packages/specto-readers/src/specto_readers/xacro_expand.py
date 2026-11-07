@@ -73,6 +73,7 @@ from typing import Any, Literal
 
 from specto_core.children import minimal_env, run_child
 from specto_core.errors import SpectoError
+from specto_core.pathguard import path_refusal, strip_local_long, under
 
 #: Specto's package resolver as xacro needs it: a package name -> its folder, or None
 FindPackage = Callable[[str], "str | os.PathLike[str] | None"]
@@ -89,10 +90,6 @@ MAX_FILE_BYTES = 32 * 1024 * 1024
 YAML_EXTS = (".yaml", ".yml")
 #: characters that would let a path break out of the eval text it is substituted into
 UNSAFE_PATH_CHARS = frozenset("'\"$`{}")
-_DEVICE_NAMES = frozenset(
-    {"CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"}
-    | {f"{p}{d}" for p in ("COM", "LPT") for d in "0123456789\u00b9\u00b2\u00b3"}
-)
 _LOCK = threading.Lock()
 
 
@@ -191,36 +188,8 @@ def package_hash(root_approval: str, name: str, folder: str) -> str:
 # -- reading files -----------------------------------------------------------------------
 
 
-def _under(path: Path, folders: Iterable[Path]) -> bool:
-    return any(path == f or path.is_relative_to(f) for f in folders)
-
-
 def _unsafe(text: str) -> bool:
     return any(c in UNSAFE_PATH_CHARS for c in text)
-
-
-def _device_reason(path: Path) -> tuple[Path, str | None]:
-    """``(path, why it is refused)`` from its text alone, before anything opens it; a
-    ``\\\\?\\C:\\`` path comes back as plain ``C:\\``."""
-    text = str(path)
-    if os.name == "nt":
-        if text.startswith("\\\\?\\"):
-            rest = text[4:]
-            if len(rest) >= 3 and rest[1] == ":" and rest[2] == "\\":
-                path, text = Path(rest), rest
-            else:
-                return path, "a device path"
-        elif text.startswith("\\\\.\\"):
-            return path, "a device path"
-        if path.name.split(".")[0].rstrip(" .").upper() in _DEVICE_NAMES:
-            return path, "a device name"
-    elif text.startswith(("/dev/", "/proc/", "/sys/")):
-        return path, "a device path"
-    return path, None
-
-
-def _is_unc(path: Path) -> bool:
-    return os.name == "nt" and str(path).startswith("\\\\")
 
 
 def _final_path(fd: int) -> Path | None:
@@ -253,17 +222,23 @@ def _final_path(fd: int) -> Path | None:
 
 def _check_text(asked: Path, allowed: list[Path] | None, *, is_root: bool = False) -> Path:
     """The checks on a path's text alone, before anything opens or lists it (module
-    docstring); the absolute path back."""
-    asked, device = _device_reason(Path(os.path.abspath(os.fspath(asked))))
-    if device:
-        raise XacroError(f"{asked} is {device}", fix="name a file in the project")
-    if allowed is not None and not is_root and not _under(asked, allowed):
+    docstring): ``specto_core.pathguard``'s allowlist on the text as written (before
+    ``abspath`` could rewrite an NT object path into a drive path) and again on the
+    absolute path; a network path only inside the allowed folders. The absolute path
+    back."""
+    raw = os.fspath(asked)
+    unc_ok = allowed is not None  # a share is allowed only inside the allowed folders
+    why = path_refusal(raw, unc_ok=unc_ok)
+    if why is None:
+        asked = Path(os.path.abspath(strip_local_long(raw)))
+        why = path_refusal(str(asked), unc_ok=unc_ok)
+    if why:
+        raise XacroError(f"{raw} is {why}", fix="name a file in the project")
+    if allowed is not None and not is_root and not under(asked, allowed):
         raise XacroError(
             f"{asked.name} is outside the project and the package paths",
             fix="put it in the project, or its package in params.package_paths",
         )
-    if allowed is None and _is_unc(asked):
-        raise XacroError(f"{asked} is a network path", fix="name a file in the project")
     return asked
 
 
@@ -282,7 +257,7 @@ def _read_checked(
         final = _final_path(fd)
         if final is None:
             raise XacroError(f"cannot tell where {asked.name} leads", fix="name the file itself")
-        if allowed is not None and not is_root and not _under(final, allowed):
+        if allowed is not None and not is_root and not under(final, allowed):
             raise XacroError(
                 f"{final.name} is outside the project and the package paths",
                 fix="put it in the project, or its package in params.package_paths",
