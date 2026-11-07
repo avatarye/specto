@@ -145,6 +145,7 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 | pillow | MIT-CMU | Image decoding and thumbnails. |
 | PyOpenGL | BSD-3-Clause | The usd view's Storm source draws offscreen with it. |
 | platformdirs | MIT | User and cache directories. |
+| watchdog | Apache-2.0 | Change notifications for watched folders (ReadDirectoryChangesW, inotify, FSEvents): `specto_core.fswatch`, ADR 0027. Used as the unmodified wheel. |
 | click | BSD-3-Clause | The `specto` CLI. |
 | qasync | BSD-2-Clause | asyncio on the Qt event loop. |
 | Transitive: anyio, attrs, httpx, httpcore, h11, idna, sniffio, starlette, uvicorn, sse-starlette, python-multipart, jsonschema (+ referencing, rpds-py, jsonschema-specifications), PyJWT, cryptography, cffi, pycparser, typing-extensions, typing-inspection, annotated-types, opentelemetry-api, packaging, colorama, truststore, pywin32 (Windows) | MIT, BSD, Apache-2.0, PSF, MIT-0 | Pulled in by the SDK, mcp, pydantic and click; none copyleft. |

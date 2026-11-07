@@ -75,7 +75,7 @@ An intaker with scope `pinned`: fed from the project source's all files, so its 
 _Avoid_: fixed intaker, static intaker, locked (that is a lock)
 
 **Auto-update**:
-Whether a view fed by an intaker follows its files on its own: the switch in the view's header sets the intaker's `watch`, so files arriving, leaving or changing in its sources resolve in the background. Off by default except the file tree, which follows the project folder unless its intaker says `watch: false` (#115); the agent turns it on for folders an agent writes into. While it is off the status bar says "auto-update off · refresh" (#102).
+Whether a view fed by an intaker follows its files on its own: the switch in the view's header sets the intaker's `watch`, so files arriving, leaving or changing in its sources resolve in the background. Off by default except the file tree, which follows the project folder unless its intaker says `watch: false` (#115); the agent turns it on for folders an agent writes into. While it is off the status bar says "auto-update off · refresh" (#102). It follows the system's change notifications; where there are none to trust it lists the sources every second and the status bar says "auto-update on (polling: ...)" (ADR 0027).
 _Avoid_: live mode, sync, watch mode (in user-facing text)
 
 **Refresh**:

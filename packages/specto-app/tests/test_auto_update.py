@@ -92,3 +92,24 @@ def test_refresh_on_a_view_rescans_its_intaker(app, spin, frames_project):
     click_item(app, "refresh:kobi")
 
     spin(until=lambda: len(kobi.collection.items) == 7)
+
+
+def test_a_view_whose_watcher_polls_says_why_in_the_status_bar(app, spin, monkeypatch):
+    """SPEC-8: watchers follow change notifications; one that has to list its sources
+    every interval instead says so after "auto-update on"."""
+    monkeypatch.setenv("SPECTO_WATCH", "poll")
+    submit(app, gallery_doc(app), "gallery")
+    spin(until=lambda: "kobi" in app.hosts.hosts)
+    click_item(app, "autoUpdate:kobi")
+    spin(until=lambda: app.controller.views["kobi"]["autoUpdate"] is True)
+    app.controller.hoverView("kobi")
+
+    spin(until=lambda: f"{ON} (polling: SPECTO_WATCH=poll)" in app.controller.statusHint)
+
+    monkeypatch.delenv("SPECTO_WATCH")
+    click_item(app, "autoUpdate:kobi")  # off, and on again: a new watcher, on notices
+    spin(until=lambda: app.controller.views["kobi"]["autoUpdate"] is False)
+    click_item(app, "autoUpdate:kobi")
+    spin(until=lambda: app.engine.links.watch_status("l2")["mode"] == "notify")
+    spin(until=lambda: "(polling" not in app.controller.statusHint)
+    assert ON in app.controller.statusHint

@@ -216,7 +216,11 @@ def status_hint(info: dict[str, Any], *, hovered: bool) -> str:
         parts.append(str(info["hint"]))
     auto = info.get("autoUpdate")
     if auto is not None:
-        parts.append(AUTO_UPDATE_ON if auto else AUTO_UPDATE_OFF)
+        # a watcher that polls says why (SPEC-8: no change notifications there)
+        note = info.get("autoUpdateNote") if auto else ""
+        parts.append(
+            f"{AUTO_UPDATE_ON} ({note})" if note else AUTO_UPDATE_ON if auto else AUTO_UPDATE_OFF
+        )
     if hovered and info.get("floating"):
         parts.append(FLOATING_HINT)
     if hovered and health == "ok" and not info.get("hint") and not info.get("approval"):
@@ -394,6 +398,9 @@ class CanvasController(QObject):
         self.statusChanged.emit()
 
     def _on_event(self, ev: Any) -> None:
+        if ev.kind == "link.watching":
+            self._rebuild_views()  # the status bar says when a view is polled (SPEC-8)
+            return
         if ev.kind != "link.resolved":
             return
         target = (ev.payload or {}).get("target") or {}
@@ -1033,6 +1040,11 @@ class CanvasController(QObject):
             self._capsule_ids = ids
             self.capsuleIdsChanged.emit()
 
+    def _watch_note(self, view_id: str) -> str:
+        # never builds the runtime: no runtime yet means no watcher to speak of
+        links = getattr(self.engine, "built_links", None)
+        return links.watch_note(view_id) if links is not None else ""
+
     def _rebuild_views(self) -> None:
         out: dict[str, dict[str, Any]] = {}
         # views the user left unreachable from the project source say so (#83): that
@@ -1080,6 +1092,8 @@ class CanvasController(QObject):
                 "autoUpdate": None
                 if v.get("type") in NO_AUTO_UPDATE
                 else auto_update_of(self.data, vid),
+                # why its watchers poll, or how they follow a network drive (SPEC-8)
+                "autoUpdateNote": self._watch_note(vid),
                 "health": health.get("status", "ok"),
                 "healthMessage": health.get("message", ""),
                 # the empty-state line shown in the view's area (nothing picked yet)
