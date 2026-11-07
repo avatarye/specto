@@ -549,6 +549,7 @@ class GalleryHost(QuickViewHost):  # one per live view
     def snapshot(self) -> dict: ...  # structured state for snap
 
     # optional: pause(), resume(), snapshot_image(), dispose()
+    release_when_paused = True  # optional: the item leaves the scene while paused
 
 
 register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
@@ -565,6 +566,14 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   (`objectName "slot:<id>"`) and `detach` when it goes; the item is re-parented and
   resized to the slot, parked invisibly in between. Culling (section 12) calls
   `hosts.pause/resume`; the overworld reads `hosts.snapshot_image`.
+- Paused views give back GPU memory (ADR 0027). A host with `release_when_paused`
+  (gallery, video) has its item taken out of the scene from its pause to its resume
+  (`hosts.is_released`). The window deletes the item's scene-graph nodes and the memory
+  they hold: the gallery's atlas, the video's frame buffer and mpv render context. On
+  resume the item goes back into its slot, its own state untouched, and rebuilds
+  them. A slot made meanwhile gets the item only at the resume. Hosts whose memory lives
+  elsewhere free it in their own `pause`: the image view lets go of its decoded picture.
+  Web views keep their pages.
 - `HostContext` (one per shell): `engine`, `live`, `links`, `qml_engine`, `notices`,
   `project_root`, `view(view_id)`, `manifest_for(type)`, `emit(view_id, port, value)`,
   `submit(document, label)` (a user gesture; errors become notices), `call`/`try_call`

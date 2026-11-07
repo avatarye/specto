@@ -317,7 +317,7 @@ Said of a view whose group lies outside every on-screen window frame; it is kept
 _Avoid_: parked (see flagged ambiguities), hidden
 
 **Paused**:
-The state of a view that keeps its settings but does no per-frame work and gives back GPU memory where it can; every view in the overworld is paused.
+The state of a view that keeps its settings but does no per-frame work and gives back GPU memory where its engine can (the gallery, image and video views do; web views cannot, ADR 0027); every view in the overworld is paused.
 _Avoid_: suspended, frozen, sleeping
 
 **Shelf**:
