@@ -508,3 +508,16 @@ test("without WebGL the panels and the footer still show, the tree and sliders w
   page.document.getElementById("resetPose").click();
   assert.equal(sentOf(page, "joints").length, 1);
 });
+
+test("a new robot takes the place of the old: its nodes gone, unused mesh templates disposed", async () => {
+  const page = await armPage();
+  const oldBase = page.one("link:base_link");
+  const template = page.one("mesh:forearm:0").cloneOf;
+  const other = { name: "bot", root: "a", links: [{ name: "a", visuals: [], collisions: [], inertial: null }], joints: [], missing: [] };
+  page.notify("model", { generation: 4, model: other, environments: [] });
+  await settle();
+  assert.equal(oldBase.disposed, true);
+  assert.equal(template.disposed, true);
+  assert.deepEqual(plain(page.last().robot), { name: "bot", root: "a", links: 1, joints: 0 });
+  assert.deepEqual(page.last().tree_order, ["link:a"]);
+});

@@ -208,6 +208,7 @@
       renderTree(); renderJoints(); renderProps(); updateFooter(); report();
       return;
     }
+    pruneTemplates(model);
     robot = new BABYLON.TransformNode("robot", scene);
     robot.parent = world;
     (model.links || []).forEach(function (l, i) {
@@ -369,6 +370,22 @@
     mesh._spectoMat = mesh.material;
   }
 
+  /** The templates of mesh files the new robot does not use go (stepping through many
+   * robots keeps only the shown one's). */
+  function pruneTemplates(m) {
+    const used = {};
+    (m.links || []).forEach(function (l) {
+      (l.visuals || []).concat(l.collisions || []).forEach(function (p) {
+        if (p.geometry && p.geometry.url) used[p.geometry.url] = true;
+      });
+    });
+    Object.keys(templates).forEach(function (url) {
+      if (used[url]) return;
+      const t = templates[url];
+      delete templates[url];
+      if (t.holder) t.holder.dispose(false, true);
+    });
+  }
   /** Each mesh file once: a disabled template the parts clone (sharing its geometry). */
   function meshTemplate(url, ext) {
     if (templates[url]) return templates[url].promise;
