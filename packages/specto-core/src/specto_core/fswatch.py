@@ -276,6 +276,7 @@ class _Shared:
         self.folder = folder
         self.recursive = recursive
         self.watch: Any = None
+        self.ident: tuple[Any, ...] | None = None  # the folder the watch was armed on
         self.subscribers: list[Notifier] = []
 
     def dispatch(self, event: Any) -> None:
@@ -335,14 +336,16 @@ class _Hub:
             s = self.shared.get(key)
             if s is None:
                 s = self.shared[key] = _Shared(folder, recursive)
-            if s.watch is not None and not self._emitter_alive(s):
-                # its notices stopped (a share that refused them, the folder deleted):
-                # arm it again for whoever subscribes now
+            if s.watch is not None and (not self._emitter_alive(s) or identity(folder) != s.ident):
+                # its notices stopped (a share that refused them, the folder deleted), or
+                # the folder at that path is another one now (the handle followed the old
+                # one away): arm it again for whoever subscribes now
                 with contextlib.suppress(Exception):
                     obs.unschedule(s.watch)
                 s.watch = None
             if s.watch is None:
                 try:
+                    s.ident = identity(folder)
                     s.watch = obs.schedule(s, folder, recursive=recursive)
                 except Exception as e:  # inotify's watch limit, a refused handle
                     if not s.subscribers:
