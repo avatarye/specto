@@ -3,9 +3,10 @@ helper behind ``specto open`` (#215), the app's project switch (``launcher.relau
 and the launchers (#186). Qt-free.
 
 On Windows the child gets a hidden console (``CREATE_NO_WINDOW``), never none
-(``DETACHED_PROCESS``): a console child spawned without flags of its own (the Agent SDK's
-``claude``, the worker pool's interpreters) inherits a hidden console, but under a
-console-less parent each one would open a visible console window. The child gets its own
+(``DETACHED_PROCESS``, 0x8, deliberately not used here): a console child spawned without
+flags of its own (the Agent SDK's ``claude``, the worker pool's interpreters) inherits a
+hidden console, but under a console-less parent each one would open a visible console
+window. The child gets its own
 process group and leaves the caller's job when the job allows (``uv run`` and the tool
 shim keep a kill-on-close job). Linux and macOS: ``start_new_session``.
 """
@@ -17,14 +18,12 @@ import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 #: Windows process creation flags (``subprocess`` has them only on Windows)
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_NO_WINDOW = 0x08000000
 CREATE_BREAKAWAY_FROM_JOB = 0x01000000
-#: what must never be used for a child that starts console programs (see the module doc)
-DETACHED_PROCESS = 0x00000008
 
 
 def console_python(executable: str | Path) -> str:
@@ -59,7 +58,12 @@ def spawn_detached(
         return _spawn(argv, log, cwd, env)
 
 
-def _spawn(argv: Sequence[str], out: Any, cwd: Path | str | None, env: Any) -> int:
+def _spawn(
+    argv: Sequence[str],
+    out: int | IO[bytes],
+    cwd: Path | str | None,
+    env: Mapping[str, str] | None,
+) -> int:
     kw: dict[str, Any] = {
         "stdin": subprocess.DEVNULL,
         "stdout": out,
@@ -96,7 +100,6 @@ __all__ = [
     "CREATE_BREAKAWAY_FROM_JOB",
     "CREATE_NEW_PROCESS_GROUP",
     "CREATE_NO_WINDOW",
-    "DETACHED_PROCESS",
     "console_python",
     "let_go",
     "spawn_detached",

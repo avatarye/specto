@@ -27,7 +27,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from specto_core.detached import spawn_detached
 from specto_core.errors import SpectoError
 from specto_core.instances import Instance, list_instances, pid_alive, project_key, user_dir
 
@@ -248,7 +247,6 @@ __all__ = [
     "resolve_app_home",
     "save_app_home",
     "settings_path",
-    "spawn_detached",
     "venv_python",
     "wait_for_instance",
 ]

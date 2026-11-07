@@ -15,6 +15,9 @@ import pytest
 
 from specto_core import detached
 
+#: what the helper must never pass (a console-less child)
+DETACHED_PROCESS = 0x00000008
+
 #: the grandchild: started by the detached child with no flags, as the Agent SDK starts
 #: ``claude`` and the worker pool its interpreters; it reports the console it got
 GRANDCHILD = textwrap.dedent(
@@ -95,4 +98,4 @@ def test_falls_back_when_the_job_forbids_breaking_away(monkeypatch):
     assert detached.spawn_detached(["x"]) == 7
     base = detached.CREATE_NEW_PROCESS_GROUP | detached.CREATE_NO_WINDOW
     assert seen == [base | detached.CREATE_BREAKAWAY_FROM_JOB, base]
-    assert not any(f & detached.DETACHED_PROCESS for f in seen)
+    assert not any(f & DETACHED_PROCESS for f in seen)

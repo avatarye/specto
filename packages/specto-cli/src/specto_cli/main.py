@@ -32,6 +32,7 @@ from typing import Any
 import click
 
 from specto_core import Project
+from specto_core.detached import spawn_detached
 from specto_core.errors import SpectoError
 from specto_core.instances import (
     caller_labels,
@@ -621,7 +622,7 @@ def open_cmd(
             return
         log_path = Path(log).expanduser().resolve() if log else opener.default_log_path()
         argv = opener.launch_argv(home, root, list(app_args))
-        pid = opener.spawn_detached(argv, log_path=log_path, cwd=root, env=opener.child_env())
+        pid = spawn_detached(argv, log_path=log_path, cwd=root, env=opener.child_env())
     except SpectoError as e:
         _fail(e.code, e.message, fix=e.fix)
     except OSError as e:
