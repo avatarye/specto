@@ -135,8 +135,10 @@ live.events: EventStream                 # doc.patched, canvas.submitted|squashe
   Merge Patch over the live document that may name `views`, `links`, `root_view` and
   `project.label`; `null` on a view also removes its links and clears `root_view`. The
   merged document then takes the path above unchanged. With `since` (a `mark`), a
-  non-user submit touching a view or link the user changed after the mark raises
-  `CanvasConflict` (code `conflict`) with the live entry (ADR 0013 amendment, #98).
+  non-user submit merges each view or link the user changed after the mark three ways
+  against the mark's copy (`edits.three_way`); a field both changed differently raises
+  `CanvasConflict` (code `conflict`) with the live entry and the fields (ADR 0013
+  amendments, #98, SPEC-18). A submit without a label gets `diff_text.patch_label`.
 - Submit-time rules, all returned together with fix-its: `locks.lock_problems` (a
   non-user origin may not move, resize, delete, unlock or relink a `locked` view),
   `quotas.quota_problems` (section 9), `unknown_files.unknown_file_problems` (an intaker

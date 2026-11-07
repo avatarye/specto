@@ -96,12 +96,13 @@ class CanvasSubmitArgs(Args):
     label: str = Field(
         default="",
         description="One line saying what changed; the user reads it in the reply strip "
-        "and the undo history.",
+        "and the undo history. Left empty, the app writes one from the change ('moved kobi').",
     )
     since: int | None = Field(
         default=None,
-        description="A turn start (the prompt bar's LiveCanvas.mark): a change to a view or "
-        "link the user changed after it is refused with its live entry (code conflict).",
+        description="A turn start (the prompt bar's LiveCanvas.mark): a view or link the "
+        "user changed after it merges field by field with this submit; a field both changed "
+        "is refused with the live entry (code conflict).",
     )
 
 

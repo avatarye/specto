@@ -85,12 +85,14 @@ AGENT_TOOLS: dict[str, ToolSpec] = {
             "only for rewriting most of the canvas. Either way the whole result is "
             "validated (every problem comes back together with a fix-it, and nothing "
             "changes then), diffed against the running canvas and applied as one undo "
-            "step. label: one line saying what changed. A new view or link goes in whole "
+            "step. label: one line saying what changed; leave it out for a plain move, "
+            "resize or relabel (the app writes it). A new view or link goes in whole "
             "under any placeholder key (new1, new2); the app names views (two syllables, "
             "e.g. kobi) and numbers links (l<n>), and the result's renamed maps placeholder "
-            "-> id; names never change. If the user changed a view or link while you were "
-            "working, a submit that changes it is refused with its current entry: submit "
-            "again on that. A view's label is a brief summary of a few words. "
+            "-> id; names never change. If the user changed a field of a view or link while "
+            "you were working, a submit that changes the same field is refused with its "
+            "current entry: submit again on that. A view's label is a brief summary of a few "
+            "words. "
             "Every view must be reachable by links from the project source, the fixed "
             "node 'project' whose one output is project.all_files (it cannot be moved, "
             "resized, deleted or locked). A view fed from the file tree takes an intaker "
@@ -118,7 +120,8 @@ AGENT_TOOLS: dict[str, ToolSpec] = {
                     },
                     "label": {
                         "type": "string",
-                        "description": "One line saying what changed (the user reads it).",
+                        "description": "One line saying what changed (the user reads it); "
+                        "left out, the app writes one from the change.",
                     },
                 },
             },

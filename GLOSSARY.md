@@ -423,7 +423,7 @@ A submit that names only what changes, in the canvas document's own shape (a JSO
 _Avoid_: patch (that is the stored change), delta, diff
 
 **Turn-start conflict**:
-A submit during a prompt turn that would change a view or link the user changed after the turn began; it is refused with the object's live entry and is not counted as a failed attempt.
+A submit during a prompt turn that would change a field of a view or link that the user also changed, differently, after the turn began (or change one the user removed). It is refused with the object's live entry and is not counted as a failed attempt. A submit that changes other fields of such an object is no conflict: the agent's change and the user's both land.
 _Avoid_: merge conflict, race, stale write
 
 **Two-way link**:
