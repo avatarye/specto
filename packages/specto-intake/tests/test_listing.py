@@ -5,6 +5,7 @@ would list them; archives as folders; no walk of the whole project to show a row
 from __future__ import annotations
 
 import os
+import time
 import zipfile
 from pathlib import Path
 
@@ -58,7 +59,7 @@ def test_the_root_lists_one_level_folders_first_and_never_the_projects_specto(ro
         ("top.txt", False),
     ]
     # files carry the stat the listing saw; a folder its own modified time (#38), from
-    # the same directory entry, and no size (its total is never known cheaply)
+    # one stat of the folder (SPEC-40), and no size (its total is never known cheaply)
     top = lister.list_dir("")[-1]
     assert (top.size, top.mtime_ns) == (1, (root / "top.txt").stat().st_mtime_ns)
     notes = lister.list_dir("")[1]
@@ -76,6 +77,18 @@ def test_the_root_lists_one_level_folders_first_and_never_the_projects_specto(ro
     ]
     assert lister.list_dir("empty") == []
     assert lister.list_dir("nowhere") == [] and lister.list_dir(".specto") == []
+
+
+def test_a_folder_carries_its_own_modified_time_not_a_stale_copy(root: Path):
+    """SPEC-40: on Windows the parent's directory entry keeps a folder's modified time
+    from when the folder was last opened, not from its latest change, so a file added
+    later (50 ms here; any time for a user) left the listing behind until something
+    opened the folder. The listing shows the folder's own time."""
+    (root / "notes").stat()  # opens the folder: its entry in the root is current now
+    time.sleep(0.05)
+    (root / "notes" / "later.md").write_bytes(b"later")
+    [notes] = [e for e in TreeLister(root).list_dir("") if e.name == "notes"]
+    assert notes.mtime_ns == (root / "notes").stat().st_mtime_ns
 
 
 def test_an_archive_lists_its_members_one_level_at_a_time(root: Path):

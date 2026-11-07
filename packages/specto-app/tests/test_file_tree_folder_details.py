@@ -150,8 +150,8 @@ def test_a_tree_of_explicit_files_dates_a_folder_by_its_newest_file():
 
 
 def test_the_listing_hands_a_folder_its_own_time_and_never_walks_it(root, monkeypatch):
-    """The folder's time comes from the directory entry its parent's listing already
-    read: listing the root reads the root alone."""
+    """The folder's time comes from one stat of the folder itself (SPEC-40), never a
+    listing of it: listing the root reads the root alone."""
     lister = TreeLister(root)
     real = os.scandir
     seen: list[str] = []

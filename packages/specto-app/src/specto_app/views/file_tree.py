@@ -62,8 +62,8 @@ every folder below it has been listed (never a scan for the count). Details mode
 a per-user view setting, toggled in the tree's footer, #122) adds a second line, one
 row height for every row: the modified time to the second, coloured by age (under 10
 min, under an hour, under a day, older; theme tokens ``age_*``), and the size. A folder's
-line (#38) is never empty: its own modified time, from the directory entry its parent's
-listing read (no walk), and once it is listed how many items the listing shows (``12
+line (#38) is never empty: its own modified time, from one stat of the folder itself (no
+walk), and once it is listed how many items the listing shows (``12
 items``, ``empty``); an archive its file's size; the total under a folder once every
 folder below it is listed; a folder with no time known yet says ``not listed yet``
 (``detail_text``, ``stamp_ns``). The ages are judged against ``FileTreeModel.clock``,

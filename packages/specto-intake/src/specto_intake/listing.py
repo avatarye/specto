@@ -43,9 +43,9 @@ Stat = tuple[int, int]
 @dataclass(frozen=True)
 class Entry:
     """One row of a listing: a file, a folder, or an archive shown as a folder. A folder
-    carries its own modified time (#38), read from the directory entry its parent's
-    listing already holds (never from what is under it); an archive its file's size and
-    time; a folder on the way to a source, or inside an archive, carries none."""
+    carries its own modified time (#38), from one stat of the folder itself (never of
+    what is under it; SPEC-40: not the parent's directory entry); an archive its file's
+    size and time; a folder on the way to a source, or inside an archive, carries none."""
 
     path: str  # the tree path (POSIX, relative to the base; virtual inside an archive)
     name: str
@@ -416,11 +416,13 @@ class TreeLister:
 
 
 def _dir_mtime_ns(e: os.DirEntry, follow_links: bool) -> int:
-    """A folder's own modified time from its directory entry (#38): on Windows the entry
-    already holds it; elsewhere one stat of the folder itself, never of what is under
-    it. 0 when it cannot be read (the folder still lists)."""
+    """A folder's own modified time (#38): one stat of the folder itself, never of what
+    is under it. Not the directory entry's copy (SPEC-40): on Windows the parent's entry
+    keeps the time from when the folder was last opened, so a change since leaves it
+    behind, for as long as nothing opens the folder (about 20 us a folder). 0 when it
+    cannot be read (the folder still lists)."""
     try:
-        return e.stat(follow_symlinks=follow_links).st_mtime_ns
+        return os.stat(e.path, follow_symlinks=follow_links).st_mtime_ns
     except OSError:
         return 0
 
