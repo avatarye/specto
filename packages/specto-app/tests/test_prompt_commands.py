@@ -204,7 +204,7 @@ def test_a_command_saved_in_a_turn_loads_by_resuming_the_session_before_the_next
         _Client.on_query = lambda: store.save("layout", "L.", "l\n")
         await session.turn("make a layout command", "ctx")
         _Client.on_query = None
-        await session.turn("/layout review", "ctx", verbatim=False)
+        await session.turn("/layout review", "ctx", with_context=False)
         await session.turn("again", "ctx")  # nothing changed: the same connection
         await session.close()
 

@@ -63,9 +63,11 @@ class ScriptedAgentSession:
         context_text: str,
         *,
         on_delta: DeltaFn | None = None,
-        verbatim: bool = True,
+        with_context: bool = True,
     ) -> TurnOutcome:
-        self.received.append({"prompt": prompt, "context": context_text, "verbatim": verbatim})
+        self.received.append(
+            {"prompt": prompt, "context": context_text, "with_context": with_context}
+        )
         steps = self.turns.pop(0) if self.turns else [{"text": "Nothing scripted for this turn."}]
         text: list[str] = []
         for step in steps:

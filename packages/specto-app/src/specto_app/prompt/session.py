@@ -645,7 +645,7 @@ class _Job:
     prompt: str
     context_text: str
     on_delta: DeltaFn | None
-    verbatim: bool
+    with_context: bool
     future: asyncio.Future[TurnOutcome] = field(
         default_factory=lambda: asyncio.get_event_loop().create_future()
     )
@@ -802,7 +802,7 @@ class ClaudeAgentSession:
             await client.set_model(self.model)
             self.applied_model = self.model
             self.log(f"[OK] agent session: model {self.model or 'default'} from this turn")
-        if job.verbatim:
+        if job.with_context:
             message = {
                 "type": "user",
                 "message": {
@@ -904,12 +904,12 @@ class ClaudeAgentSession:
         context_text: str,
         *,
         on_delta: DeltaFn | None = None,
-        verbatim: bool = True,
+        with_context: bool = True,
     ) -> TurnOutcome:
         await self.start()
         worker = self._worker
         assert worker is not None
-        job = _Job(prompt, context_text, on_delta, verbatim)
+        job = _Job(prompt, context_text, on_delta, with_context)
         await self._queue.put(job)
         await asyncio.wait({job.future, worker}, return_when=asyncio.FIRST_COMPLETED)
         if not job.future.done():

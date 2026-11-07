@@ -112,7 +112,7 @@ class AgentSession(Protocol):
         context_text: str,
         *,
         on_delta: DeltaFn | None = None,
-        verbatim: bool = True,
+        with_context: bool = True,
     ) -> TurnOutcome: ...
 
     async def interrupt(self) -> None: ...
@@ -467,7 +467,7 @@ async def run_turn(
     context: CanvasContext,
     *,
     on_delta: DeltaFn | None = None,
-    verbatim: bool = True,
+    with_context: bool = True,
 ) -> Reply:
     """One prompt through the session: the reply's text streams through ``on_delta``;
     the returned ``Reply`` carries the one-line summary, the turn's undo step and the
@@ -484,7 +484,7 @@ async def run_turn(
 
     try:
         outcome = await session.turn(
-            prompt, render_context(context), on_delta=delta, verbatim=verbatim
+            prompt, render_context(context), on_delta=delta, with_context=with_context
         )
     finally:
         txn, touched, label = tools.end()

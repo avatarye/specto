@@ -42,7 +42,7 @@ class PipeSession:
     def set_model(self, model: str | None) -> None:
         pass
 
-    async def turn(self, prompt, context_text, *, on_delta=None, verbatim=True) -> TurnOutcome:
+    async def turn(self, prompt, context_text, *, on_delta=None, with_context=True) -> TurnOutcome:
         await self.start()
         assert self.proc is not None and self.proc.stdin and self.proc.stdout
         if self.hang:

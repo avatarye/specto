@@ -896,10 +896,10 @@ class PromptBar(QObject):
                 fix="project commands live in .specto/commands and .claude/commands",
             )
             return False
-        self._start(text, verbatim=slash is None)
+        self._start(text, with_context=slash is None)
         return True
 
-    def _start(self, text: str, *, verbatim: bool, peer: Entry | None = None) -> None:
+    def _start(self, text: str, *, with_context: bool, peer: Entry | None = None) -> None:
         self.reply = None
         self._text = ""
         self._status = "working"
@@ -923,11 +923,12 @@ class PromptBar(QObject):
         self.replyChanged.emit()
         self.statusChanged.emit()
         loop = self.app.loop or asyncio.get_event_loop()
-        self._task = loop.create_task(self._run(text, verbatim))
+        self._task = loop.create_task(self._run(text, with_context))
 
-    async def _run(self, text: str, verbatim: bool) -> None:
-        #: the agent got this turn's context: a verbatim turn that ran (a session that
-        #: failed to start, or ended mid-turn, may never have sent it: resend it)
+    async def _run(self, text: str, with_context: bool) -> None:
+        #: the agent got this turn's context: a turn with the context whose run_turn
+        #: returned (a session that failed to start, or ended mid-turn, may never have
+        #: sent it: the next turn resends it)
         delivered = False
         try:
             if self.session is None:
@@ -940,9 +941,9 @@ class PromptBar(QObject):
                 text,
                 self.context(),
                 on_delta=self._delta,
-                verbatim=verbatim,
+                with_context=with_context,
             )
-            delivered = verbatim
+            delivered = with_context
         except Exception as e:
             msg = e.message if isinstance(e, SpectoError) else f"{type(e).__name__}: {e}"
             reply = Reply(text=msg, summary=msg.splitlines()[0][:200], status="failed", error=msg)
@@ -957,7 +958,7 @@ class PromptBar(QObject):
             self._agent_entry.text = self._text
             self._thread.entry_changed(self._agent_entry)
 
-    def _finish(self, reply: Reply, *, context_sent: bool = True) -> None:
+    def _finish(self, reply: Reply, *, context_sent: bool) -> None:
         self.reply = reply
         self.replies.append(reply)
         if context_sent:
@@ -1172,7 +1173,7 @@ class PromptBar(QObject):
 
     def _start_peer(self, entry: Entry) -> None:
         prompt = peer_prompt(entry.sender, entry.text, entry.reply_to, entry.verified)
-        self._start(prompt, verbatim=True, peer=entry)
+        self._start(prompt, with_context=True, peer=entry)
 
     def _set_peer(self, entry: Entry, status: str) -> None:
         self._thread.thread.update(entry, status=status, save=True)

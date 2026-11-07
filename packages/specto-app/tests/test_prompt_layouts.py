@@ -174,7 +174,7 @@ def test_the_agent_makes_a_layouts_skill_and_a_layout_command_and_restores_revie
     bar.submit("/layout review")
     aspin(until=lambda: not bar.busy)
     sent = session.received[2]
-    assert sent["prompt"] == "/layout review" and sent["verbatim"] is False
+    assert sent["prompt"] == "/layout review" and sent["with_context"] is False
     assert [name for name, _ in session.skills_used] == ["specto:layouts"]
     read = next(c for c in session.calls if c.name == "data_read")
     assert json.loads(json.loads(read.text)["text"]) == saved

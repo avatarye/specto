@@ -193,9 +193,10 @@ def test_every_prompt_carries_the_canvas_context(app, aspin):
 
 
 def test_a_project_slash_command_leaves_the_context_unseen(app, aspin):
-    """SPEC-30: a project slash command goes to the CLI alone (``verbatim=False``: no
+    """SPEC-30: a project slash command goes to the CLI alone (``with_context=False``: no
     canvas context), so the turn after it still carries what the agent has not seen: the
-    document a user gesture changed and the commands added since its last turn."""
+    document a user gesture changed and the skills and commands added since its last
+    turn."""
     from specto_core.gestures import move_view
 
     bar = app.prompt_bar
@@ -204,28 +205,35 @@ def test_a_project_slash_command_leaves_the_context_unseen(app, aspin):
     session = app.sessions[0]
     assert "document" in context_block(session, 0)
 
-    # since that turn the user moved a view and the project gained a command
+    # since that turn the user moved a view and the project gained a command and a skill
     move_view(app.live, "kobi", (320, 40))
     commands = app.project.root / ".claude" / "commands"
     commands.mkdir(parents=True)
     (commands / "layout.md").write_text("Review the layout. $ARGUMENTS\n", encoding="utf-8")
+    skill = app.project.root / ".claude" / "skills" / "tidy"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: tidy\ndescription: Tidy the canvas.\n---\nAlign the views.\n",
+        encoding="utf-8",
+    )
 
     assert bar.submit("/layout review") is True
     aspin(until=lambda: not bar.busy)
     assert session.received[1]["prompt"] == "/layout review"
-    assert session.received[1]["verbatim"] is False  # the context never reached the agent
+    assert session.received[1]["with_context"] is False  # the context never reached the agent
 
     bar.submit("what changed?")
     aspin(until=lambda: not bar.busy)
     after = context_block(session, 2)
     assert after["document"]["views"]["kobi"]["layout"]["position"] == [320, 40]
     assert [c["name"] for c in after["commands"]] == ["/layout"]
+    assert after["skills"] == [{"name": "tidy", "description": "Tidy the canvas."}]
 
     # that turn did carry them: the next one has the hash alone again
     bar.submit("and now?")
     aspin(until=lambda: not bar.busy)
     settled = context_block(session, 3)
-    assert "document" not in settled and "commands" not in settled
+    assert not {"document", "commands", "skills"} & set(settled)
 
 
 def test_a_turn_that_never_reached_the_agent_leaves_the_context_unseen(

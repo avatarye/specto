@@ -252,7 +252,7 @@ def test_an_agent_that_errors_shows_a_cross_until_the_next_turn(qapp, project, a
     from specto_app.app import SpectoApp
 
     class Broken(ScriptedAgentSession):
-        async def turn(self, prompt, context_text, *, on_delta=None, verbatim=True):
+        async def turn(self, prompt, context_text, *, on_delta=None, with_context=True):
             raise RuntimeError("the agent session ended during the turn")
 
     a = SpectoApp(
