@@ -217,6 +217,28 @@ def test_robot_meshes_load_through_babylon_and_the_dae_through_its_glb(
     outside.write_bytes(b"x")
     assert served(f"{obj}/@root/../secret.png") is None
     assert served(f"{obj}/@root") is None
+    # only what an OBJ names: its MTL and images, never another file in the project
+    assert served(f"{obj}/@root/scans/link.stl") is None
+    assert served(f"{obj}/@root/scans/robot.dae") is None
+
+
+def test_the_root_comes_from_the_resolver_that_answers_for_the_link():
+    from specto_app.web.items import CompositeItems, ItemTable
+
+    class Rooted(ItemTable):
+        def __init__(self, root: str) -> None:
+            super().__init__()
+            self._root = root
+
+        def root(self, link_id: str) -> str | None:
+            return self._root if self.keys(link_id) else None
+
+    a, b = Rooted("C:/a"), Rooted("C:/b")
+    a.set_items("la", [{"key": "x", "parts": {".obj": "C:/a/x.obj"}}])
+    b.set_items("lb", [{"key": "y", "parts": {".obj": "C:/b/y.obj"}}])
+    both = CompositeItems([a, b])
+    assert (both.root("la"), both.root("lb"), both.root("nope")) == ("C:/a", "C:/b", None)
+    assert ItemTable().root("la") is None
 
 
 def served(path: str) -> Path | None:
@@ -280,6 +302,15 @@ def test_mesh_unit_scales_stl_and_obj_bounds_only(engine: Engine, tmp_path: Path
     assert payload["params"]["mesh_unit"] == "mm"
     assert _rounded(by["link"]["bounds"]) == [[-0.0002, -0.0002, 0.0], [0.0002, 0.0002, 0.0008]]
     assert by["cloud"]["bounds"] == [[-1.0, 0.0, -2.0], [3.0, 4.0, 2.5]]  # a PLY: as it is
+    # the page gets the factor, never the unit table: in the scene, and on a change
+    assert payload["mesh_scale"] == 0.001
+    sink = Sink(host.bridge)
+    host.bridge.ready()
+    doc = engine.live.document()
+    doc["views"]["kobi"]["params"] = {"mesh_unit": "in"}
+    engine.live.submit(doc, origin="agent:test", label="inches")
+    host.flush()
+    assert sink.last("mesh_scale") == {"scale": 0.0254}
 
 
 def _rounded(bounds) -> list[list[float]]:

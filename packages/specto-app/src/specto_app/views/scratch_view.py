@@ -159,6 +159,9 @@ class ScratchItems:
     def keys(self, link_id: str) -> list[str]:
         return self.store.page_ids() if link_id == self.link_id else []
 
+    def root(self, link_id: str) -> str | None:
+        return None  # a note's pictures sit next to it; nothing under a root
+
 
 class ScratchBridge(QObject):
     """Handed to ``ScratchView.qml`` as ``bridge``: the tab strip and the drop area."""

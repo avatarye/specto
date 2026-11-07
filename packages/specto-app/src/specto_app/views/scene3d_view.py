@@ -282,9 +282,13 @@ class Scene3DHost(WebViewHost):
     def view_params(self) -> dict[str, Any]:
         return {**DEFAULT_PARAMS, **self.page.params}
 
+    def mesh_scale(self) -> float:
+        """Metres per STL or OBJ unit, from ``mesh_unit`` (the page scales by it)."""
+        return MESH_UNITS.get(str(self.view_params().get("mesh_unit")), 1.0)
+
     def scene_payload(self) -> dict[str, Any]:
         params = self.view_params()
-        unit = MESH_UNITS.get(str(params.get("mesh_unit")), 1.0)
+        unit = self.mesh_scale()
         entries = []
         for e in self.entries:
             e = dict(e)
@@ -296,6 +300,7 @@ class Scene3DHost(WebViewHost):
             "params": params,
             "generation": self.collection.generation if self.collection else 0,
             "camera": initial_camera(entries),
+            "mesh_scale": unit,
             "environments": environment_entries(),
         }
 
@@ -387,6 +392,11 @@ class Scene3DHost(WebViewHost):
     # -- the page ------------------------------------------------------------------------------
     def on_ready(self) -> None:
         self.notify("scene", self.scene_payload())
+
+    def on_params_changed(self, params: dict[str, Any]) -> None:
+        # the unit table lives here; the page only scales by the factor
+        self.notify("mesh_scale", {"scale": self.mesh_scale()})
+        super().on_params_changed(params)
 
     def on_page_event(self, kind: str, payload: Any) -> None:
         """``pick`` (a ray from a click on a point cloud) and ``select`` (a mesh or splat

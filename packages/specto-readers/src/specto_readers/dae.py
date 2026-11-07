@@ -14,8 +14,10 @@ so resolve converts a DAE to a GLB that Babylon's glTF loader draws.
   with a rotation (never a mirror): Z_UP maps (x, y, z) to (x, z, -y), X_UP to
   (-y, x, z), as COLLADA's axis table says (right, up, in). The result is metres, Y up,
   so the scene entry declares ``up: "y"`` and the view's ``up`` param leaves it alone.
-- **Bounded**: a DAE over ``DAE_MAX_BYTES`` is refused, and the conversion runs in a child
-  Python (``python -m specto_readers.dae``) that is killed after ``CONVERT_TIMEOUT_S``.
+- **Bounded**: a DAE over ``DAE_MAX_BYTES`` is refused, and the conversion runs in an
+  isolated child Python (``python -I -m specto_readers.dae``, from the cache folder) that
+  is killed with its whole process tree after ``CONVERT_TIMEOUT_S``; only the tail of its
+  output is read back.
 - **Where the GLB goes** (``prepare``): next to the DAE as ``<name>.dae.glb`` (the
   converted mesh). The GLB carries the DAE's size and mtime it was made from (and the
   converter's version) in ``asset.extras.specto``, and is used only while they match, so
@@ -29,11 +31,14 @@ so resolve converts a DAE to a GLB that Babylon's glTF loader draws.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import signal
 import struct
 import subprocess
 import sys
+import threading
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -207,61 +212,118 @@ def _convert_here(src: Path, stamp: dict[str, int]) -> bytes:
 
 
 def _child_main(argv: list[str]) -> int:
+    """``python -I -m specto_readers.dae <src> <out> <stamp>``: the GLB straight to ``out``,
+    a path the parent owns and removes; one JSON line on stdout says how it went."""
     src, out = Path(argv[0]), Path(argv[1])
     try:
         data = _convert_here(src, json.loads(argv[2]))
     except DaeError as e:
         print(json.dumps({"error": str(e)}))
         return 2
-    write_atomic(data, out)
+    out.write_bytes(data)
     print(json.dumps({"ok": True}))
     return 0
 
 
+#: how much of the child's output is read back (its tail)
+OUTPUT_TAIL_BYTES = 8 * 1024
+
+
+def _unique(folder: Path, stem: str, suffix: str) -> Path:
+    """A file name no other process or thread is using right now."""
+    return folder / f".{stem}.{os.getpid()}.{threading.get_ident()}{suffix}"
+
+
+def _kill_tree(proc: subprocess.Popen[bytes]) -> None:
+    """The child and everything it started (a venv launcher runs the real Python as its
+    own child): ``taskkill /T`` on Windows, the child's process group elsewhere."""
+    if sys.platform == "win32":
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+            capture_output=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    else:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(proc.pid, signal.SIGKILL)
+    proc.kill()
+    proc.wait()
+
+
+def _tail(log: Path) -> list[str]:
+    try:
+        with log.open("rb") as fh:
+            fh.seek(max(0, log.stat().st_size - OUTPUT_TAIL_BYTES))
+            text = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    return [line for line in text.splitlines() if line.strip()]
+
+
 def _convert_bounded(src: Path, out: Path, stamp: dict[str, int]) -> None:
-    """Convert in a child Python killed after ``CONVERT_TIMEOUT_S``; the GLB lands at
-    ``out``. Raises ``DaeError``."""
+    """Convert in a child Python (isolated: ``-I``, run from ``out``'s folder, so nothing in
+    the data folder or the current directory is imported), killed with its whole tree
+    after ``CONVERT_TIMEOUT_S``. The GLB lands at ``out``, which the caller owns and
+    removes. Raises ``DaeError``."""
     size = stamp["size"]
     if size > DAE_MAX_BYTES:
         raise DaeError(
             f"{src.name}: {size / 2**20:.0f} MB; the 3d view converts DAE files up to "
             f"{DAE_MAX_BYTES / 2**20:.0f} MB"
         )
-    cmd = [sys.executable, "-m", "specto_readers.dae", str(src), str(out), json.dumps(stamp)]
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
+    cmd = [
+        sys.executable, "-I", "-m", "specto_readers.dae",
+        str(src.resolve()), str(out.resolve()), json.dumps(stamp),
+    ]  # fmt: skip
+    log = out.with_name(out.name + ".log")
+    win = sys.platform == "win32"
     try:
-        res = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=CONVERT_TIMEOUT_S,
-            check=False,
-            creationflags=flags,
-        )
-    except subprocess.TimeoutExpired as e:
-        out.unlink(missing_ok=True)
-        raise DaeError(
-            f"{src.name}: conversion took longer than {CONVERT_TIMEOUT_S:g} s, stopped"
-        ) from e
-    said = (res.stdout or "").strip().splitlines()
+        with log.open("wb") as fh:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(out.parent),
+                stdin=subprocess.DEVNULL,
+                stdout=fh,
+                stderr=subprocess.STDOUT,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if win else 0,
+                start_new_session=not win,
+            )
+            try:
+                code = proc.wait(timeout=CONVERT_TIMEOUT_S)
+            except subprocess.TimeoutExpired as e:
+                _kill_tree(proc)
+                raise DaeError(
+                    f"{src.name}: conversion took longer than {CONVERT_TIMEOUT_S:g} s, stopped"
+                ) from e
+        lines = _tail(log)
+    finally:
+        log.unlink(missing_ok=True)
     answer: dict[str, Any] = {}
-    if said:
+    for line in reversed(lines):
         try:
-            answer = json.loads(said[-1])
+            found = json.loads(line)
         except ValueError:
-            answer = {}
-    if res.returncode != 0 or not answer.get("ok"):
+            continue
+        if isinstance(found, dict):
+            answer = found
+            break
+    if code != 0 or not answer.get("ok"):
         if answer.get("error"):
             raise DaeError(str(answer["error"]))
-        tail = (res.stderr or "").strip().splitlines()
-        raise DaeError(f"{src.name}: conversion failed: {tail[-1] if tail else res.returncode}")
+        raise DaeError(f"{src.name}: conversion failed: {lines[-1] if lines else code}")
 
 
 def convert(src: Path | str, dst: Path | str) -> dict[str, Any]:
     """Convert one DAE to a GLB at ``dst`` (bounded; written whole or not at all); returns
     the GLB's record: ``{source, count, bounds}``."""
     src, dst = Path(src), Path(dst)
-    _convert_bounded(src, dst, source_stamp(src))
+    fresh = _unique(dst.parent, dst.name, ".convert")
+    try:
+        _convert_bounded(src, fresh, source_stamp(src))
+        os.replace(fresh, dst)
+    finally:
+        fresh.unlink(missing_ok=True)
     rec = glb_record(dst)
     if rec is None:
         raise DaeError(f"{src.name}: the conversion wrote no readable GLB")
@@ -282,7 +344,7 @@ def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
         glb = side
         if rec is None:
             cache.mkdir(parents=True, exist_ok=True)
-            fresh = cache / f"{key}.{os.getpid()}.convert.glb"
+            fresh = _unique(cache, key, ".convert.glb")
             try:
                 _convert_bounded(src, fresh, stamp)
                 try:

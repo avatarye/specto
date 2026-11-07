@@ -320,7 +320,7 @@ test("robot meshes: an STL keeps its coordinates and draws grey; a converted DAE
   assert.equal(holder("arm").parent.rotation.x, 0);
   // mesh_unit scales the STL (a unitless file), never the converted DAE
   assert.equal(holder("link").scaling.x, 1);
-  page.notify("params", { mesh_unit: "mm" });
+  page.notify("mesh_scale", { scale: 0.001 });   // the host's factor for mesh_unit mm
   await settle();
   assert.equal(holder("link").scaling.x, 0.001);
   assert.equal(holder("link").scaling.z, 0.001);

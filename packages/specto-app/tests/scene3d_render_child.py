@@ -220,7 +220,11 @@ def main() -> int:
 
     def send_step() -> None:
         state["report"] = None
-        js(f"window.__fire('params', {json.dumps(plan['steps'][state['step']])});")
+        step = dict(plan["steps"][state["step"]])
+        scale = step.pop("mesh_scale", None)  # what the host sends for mesh_unit
+        js(f"window.__fire('params', {json.dumps(step)});")
+        if scale is not None:
+            js(f"window.__fire('mesh_scale', {json.dumps({'scale': scale})});")
 
     timer = QTimer()
     timer.timeout.connect(tick)

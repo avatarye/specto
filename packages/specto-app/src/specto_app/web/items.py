@@ -28,8 +28,10 @@ class ItemResolver(Protocol):
 
     def keys(self, link_id: str) -> list[str]: ...
 
-    # optional: ``root(link_id) -> str | None``, the folder a part's ``@root/`` relative
-    # paths resolve under (the collection's root); a resolver without it serves none
+    def root(self, link_id: str) -> str | None:
+        """The folder a part's ``@root/`` relative paths resolve under (the collection's
+        root); None: this resolver serves none."""
+        return None
 
 
 def _table_of(items: Iterable[Item | dict[str, Any]]) -> dict[str, dict[str, str]]:
@@ -56,6 +58,9 @@ class ItemTable:
 
     def keys(self, link_id: str) -> list[str]:
         return list(self._cols.get(link_id, {}))
+
+    def root(self, link_id: str) -> str | None:
+        return None
 
     def cols(self) -> list[str]:
         return list(self._cols)
@@ -138,11 +143,11 @@ class CompositeItems:
         return []
 
     def root(self, link_id: str) -> str | None:
+        """The root of the resolver that answers for the link (the one whose ``parts``
+        answer), never another resolver's."""
         for r in self.resolvers:
-            fn = getattr(r, "root", None)
-            found = fn(link_id) if callable(fn) else None
-            if found:
-                return found
+            if r.keys(link_id):
+                return r.root(link_id)
         return None
 
 

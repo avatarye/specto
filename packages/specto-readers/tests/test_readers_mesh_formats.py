@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import struct
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -26,7 +31,7 @@ from mesh_samples import (
     write_stl,
 )
 
-from specto_readers import dae
+from specto_readers import dae, scene3d
 from specto_readers.scene3d import prepare_scene
 
 
@@ -282,15 +287,123 @@ def test_a_dae_too_big_or_too_slow_is_refused_with_a_reason(
     with pytest.raises(dae.DaeError, match=r"conversion took longer than 0\.01 s, stopped"):
         prepare_scene(src, tmp_path / "cache")
     assert not dae.converted_path(src).exists()
-    assert not list((tmp_path / "cache" / "scene3d").glob("*.glb"))
+    # the killed child leaves nothing behind: no GLB, no temporary, no log
+    assert list((tmp_path / "cache" / "scene3d").iterdir()) == []
+    assert not [p for p in tmp_path.iterdir() if p.name.startswith(".")]
 
 
-def test_pycollada_parses_without_lxml():
-    """lxml is not in the runtime: the licence notice says so, and ElementTree does not
-    fetch external entities a COLLADA file might name."""
+def test_lxml_is_not_in_the_lock():
+    """lxml is not in the runtime (the lock, not just this environment): the licence notice
+    says so, and pycollada's ElementTree does not fetch external entities a COLLADA file
+    might name."""
+    lock = Path(__file__).parents[3] / "uv.lock"
+    names = re.findall(r'^name = "([^"]+)"', lock.read_text(encoding="utf-8"), re.M)
+    assert "pycollada" in names and "trimesh" in names
+    assert "lxml" not in names
     from collada import xmlutil
 
     assert xmlutil.HAVE_LXML is False
+
+
+def test_the_converter_imports_nothing_from_the_data_folder_or_the_current_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The child runs ``python -I`` from the cache folder: a ``trimesh.py`` or ``numpy.py``
+    planted next to the DAE, or in the folder Specto was started from, never runs."""
+    data = tmp_path / "data"
+    data.mkdir()
+    marker = tmp_path / "planted-ran"
+    # the child's own working folder too: ``-m`` would put it first on sys.path
+    work = tmp_path / "cache" / "scene3d"
+    work.mkdir(parents=True)
+    for name, folder in (
+        (n, f) for n in ("trimesh.py", "numpy.py", "collada.py") for f in (data, work)
+    ):
+        (folder / name).write_text(
+            f"open({str(marker)!r}, 'w').write('ran')\nraise SystemExit(9)\n", encoding="utf-8"
+        )
+    src = write_dae(data / "robot.dae")
+    monkeypatch.chdir(data)
+    scene = prepare_scene(src, tmp_path / "cache")
+    assert scene["count"] == 48 and not marker.exists()
+
+
+def test_two_threads_converting_one_dae_do_not_spoil_each_other(tmp_path: Path):
+    """Each conversion has a temporary of its own (process and thread in its name); the
+    one that loses the race for the converted mesh beside the DAE (on Windows a rename
+    onto a file another thread is replacing fails) falls back to the cache. Both scenes
+    hold, and no temporary is left."""
+    src = write_dae(tmp_path / "robot.dae")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        scenes = list(pool.map(lambda _i: prepare_scene(src, tmp_path / "cache"), range(2)))
+    assert [s["count"] for s in scenes] == [48, 48]
+    for scene in scenes:
+        rec = dae.glb_record(Path(scene["files"]["glb"]))
+        assert rec is not None and rec["source"] == dae.source_stamp(src)
+    key = scene3d.cache_key(src)
+    left = {p.name for p in (tmp_path / "cache" / "scene3d").iterdir()}
+    assert left <= {f"{key}.dae.json", f"{key}.dae.glb"}, left
+    assert not [p.name for p in tmp_path.iterdir() if p.name.startswith(".")]
+
+
+def test_a_killed_conversion_takes_its_process_tree_and_leaves_no_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """A venv launcher runs the real Python as its own child: the whole tree goes."""
+    pid_file = tmp_path / "grandchild.pid"
+    code = (
+        "import subprocess, sys, time\n"
+        "g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"open({str(pid_file)!r}, 'w').write(str(g.pid))\n"
+        "time.sleep(60)\n"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", code], start_new_session=sys.platform != "win32")
+    for _ in range(200):
+        if pid_file.is_file() and pid_file.read_text():
+            break
+        time.sleep(0.05)
+    grandchild = int(pid_file.read_text())
+    dae._kill_tree(proc)
+    for _ in range(100):
+        if not _alive(grandchild):
+            break
+        time.sleep(0.05)
+    assert not _alive(grandchild)
+
+
+def _alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True
+        ).stdout
+        return str(pid) in out
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def test_only_the_tail_of_the_childs_output_is_read_and_bad_bytes_pass(tmp_path: Path):
+    log = tmp_path / "child.log"
+    log.write_bytes(b"x" * 50_000 + b"\n\xff\xfe broken\n" + b'{"error": "robot.dae: bad"}\n')
+    lines = dae._tail(log)
+    assert sum(len(line) for line in lines) <= dae.OUTPUT_TAIL_BYTES
+    assert lines[-1] == '{"error": "robot.dae: bad"}' and "\ufffd" in lines[-2]
+
+
+def test_a_record_that_cannot_be_written_is_still_returned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """On Windows a reader holding the old record makes the rename fail: the scene stands."""
+    from specto_readers import scenecache
+
+    def busy(path: Path, record: dict) -> None:
+        raise PermissionError(13, "in use", str(path))
+
+    monkeypatch.setattr(scenecache, "write_record", busy)
+    scene = prepare_scene(write_stl(tmp_path / "link.stl"), tmp_path / "cache")
+    assert scene["count"] == 36
 
 
 def test_a_broken_dae_raises_and_writes_nothing(tmp_path: Path):
@@ -372,6 +485,17 @@ def test_an_obj_names_its_textures_relative_to_itself_within_the_root(tmp_path: 
     assert prepare_scene(obj, tmp_path / "cache", root=pkg)["missing"] == ["../textures/skin.png"]
     (pkg / "meshes" / "panel.mtl").unlink()
     assert prepare_scene(obj, tmp_path / "cache", root=pkg)["missing"] == ["panel.mtl"]
+    # a texture map's options are not part of its file name (-s, -o, -clamp, -bm, ...)
+    (pkg / "textures" / "skin.png").parent.mkdir(exist_ok=True)
+    write_obj(pkg / "meshes" / "opt.obj", texture_ref="../textures/opt.png")
+    mtl = pkg / "meshes" / "opt.mtl"
+    mtl.write_text(
+        mtl.read_text(encoding="ascii").replace(
+            "map_Kd ../textures/opt.png", "map_Kd -s 1 1 1 -o 0 0 -clamp on ../textures/opt.png"
+        ),
+        encoding="ascii",
+    )
+    assert "missing" not in prepare_scene(pkg / "meshes" / "opt.obj", tmp_path / "cache", root=pkg)
     # no root (a Python link's collection): only that the files are there
     assert "missing" not in prepare_scene(out, tmp_path / "cache")
 

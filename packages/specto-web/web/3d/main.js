@@ -11,7 +11,8 @@
  * view param `up` turns the scene's root for z-up data; an entry with its own `up` (a DAE
  * resolve converted to a Y-up GLB, SPEC-42) hangs under a root that param leaves alone.
  * The view param `mesh_unit` (m, cm, mm, in) scales the STL and OBJ items, whose files
- * carry no unit.
+ * carry no unit: the host sends the factor (`mesh_scale` in the scene payload, and the
+ * `mesh_scale {scale}` notification when the param changes).
  * Navigation is Unreal Editor's viewport (#152),
  * the shared web module viewnav.js (its header has the table): drag turns and walks,
  * right-drag looks with W A S D Q E flying and the wheel setting the speed, middle-drag
@@ -55,8 +56,8 @@
   const IDLE_FRAMES = 12;      // frames rendered after the last change (camera inertia)
   const SETTLE_MAX_MS = 60000; // a splat that never reports settled stops costing frames here
   const PLAIN_MESH = "#9ea4ab";  // a mesh whose file has no material (STL; OBJ without MTL)
-  const MESH_UNITS = { m: 1, cm: 0.01, mm: 0.001, in: 0.0254 };   // metres per STL/OBJ unit
   const UNITLESS = [".stl", ".obj"];
+  let meshScale = 1;           // metres per STL/OBJ unit, from the host (mesh_unit)
 
   let engine = null, scene = null, camera = null, root = null, lights = [];
   const declaredRoots = {};    // up axis -> the root of the items whose file declares it
@@ -117,6 +118,18 @@
     // an STL's numbers as the file has them, as for PLY and OBJ: the up param turns them
     // (the loader would otherwise swap y and z, a mirror in this right-handed scene)
     if (BABYLON.STLFileLoader) BABYLON.STLFileLoader.DO_NOT_ALTER_FILE_COORDINATES = true;
+    // an MTL texture map's options (-s 1 1 1, -clamp on, ...) are not part of its file
+    // name; Babylon's MTL loader strips only map_bump's -bm (resolve checks the same names)
+    const mtl = BABYLON.MTLFileLoader;
+    if (mtl && mtl._GetTexture && !mtl._spectoOptions) {
+      const getTexture = mtl._GetTexture;
+      mtl._GetTexture = function (rootUrl, value) {
+        const args = Array.prototype.slice.call(arguments);
+        args[1] = mapFileName(value);
+        return getTexture.apply(this, args);
+      };
+      mtl._spectoOptions = true;
+    }
     camera = new BABYLON.ArcRotateCamera("cam", -Math.PI / 3, 1.1, 20, BABYLON.Vector3.Zero(), scene);
     camera.minZ = 0.05;
     camera.maxZ = 5000;
@@ -478,6 +491,7 @@
   async function loadScene(payload) {
     const seq = ++loadSeq;
     if (payload.environments) environments = payload.environments;
+    if (typeof payload.mesh_scale === "number") meshScale = payload.mesh_scale;
     params = Object.assign({}, params, payload.params || {});
     applyParams();
     const wanted = {};
@@ -613,6 +627,23 @@
     return holder;
   }
 
+  // a texture map's options and how many values each takes (the MTL format's)
+  const MAP_OPTIONS = { "-blendu": 1, "-blendv": 1, "-bm": 1, "-boost": 1, "-cc": 1, "-clamp": 1, "-imfchan": 1, "-mm": 2, "-o": 3, "-s": 3, "-t": 3, "-texres": 1, "-type": 1 };
+  function mapFileName(value) {
+    if (typeof value !== "string") return value;
+    const words = value.trim().split(/\s+/);
+    let i = 0;
+    while (i < words.length && MAP_OPTIONS[words[i].toLowerCase()]) {
+      const n = MAP_OPTIONS[words[i].toLowerCase()];
+      i += 1;
+      for (let taken = 0; taken < n && i < words.length; taken++) {
+        if (taken > 0 && !isFinite(parseFloat(words[i]))) break;
+        i += 1;
+      }
+    }
+    return words.slice(i).join(" ");
+  }
+
   function plainMaterial(id) {
     const mat = new BABYLON.StandardMaterial("plainMat:" + id, scene);
     mat.diffuseColor = BABYLON.Color3.FromHexString(PLAIN_MESH);
@@ -623,8 +654,7 @@
   /** An STL or OBJ item at the view's mesh_unit (its file says nothing). */
   function applyUnit(node) {
     if (!node.mesh || UNITLESS.indexOf(node.entry.ext) < 0) return;
-    const k = MESH_UNITS[params.mesh_unit] || 1;
-    node.mesh.scaling = new BABYLON.Vector3(k, k, k);
+    node.mesh.scaling = new BABYLON.Vector3(meshScale, meshScale, meshScale);
   }
 
   function applyParams() {
@@ -1033,6 +1063,12 @@
   });
   Specto.on("scene", function (p) { loadScene(p).catch(function (e) { setError(String(e)); Specto.setHealth("error", String(e)); }); });
   Specto.on("params", function (p) { params = Object.assign({}, params, p || {}); applyParams(); report(); });
+  Specto.on("mesh_scale", function (m) {
+    meshScale = m && typeof m.scale === "number" ? m.scale : 1;
+    Object.keys(nodes).forEach(function (id) { applyUnit(nodes[id]); });
+    requestRender();
+    report();
+  });
   Specto.on("port:camera", applyCamera);
   Specto.on("port:selection", function (sel) {
     const ks = (sel && sel.keys) || [];

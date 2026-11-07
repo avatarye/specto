@@ -8,6 +8,7 @@ GLBs) sit beside it. ``cached`` reads a record that still holds, else makes and 
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import threading
@@ -55,12 +56,14 @@ def cached(
     valid: Callable[[Record], bool] = lambda _r: True,
 ) -> Record:
     """The record at ``path`` when it reads and ``valid`` accepts it, else ``make()``'s,
-    written there."""
+    written there. A record that cannot be written (on Windows, another reader holding the
+    old one makes the rename fail) is still returned: the cache is only a shortcut."""
     rec = read_record(path)
     if rec is not None and valid(rec):
         return rec
     rec = make()
-    write_record(path, rec)
+    with contextlib.suppress(OSError):
+        write_record(path, rec)
     return rec
 
 

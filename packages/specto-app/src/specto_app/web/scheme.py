@@ -19,7 +19,8 @@ Hosts:
   note's relative image): ``rel`` may not climb (no ``..``, no absolute path) and the
   result must stay under the part's directory. A trailing path that starts with
   ``@root/`` is relative to the link's root (the project folder, ``ItemResolver.root``)
-  instead and must stay under it: a page that addresses an OBJ as
+  instead, must stay under it and name what an OBJ or glTF names (``ROOT_SUFFIXES``: an
+  MTL, a buffer, an image): a page that addresses an OBJ as
   ``.../obj/@root/robot/meshes/panel.obj`` gets its ``../textures/skin.png`` (the URL
   resolves the ``..`` before the request) as long as it stays inside the project
   (SPEC-42).
@@ -264,6 +265,12 @@ def parse_item_rel_path(url_path: str) -> tuple[str, str, str, str | None] | Non
 
 #: the first segment of a trailing path that is relative to the link's root
 ROOT_ANCHOR = "@root"
+#: what an ``@root/`` path may name: what an OBJ or a glTF names next to it (its MTL, a
+#: glTF's buffers, texture images), nothing else under the project
+ROOT_SUFFIXES = frozenset(
+    {".mtl", ".bin", ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".webp", ".tif",
+     ".tiff", ".dds", ".ktx", ".ktx2", ".basis", ".hdr", ".exr"}
+)  # fmt: skip
 
 
 def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Path | None:
@@ -272,7 +279,7 @@ def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Pa
     it is not a file."""
     head, _, rest = rel.partition("/")
     if head == ROOT_ANCHOR:
-        if root is None or not rest:
+        if root is None or not rest or Path(rest).suffix.lower() not in ROOT_SUFFIXES:
             return None
         base, rel = Path(root).resolve(), rest
     else:
@@ -325,8 +332,7 @@ def locate_item(
         return p if Path(real_path(str(p))).is_file() else None
     if rel is not None:
         entry["rel"] = rel
-        root_of = getattr(items, "root", None)
-        p2 = resolve_relative(p, rel, root_of(col) if callable(root_of) else None)
+        p2 = resolve_relative(p, rel, items.root(col) if items is not None else None)
         if p2 is None:
             entry["status"] = "not_found"
         return p2

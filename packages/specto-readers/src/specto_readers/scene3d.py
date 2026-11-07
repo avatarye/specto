@@ -160,6 +160,12 @@ _STL_VERTEX = re.compile(rb"vertex\s+(\S+)\s+(\S+)\s+(\S+)")
 _OBJ_VERTEX = re.compile(rb"^[ \t]*v[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)", re.MULTILINE)
 _OBJ_MTLLIB = re.compile(rb"^[ \t]*mtllib[ \t]+([^\r\n]+?)[ \t]*\r?$", re.MULTILINE)
 _MTL_MAP = re.compile(r"^\s*(map_ka|map_kd|map_ks|map_d|map_bump)\s+(.+?)\s*$", re.I | re.M)
+#: a texture map's options before its file name, with how many values each takes (the MTL
+#: format's -blendu on, -o u v w, -mm base gain, ...)
+_MAP_OPTIONS = {
+    "-blendu": 1, "-blendv": 1, "-bm": 1, "-boost": 1, "-cc": 1, "-clamp": 1, "-imfchan": 1,
+    "-mm": 2, "-o": 3, "-s": 3, "-t": 3, "-texres": 1, "-type": 1,
+}  # fmt: skip
 _STL_FACET = np.dtype([("normal", "<f4", 3), ("v", "<f4", (3, 3)), ("attr", "<u2")])
 
 
@@ -233,13 +239,16 @@ def measure_stl(path: Path) -> dict[str, Any]:
     size = path.stat().st_size
     ext = _Extent()
     if _stl_is_binary(path, size):
-        n = (size - 84) // 50
-        if n:
-            facets = np.memmap(path, dtype=_STL_FACET, mode="r", offset=84, shape=(n,))
-            step = max(1, SCAN_CHUNK // 50)
-            for i in range(0, n, step):
-                ext.add(np.asarray(facets["v"][i : i + step]).reshape(-1, 3))
-            del facets
+        left = (size - 84) // 50
+        step = max(1, SCAN_CHUNK // 50)
+        with path.open("rb") as fh:  # read in blocks, closed after (no mapping held open)
+            fh.seek(84)
+            while left > 0:
+                facets = np.fromfile(fh, dtype=_STL_FACET, count=min(step, left))
+                if not len(facets):
+                    break
+                ext.add(facets["v"].reshape(-1, 3))
+                left -= len(facets)
     else:
         for block in _text_blocks(path):
             ext.add(_rows(_STL_VERTEX, block))
@@ -272,13 +281,35 @@ def obj_references(obj: Path, mtllibs: list[str]) -> list[str]:
         except OSError:
             text = ""
         for m in _MTL_MAP.finditer(text):
-            words = m.group(2).split()
-            if m.group(1).lower() == "map_bump" and "-bm" in words:
-                i = words.index("-bm")
-                del words[i : i + 2]
-            if words:
-                refs.append(" ".join(words))
+            name = map_file_name(m.group(2))
+            if name:
+                refs.append(name)
     return refs
+
+
+def map_file_name(value: str) -> str:
+    """The file a texture map line names, its options (``-s 1 1 1``, ``-clamp on``, ``-bm
+    0.5``, ...) stripped; ``-o``, ``-s`` and ``-t`` take one to three numbers."""
+    words = value.split()
+    i = 0
+    while i < len(words) and words[i].lower() in _MAP_OPTIONS:
+        n = _MAP_OPTIONS[words[i].lower()]
+        i += 1
+        taken = 0
+        while taken < n and i < len(words) and (taken == 0 or _is_number(words[i])):
+            if n == 3 and taken > 0 and not _is_number(words[i]):
+                break
+            i += 1
+            taken += 1
+    return " ".join(words[i:])
+
+
+def _is_number(word: str) -> bool:
+    try:
+        float(word)
+    except ValueError:
+        return False
+    return True
 
 
 def unreachable(obj: Path, refs: list[str], root: Path | None) -> list[str]:

@@ -301,7 +301,9 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   same collection gets no scene, so the model shows once. `attach_scenes` takes the
   collection's `root`; an OBJ's MTL and textures outside it, or missing, are listed under
   the scene's `missing`. The items host serves a part's trailing path that starts with
-  `@root/` from the link's root (`ItemResolver.root`), never outside it.
+  `@root/` from the root of the resolver that answers for the link (`ItemResolver.root`,
+  None by default), never outside it, and only an MTL, a buffer or an image
+  (`scheme.ROOT_SUFFIXES`).
 - Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread runs the
   kind's watcher every `watch_interval_s`; a changed listing posts to the runtime,
   `poll()` emits the event `link.arrivals {link, added, removed}` and re-resolves the

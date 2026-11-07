@@ -88,7 +88,7 @@ def painted(rgb: tuple[int, int, int]) -> bool:
 def test_an_stl_draws_grey_and_follows_the_up_param(tmp_path: Path):
     stl = mesh_samples().write_stl(tmp_path / "link.stl")
     entry = {"id": "m", "kind": "mesh", "file": str(stl), "ext": ".stl"}
-    out = render(tmp_path, entry, ({"up": "z", "mesh_unit": "cm"},))
+    out = render(tmp_path, entry, ({"up": "z", "mesh_scale": 0.01},))  # mesh_unit cm
     z_up, y_up, in_cm = out["steps"]
     assert bounds(z_up) == UPRIGHT and bounds(y_up) == LYING
     # mesh_unit cm: the numbers are centimetres, the box 8 mm tall (the page rounds to cm)
@@ -103,6 +103,18 @@ def test_an_obj_draws_its_mtl_texture_and_follows_the_up_param(tmp_path: Path):
     z_up, y_up = out["steps"][:2]
     assert bounds(z_up) == UPRIGHT and bounds(y_up) == LYING
     r, g, b = pixel(z_up, 0.5, 0.5)
+    assert g > r + 60 and g > b + 60, f"not the green texture: {(r, g, b)}"
+
+
+def test_an_obj_texture_with_map_options_still_loads(tmp_path: Path):
+    """``map_Kd -s 1 1 1 -clamp on textures/panel.png``: the page strips the options before
+    Babylon's MTL loader builds the texture URL (it only knows map_bump's -bm)."""
+    obj = mesh_samples().write_obj(tmp_path / "panel.obj")
+    mtl = tmp_path / "panel.mtl"
+    text = mtl.read_text(encoding="ascii").replace("map_Kd ", "map_Kd -s 1 1 1 -clamp on ")
+    mtl.write_text(text, encoding="ascii")
+    out = render(tmp_path, {"id": "m", "kind": "mesh", "file": str(obj), "ext": ".obj"})
+    r, g, b = pixel(out["steps"][0], 0.5, 0.5)
     assert g > r + 60 and g > b + 60, f"not the green texture: {(r, g, b)}"
 
 
