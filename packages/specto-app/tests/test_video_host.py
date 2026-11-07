@@ -494,79 +494,103 @@ def test_sound_plays_only_during_normal_playback(engine: Engine, tmp_path: Path)
     host.dispose()
 
 
-def test_a_released_video_shows_the_same_frame_after_its_resume(
-    engine: Engine, tmp_path: Path, qapp
-):
-    """SPEC-3: paused out of the scene, the video's node frees mpv's render context and
-    the item reopens the file for the next one. Position changes nobody asked for in
-    between (the old context's frame going, the reopening) are not emitted; once
-    reopened the video seeks back to the frame it showed, emitted once on landing."""
-    from PySide6.QtQuick import QQuickItem
-
+def released_video(engine: Engine, tmp_path: Path) -> tuple[VideoHost, FakeMpv, list]:
+    """A loaded headless video on a fake mpv, with every time it emits recorded."""
     submit_video(engine)
     ctx = HostContext(engine, None)
     host = VideoHost(ctx, "rena", VIDEO_MANIFEST, headless=True)
-    assert host.release_when_paused
     mpv = FakeMpv()
     host.mpv = mpv  # type: ignore[assignment]
     host.receive("data", Collection(items=video_items(tmp_path / "video", "cam-a")))
     host._on_loaded()
-    mpv.props["position"] = host.timemap.pts[4]
-    host._on_position()
-    assert emitted(ctx, "rena", "time") == TimeValue(t=FRAME_4, timeline="stamp")
+    times: list = []
+    emit = host.emit
 
-    host.item = QQuickItem()  # out of the scene: no parent item (the registry took it)
+    def recording(port: str, value: object) -> None:
+        if port == "time":
+            times.append(value)
+        emit(port, value)
+
+    host.emit = recording  # type: ignore[method-assign]
+    return host, mpv, times
+
+
+def at(host: VideoHost, mpv: FakeMpv, frame: int | float) -> None:
+    """mpv reports a position: a frame index, or seconds when a float."""
+    mpv.props["position"] = frame if isinstance(frame, float) else host.timemap.pts[frame]
+    host._on_position()
+
+
+def test_a_released_video_shows_the_same_frame_after_its_resume(engine: Engine, tmp_path: Path):
+    """SPEC-3: released, the video's node frees mpv's render context and the item reopens
+    the file for the next one. Position changes nobody asked for in between (the old
+    context's frame going, the reopening) are not emitted; once reopened the video seeks
+    back to the frame it showed, emitted once on landing."""
+    host, mpv, times = released_video(engine, tmp_path)
+    assert host.release_when_paused
+    at(host, mpv, 4)
     host.pause()
-    mpv.props["position"] = host.timemap.pts[5]  # the old context's frame went
-    host._on_position()
+    host.on_release()
+    at(host, mpv, 5)  # the old context's frame went
+    host.on_restore()
     host.resume()
-    mpv.props["position"] = 0.0  # the file reopening for the new context
-    host._on_position()
-    assert emitted(ctx, "rena", "time") == TimeValue(t=FRAME_4, timeline="stamp")
+    at(host, mpv, 0.0)  # the file reopening for the new context
     mpv.writes.clear()
     host._on_loaded()
     assert mpv.writes[-1] == ("seek", host.timemap.pts[4])
     host._on_restart()
-    mpv.props["position"] = host.timemap.pts[4]
-    host._on_position()
+    at(host, mpv, 4)
     assert host.frame == 4
-    assert emitted(ctx, "rena", "time") == TimeValue(t=FRAME_4, timeline="stamp")
-    host.item = None
+    assert times == [TimeValue(t=FRAME_4, timeline="stamp")] * 2  # before, and on landing
+
+
+def test_a_video_playing_when_released_plays_on_from_the_same_frame(engine: Engine, tmp_path: Path):
+    """Released while playing: no play before the file has reopened and landed back on
+    the frame it rested on, so the clock never jumps toward frame 0."""
+    host, mpv, times = released_video(engine, tmp_path)
+    mpv.props["paused"] = False
+    host._on_paused()
+    at(host, mpv, 6)
+    host.pause()  # off-screen: playback stops on frame 6
+    mpv.props["paused"] = True
+    host._on_paused()
+    at(host, mpv, 6)
+    host.on_release()
+    at(host, mpv, 7)  # the old context's frame went
+    mpv.writes.clear()
+    host.on_restore()
+    host.resume()
+    assert ("pause", False) not in mpv.writes  # held until the landing
+    at(host, mpv, 0.0)  # reopening
+    host._on_loaded()
+    assert mpv.writes[-1] == ("seek", host.timemap.pts[6])
+    host._on_restart()
+    at(host, mpv, 6)
+    assert mpv.writes[-1] == ("pause", False)  # plays on from the frame it showed
+    stamps = {v.t for v in times}
+    assert stamps <= {host.time_value(6).t, host.time_value(None).t}
+    assert times[-1] == host.time_value(6)
 
 
 def test_a_time_received_while_released_is_where_the_video_comes_back(
-    engine: Engine, tmp_path: Path, qapp
+    engine: Engine, tmp_path: Path
 ):
-    from PySide6.QtQuick import QQuickItem
-
-    submit_video(engine)
-    ctx = HostContext(engine, None)
-    host = VideoHost(ctx, "rena", VIDEO_MANIFEST, headless=True)
-    mpv = FakeMpv()
-    host.mpv = mpv  # type: ignore[assignment]
-    host.receive("data", Collection(items=video_items(tmp_path / "video", "cam-a")))
-    host._on_loaded()
-    host.item = QQuickItem()
+    host, mpv, _ = released_video(engine, tmp_path)
     host.pause()
+    host.on_release()
     host.receive("time", TimeValue(t=FRAME_8, timeline="stamp"))
+    host.on_restore()
     host.resume()
     mpv.writes.clear()
     host._on_loaded()
     assert mpv.writes[-1] == ("seek", host.timemap.pts[8])
-    host.item = None
 
 
 def test_a_video_playing_when_paused_plays_on_when_resumed(engine: Engine, tmp_path: Path):
-    submit_video(engine)
-    ctx = HostContext(engine, None)
-    host = VideoHost(ctx, "rena", VIDEO_MANIFEST, headless=True)
-    mpv = FakeMpv()
-    host.mpv = mpv  # type: ignore[assignment]
-    host.receive("data", Collection(items=video_items(tmp_path / "video", "cam-a")))
-    host._on_loaded()
+    host, mpv, _ = released_video(engine, tmp_path)
     mpv.props["paused"] = False
     host._on_paused()
-    host.pause()
+    host.pause()  # not released (the grace did not run out): plays on at once
     assert mpv.writes[-1] == ("pause", True)
     mpv.writes.clear()
     host.resume()
