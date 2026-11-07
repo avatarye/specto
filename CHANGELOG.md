@@ -15,6 +15,16 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Auto-update no longer lists a watched folder every second (SPEC-8, ADR 0027). Watched
+  links follow the system's change notifications (ReadDirectoryChangesW, inotify,
+  FSEvents) and apply only the paths they name. On a 100,000-file folder the watcher's
+  idle cost fell from about a fifth of a core to 0.2 %, and an arrival's collection lands
+  in about 2.6 s instead of 7 s. A full listing still runs every 30 s (10 s on a network
+  drive) as a safety net, after bursts and when Windows reports lost notices. Where
+  notifications cannot be trusted (a network file system on Linux or macOS, a source not
+  there yet) the watcher polls as before, and the status bar says "auto-update on
+  (polling: ...)". `SPECTO_WATCH=poll` forces polling. New event `link.watching`.
+  **New runtime dependency:** watchdog.
 - Gallery captions sit on the thumbnails (SPEC-6): each key overlays its tile's bottom
   edge, light text on a dark scrim that reads on light and dark images, and takes no row
   height, so more tiles fit. A time-linked gallery marks its current item (the frame at

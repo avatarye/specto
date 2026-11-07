@@ -112,6 +112,13 @@ resize, and views snap to each other and to the window. Ctrl+Z and Ctrl+Y undo a
 every change, yours and the agent's, in time order; the status bar shows the undo depth.
 Right-click (or Shift+F10) opens the context menu for what is under the pointer.
 
+**Auto-update.** A view whose eye is on follows its folder through the operating
+system's change notifications, so a watched folder costs nothing while nothing changes,
+whatever its size, and a new file shows in well under a second. Where notifications
+are not to be trusted (a network file system on Linux or macOS, where changes made by
+another machine never arrive) the folder is listed every second instead, and the status
+bar says so: "auto-update on (polling: ...)". Set `SPECTO_WATCH=poll` to always poll.
+
 **The file tree.** It lists a folder when you open it, so a big project shows at once;
 everything starts closed except a chain of single folders from the top. Picking a folder
 still picks every file under it. To find a file, type in the box at the top of the tree
