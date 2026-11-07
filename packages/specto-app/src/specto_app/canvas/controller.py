@@ -375,7 +375,7 @@ class CanvasController(QObject):
         self._watch_timer = QTimer(self)
         self._watch_timer.setSingleShot(True)
         self._watch_timer.setInterval(0)
-        self._watch_timer.timeout.connect(self._rebuild_views)
+        self._watch_timer.timeout.connect(self._on_watching)
         self._off_patch = self.live.on_patch(self._on_patch)
         # the scratch pad's steps share Ctrl+Z with the canvas's (#184); ``_redo_order``
         # remembers which stack each undo took, so redo walks back the same way
@@ -599,6 +599,10 @@ class CanvasController(QObject):
             self._redo_order = [s for s in self._redo_order if s != "canvas"]
         self.rebuild()
         self.patched.emit(str(meta.get("kind")))
+
+    @Slot()
+    def _on_watching(self) -> None:
+        self._rebuild_views()
 
     @Slot(str)
     def _on_health(self, view_id: str) -> None:
