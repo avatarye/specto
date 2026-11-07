@@ -15,11 +15,21 @@ Video and pdf thumbnails fit a ``px`` square at the source's aspect; cards are
 ``CARD_ASPECT`` landscape. The result is an RGBA ``HWC`` ``TypedBuffer`` like the image
 decoder's, so the gallery pushes both the same way.
 
+A video inside an archive (libmpv opens real paths only) is copied out to a temporary
+file for its poster when it is at most ``ARCHIVE_VIDEO_MAX`` bytes, else it gets the
+kind card.
+
 Cache: per file path plus stat (size, mtime). On disk, one PNG per path and size under
 the project's ``.specto/cache/thumbs/`` (the intaker never lists ``.specto/``), the stat
 kept in the PNG and compared on read, so a changed file is rendered again and its PNG
 replaced; in memory, :class:`ThumbMemory` per engine (GUI thread), so a tile scrolled
-back into view or a second gallery over the same files needs no job at all.
+back into view or a second gallery over the same files needs no job at all. Images go
+through the same disk cache (:func:`image_batch`) when the source is big enough
+(``IMAGE_CACHE_MIN_PIXELS``) that reading the PNG beats decoding it again: a 12 MP JPEG
+takes about 30 ms to thumbnail and a 12 MP PNG about 200 ms, a cached thumbnail under
+1 ms; a 640 x 480 JPEG takes 2 ms and is left alone. :func:`prune_cache` deletes the
+PNGs of files that are gone or changed, at most once a day per project
+(:func:`maybe_prune`, when a gallery opens).
 """
 
 from __future__ import annotations
@@ -33,7 +43,9 @@ import html
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import time
 import weakref
 from collections import OrderedDict
@@ -45,7 +57,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from PIL.PngImagePlugin import PngInfo
 
-from specto_core.containers import is_virtual, open_source, stat_virtual
+from specto_core.containers import is_virtual, open_source, split_virtual, stat_virtual
 from specto_core.kinds import DataRef, TypedBuffer
 
 THUMB_VERSION = 1  # bump when the pictures change: old cache files are rendered again
@@ -57,6 +69,15 @@ VIDEO_TIMEOUT_S = 5.0
 EXCERPT_BYTES = 16 * 1024
 NATIVE_DIR = Path(__file__).resolve().parent / "qml" / "Specto" / "Native"  # ships libmpv
 JSON_PRETTY_MAX = 256 * 1024  # larger json files show their first raw lines
+#: an image whose source has at least this many pixels keeps its thumbnail on disk
+IMAGE_CACHE_MIN_PIXELS = 2_000_000
+#: the look key of an image thumbnail (no theme colours in it)
+IMAGE_LOOK: dict[str, str] = {"kind": "image"}
+#: the largest archive member copied out for a poster frame (bytes)
+ARCHIVE_VIDEO_MAX = 512 * 1024 * 1024
+#: the file whose modified time says when the cache was last pruned
+PRUNE_STAMP = ".pruned"
+PRUNE_EVERY_S = 24 * 3600
 
 IMAGE_KINDS = ("image2d", "image_seq")
 TEXT_KINDS = ("markdown", "json", "geojson", "html", "text")
@@ -178,10 +199,14 @@ def _read_cached(path: Path, sig: str) -> np.ndarray | None:
         return None
 
 
-def _write_cached(path: Path, arr: np.ndarray, sig: str, uri: str) -> None:
+def _write_cached(
+    path: Path, arr: np.ndarray, sig: str, uri: str, extra: dict[str, str] | None = None
+) -> None:
     info = PngInfo()
     info.add_text("specto-stat", sig)
     info.add_text("specto-source", uri)
+    for k, v in (extra or {}).items():
+        info.add_text(k, v)
     tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,11 +216,191 @@ def _write_cached(path: Path, arr: np.ndarray, sig: str, uri: str) -> None:
         tmp.unlink(missing_ok=True)
 
 
+def image_batch(
+    refs: list[dict[str, Any]],
+    request: dict[str, Any],
+    cache_dir: str | None,
+    progress: ProgressFn,
+) -> list[TypedBuffer | dict[str, str]]:
+    """Image thumbnails (the ``image`` decoder's), through the disk cache: a PNG whose
+    stat still matches is read back; otherwise the image is decoded and, when its source
+    has ``IMAGE_CACHE_MIN_PIXELS`` or more, written. ``meta.cache`` says ``disk`` or
+    ``decoded``. A failing item becomes ``{"error": ...}`` in its slot."""
+    from specto_core.kinds import DecodeRequest
+    from specto_readers import default_readers
+
+    req = DecodeRequest.model_validate(request)
+    px = int(req.max_size or 0)
+    decoder = default_readers().decoder("image")
+    out: list[TypedBuffer | dict[str, str]] = []
+    n = max(1, len(refs))
+    for i, raw in enumerate(refs):
+        ref = DataRef.model_validate(raw)
+        try:
+            out.append(_image_thumb(ref, req, px, cache_dir, decoder))
+        except Exception as e:
+            out.append({"error": f"{type(e).__name__}: {e}", "uri": ref.uri})
+        if (i + 1) % 16 == 0:
+            progress((i + 1) / n, f"{i + 1}/{n}")
+    return out
+
+
+def _image_thumb(
+    ref: DataRef, req: Any, px: int, cache_dir: str | None, decoder: Any
+) -> TypedBuffer:
+    size, mtime = stat_of(ref.uri)
+    sig = f"{size}:{mtime}"
+    path = cache_path(cache_dir, ref.uri, px, IMAGE_LOOK) if cache_dir and px else None
+    if path is not None:
+        hit = _read_cached_meta(path, sig)
+        if hit is not None:
+            arr, text = hit
+            return TypedBuffer.from_numpy(
+                arr,
+                layout="HWC",
+                width=int(arr.shape[1]),
+                height=int(arr.shape[0]),
+                source_width=int(text.get("specto-source-w", 0)),
+                source_height=int(text.get("specto-source-h", 0)),
+                source=ref.uri,
+                purpose="thumbnail",
+                stat=[size, mtime],
+                cache="disk",
+            )
+    buf = decoder.decode(ref, req)
+    meta = buf.spec.meta
+    sw, sh = int(meta.get("source_width") or 0), int(meta.get("source_height") or 0)
+    meta["stat"] = [size, mtime]
+    meta["cache"] = "decoded"
+    arr = getattr(buf, "array", None)
+    if path is not None and arr is not None and sw * sh >= IMAGE_CACHE_MIN_PIXELS:
+        extra = {"specto-source-w": str(sw), "specto-source-h": str(sh)}
+        _write_cached(path, np.ascontiguousarray(arr), sig, ref.uri, extra)
+    return buf
+
+
+def _read_cached_meta(path: Path, sig: str) -> tuple[np.ndarray, dict[str, str]] | None:
+    try:
+        with Image.open(path) as im:
+            text = dict(getattr(im, "text", {}))
+            if text.get("specto-stat") != sig:
+                return None
+            return np.asarray(im.convert("RGBA"), dtype=np.uint8), text
+    except (OSError, ValueError):
+        return None
+
+
+def submit_images(
+    jobs: Any,
+    refs: list[DataRef],
+    request: Any,
+    cache_dir: str | None,
+    *,
+    canvas: str | None = None,
+    on_done: Callable[[Any], None] | None = None,
+) -> Any:
+    """Queue :func:`image_batch` on any ``JobManager``."""
+    return jobs.submit(
+        "thumbs.images",
+        image_batch,
+        [r.model_dump() for r in refs],
+        request.model_dump(),
+        cache_dir,
+        canvas=canvas,
+        on_done=on_done,
+    )
+
+
+# -- pruning ----------------------------------------------------------------------------
+def cached_source(path: Path) -> str | None:
+    """The source path a cached PNG was made of (None when it cannot be read)."""
+    try:
+        with Image.open(path) as im:
+            return getattr(im, "text", {}).get("specto-source")
+    except (OSError, ValueError):
+        return None
+
+
+def prune_cache(cache_dir: str | None, project_root: Path | str | None) -> tuple[int, int]:
+    """Delete the cached PNGs whose file is gone or changed since (its stat no longer the
+    one in the PNG: the next picture of it replaces the PNG anyway); ``(kept, removed)``.
+    A file outside the project whose folder is missing too (a drive not plugged in) is
+    kept. Leftover ``.tmp`` files over an hour old go as well."""
+    if not cache_dir or not os.path.isdir(cache_dir):
+        return 0, 0
+    root = os.path.normcase(os.path.abspath(project_root)) if project_root else None
+    kept = removed = 0
+    for dirpath, _dirs, files in os.walk(cache_dir):
+        for name in files:
+            p = Path(dirpath) / name
+            if name.endswith(".tmp"):
+                with contextlib.suppress(OSError):
+                    if time.time() - p.stat().st_mtime > 3600:
+                        p.unlink()
+                continue
+            if not name.endswith(".png"):
+                continue
+            if _stale(p, root):
+                try:
+                    p.unlink()
+                    removed += 1
+                    continue
+                except OSError:
+                    pass
+            kept += 1
+    return kept, removed
+
+
+def _stale(png: Path, project_root: str | None) -> bool:
+    try:
+        with Image.open(png) as im:
+            text = getattr(im, "text", {})
+            source, sig = text.get("specto-source"), text.get("specto-stat")
+    except (OSError, ValueError):
+        return True  # unreadable: a broken write
+    if not source:
+        return True
+    try:
+        size, mtime = stat_of(source)
+    except OSError:
+        hit = split_virtual(source)
+        on_disk = hit[0] if hit else source
+        where = os.path.normcase(os.path.abspath(on_disk))
+        inside = project_root is not None and where.startswith(project_root.rstrip(os.sep) + os.sep)
+        return inside or os.path.isdir(os.path.dirname(on_disk))
+    return sig != f"{size}:{mtime}"
+
+
+#: cache folders pruned (or looked at) in this process
+_pruned: set[str] = set()
+
+
+def maybe_prune(jobs: Any, cache_dir: str | None, project_root: Path | str | None) -> Any:
+    """Prune the cache in a job, at most once a day per cache folder (and once per
+    process): the stamp file's modified time says when it last ran."""
+    if not cache_dir or cache_dir in _pruned or not os.path.isdir(cache_dir):
+        return None
+    _pruned.add(cache_dir)
+    stamp = Path(cache_dir) / PRUNE_STAMP
+    try:
+        if time.time() - stamp.stat().st_mtime < PRUNE_EVERY_S:
+            return None
+    except OSError:
+        pass
+    with contextlib.suppress(OSError):
+        stamp.touch()
+    return jobs.submit("thumbs.prune", _prune_job, cache_dir, str(project_root or ""))
+
+
+def _prune_job(cache_dir: str, project_root: str, progress: ProgressFn) -> tuple[int, int]:
+    return prune_cache(cache_dir, project_root or None)
+
+
 # -- rendering --------------------------------------------------------------------------
 def render(uri: str, kind: str, px: int, pal: dict[str, str]) -> np.ndarray:
     """The thumbnail of one file as RGBA ``HWC``, no cache."""
     if kind == "video_ref":
-        frame = None if is_virtual(uri) else video_poster(uri, px)
+        frame = archived_poster(uri, px) if is_virtual(uri) else video_poster(uri, px)
         return frame if frame is not None else kind_card(uri, kind, px, pal)
     if kind == "pdf":
         return pdf_page(uri, px)
@@ -391,6 +596,29 @@ def video_poster(path: str, px: int) -> np.ndarray | None:
     return _fit(Image.fromarray(frame, "RGBA"), px)
 
 
+def archived_poster(uri: str, px: int) -> np.ndarray | None:
+    """The poster frame of a video inside an archive: libmpv opens real paths only, so
+    the member is copied out to a temporary file (removed afterwards); None when libmpv
+    is missing or the member is over ``ARCHIVE_VIDEO_MAX`` bytes (the kind card then)."""
+    hit = split_virtual(uri)
+    if libmpv() is None or hit is None:
+        return None
+    from specto_core.containers import list_members
+
+    inner = hit[1].lstrip("/")
+    member = next((m for m in list_members(hit[0]) if m.path.lstrip("/") == inner), None)
+    if member is None or member.size > ARCHIVE_VIDEO_MAX:
+        return None
+    fd, tmp = tempfile.mkstemp(prefix="specto-poster-", suffix=Path(inner).suffix)
+    try:
+        with os.fdopen(fd, "wb") as out, open_source(uri) as src:
+            shutil.copyfileobj(src, out, 1024 * 1024)
+        return video_poster(tmp, px)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+
+
 def _frame_of(node: _Node) -> np.ndarray:
     """``screenshot-raw``'s map (w, h, stride, format bgr0, data) as RGBA ``HWC``."""
     lst = node.u.list.contents
@@ -477,6 +705,29 @@ def _wrap(d: ImageDraw.ImageDraw, text: str, font: Any, width: float) -> list[st
     return lines
 
 
+def _wrap_code(d: ImageDraw.ImageDraw, line: str, font: Any, width: float) -> list[str]:
+    """A code line cut to ``width`` anywhere (a long JSON string has no spaces to break
+    at); every continuation keeps the line's indent, unless the indent alone fills it."""
+    if d.textlength(line, font=font) <= width:
+        return [line]
+    indent = line[: len(line) - len(line.lstrip(" "))]
+    if d.textlength(indent + "MMMM", font=font) > width:
+        indent = ""
+    rows: list[str] = []
+    prefix, rest = "", line
+    while rest:
+        lo, hi = 1, len(rest)  # the longest head of ``rest`` that fits after the prefix
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if d.textlength(prefix + rest[:mid], font=font) <= width:
+                lo = mid
+            else:
+                hi = mid - 1
+        rows.append(prefix + rest[:lo])
+        prefix, rest = indent, rest[lo:]
+    return rows
+
+
 def _read_head(uri: str, limit: int) -> tuple[str, bool]:
     """The first ``limit`` bytes as text, and whether that was the whole file."""
     with open_source(uri) as f:
@@ -531,7 +782,8 @@ def excerpt_card(uri: str, kind: str, px: int, pal: dict[str, str]) -> np.ndarra
     for style, line in excerpt_lines(uri, kind):
         font = fonts[style]
         step = round(font.size * 1.3)
-        rows = [line] if style == "code" else _wrap(d, line, font, width)
+        wrap = _wrap_code if style == "code" else _wrap
+        rows = wrap(d, line, font, width)
         for row in rows:
             if y + font.size > h - pad // 2:
                 return np.asarray(im, dtype=np.uint8)
@@ -666,14 +918,18 @@ __all__ = [
     "cache_path",
     "excerpt_card",
     "excerpt_lines",
+    "image_batch",
     "is_image",
     "kind_card",
+    "maybe_prune",
     "memory_for",
     "palette",
     "pdf_page",
+    "prune_cache",
     "ref_stat",
     "render",
     "render_batch",
+    "submit_images",
     "submit_thumbs",
     "video_poster",
 ]

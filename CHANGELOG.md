@@ -15,6 +15,15 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Gallery thumbnail cache follow-ups (SPEC-17). Thumbnails of files that were deleted or
+  changed leave `.specto/cache/thumbs/`, pruned in the background at most once a day
+  when a gallery opens; a file outside the project whose folder is missing (a drive not
+  plugged in) keeps its thumbnail. Long code and JSON lines wrap on excerpt cards instead
+  of being cut at the edge, continuations keeping their indent. Big images (2 MP and up)
+  keep their thumbnail on disk too, so a reopened project reads a 12 MP PNG's thumbnail
+  in under a millisecond instead of decoding it again (about 200 ms); smaller images
+  decode as before. A video inside an archive shows its poster frame: the member, up to
+  512 MB, is copied to a temporary file for libmpv and removed again.
 - Gallery captions sit on the thumbnails (SPEC-6): each key overlays its tile's bottom
   edge, light text on a dark scrim that reads on light and dark images, and takes no row
   height, so more tiles fit. A time-linked gallery marks its current item (the frame at
