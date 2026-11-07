@@ -208,6 +208,9 @@ def test_inline_json_accepts_lone_backslashes(text):
 
 
 def test_inline_json_spec_via_cli_in_both_quotings(run, ep):
+    # the engine serves intake.preview once specto_intake is imported (its import
+    # registers the intake.* commands); the CLI does not depend on it, the app does
+    pytest.importorskip("specto_intake")
     info = ep.engine.api_info()
     cmd = next(c for c in info["commands"] if c["name"] == "intake.preview")
     assert "spec" in cmd["args_schema"]["properties"]
