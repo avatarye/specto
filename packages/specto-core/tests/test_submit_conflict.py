@@ -7,6 +7,8 @@ resolved state."""
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from doc_helpers import pin
 
@@ -119,7 +121,7 @@ def test_an_edit_of_the_view_the_user_changed_mid_turn_is_refused_with_its_live_
     # since stays the turn's start: a retry of the same change is refused again, so the
     # fix-it says to keep the user's value or ask, never to write over it
     assert "keep the user's" in problem["fix"] and "ask" in problem["fix"]
-    assert "layout.position" in problem["fix"] and "over" not in problem["fix"]
+    assert "layout.position" in problem["fix"] and "leave it out of your edits" in problem["fix"]
     assert position(live, "kobi") == [700.0, 300.0] and len(live.history) == depth
 
 
@@ -268,9 +270,98 @@ def test_a_submit_off_the_canvas_s_thread_is_caught(live: LiveCanvas, monkeypatc
 
     monkeypatch.setenv("SPECTO_THREAD_CHECK", "raise")
     (error,) = from_a_worker()
-    assert isinstance(error, RuntimeError) and "owns the canvas" in str(error)
+    assert isinstance(error, RuntimeError) and "serial_lock" in str(error)
     assert live.data["views"]["kobi"]["label"] == "kobi"
     monkeypatch.setenv("SPECTO_THREAD_CHECK", "warn")
     assert from_a_worker() == []
     assert "[WARN]" in capsys.readouterr().err
     assert live.data["views"]["kobi"]["label"] == "x"
+
+
+def live_entry(problem: dict) -> dict:
+    """The live entry a conflict carries ("its entry is now {...}")."""
+    return json.loads(problem["message"].split("its entry is now ", 1)[1])
+
+
+def test_an_edit_that_follows_its_fix_it_lands(live: LiveCanvas):
+    """The edit's fix-it: leave the user's field out. Done literally, the next submit lands
+    with the rest of the change."""
+    since = live.mark()
+    gestures.move_views(live, {"kobi": (700, 300)})
+    change = {"views": {"kobi": {"layout": {"position": [330, 0]}, "label": "front"}}}
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(edits=change, origin=AGENT, since=since)
+    assert "leave it out of your edits" in e.value.problems[0]["fix"]
+
+    del change["views"]["kobi"]["layout"]  # left out, as the fix-it says
+    live.submit(edits=change, origin=AGENT, since=since)
+    assert (
+        position(live, "kobi") == [700.0, 300.0] and live.data["views"]["kobi"]["label"] == "front"
+    )
+
+
+def test_a_whole_document_that_follows_its_fix_it_lands(live: LiveCanvas):
+    """The whole document's fix-it: copy the live value (leaving it out of a document
+    would remove it, refused again). Done literally, the next submit lands."""
+    since = live.mark()
+    doc = live.document()
+    gestures.move_views(live, {"kobi": (700, 300)})
+    doc["views"]["kobi"]["layout"]["position"] = [330, 0]
+    doc["views"]["tamu"]["label"] = "rear"
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(doc, origin=AGENT, since=since)
+    (problem,) = e.value.problems
+    assert "copy its live value" in problem["fix"]
+
+    doc["views"]["kobi"]["layout"]["position"] = live_entry(problem)["layout"]["position"]
+    live.submit(doc, origin=AGENT, since=since)
+    assert (
+        position(live, "kobi") == [700.0, 300.0] and live.data["views"]["tamu"]["label"] == "rear"
+    )
+
+
+def test_a_whole_document_that_dropped_a_view_the_user_moved_copies_it_back(live: LiveCanvas):
+    since = live.mark()
+    doc = live.document()
+    gestures.move_views(live, {"kobi": (700, 300)})
+    pins = [lid for lid, link in doc["links"].items() if link["target"]["view"] == "kobi"]
+    del doc["views"]["kobi"]  # with its pin, as an agent removing it writes
+    for lid in pins:
+        del doc["links"][lid]
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(doc, origin=AGENT, since=since)
+    problem = next(p for p in e.value.problems if p["path"] == "/views/kobi")
+    doc["views"]["kobi"] = live_entry(problem)  # the live value, copied
+    doc["links"].update({lid: live.data["links"][lid] for lid in pins})
+    live.submit(doc, origin=AGENT, since=since)
+    assert position(live, "kobi") == [700.0, 300.0]
+
+
+def test_a_thread_holding_the_serial_lock_may_submit_and_a_bare_one_may_not(
+    live: LiveCanvas, monkeypatch
+):
+    """The canvas's one serialise lock, which every endpoint takes around a request: a
+    submit on a thread holding it passes the thread check; a bare submit from a thread
+    still raises, also after a locked one ran (the lock is no switch that stays off)."""
+    import threading
+
+    monkeypatch.setenv("SPECTO_THREAD_CHECK", "raise")
+    errors: list[BaseException] = []
+
+    def run(locked: bool, label: str) -> None:
+        try:
+            if locked:
+                with live.serial_lock:
+                    live.submit(edits={"views": {"kobi": {"label": label}}}, origin=AGENT)
+            else:
+                live.submit(edits={"views": {"kobi": {"label": label}}}, origin=AGENT)
+        except BaseException as e:
+            errors.append(e)
+
+    for locked, label in ((True, "locked"), (False, "bare")):
+        worker = threading.Thread(target=run, args=(locked, label))
+        worker.start()
+        worker.join(10)
+    (error,) = errors
+    assert isinstance(error, RuntimeError)
+    assert live.data["views"]["kobi"]["label"] == "locked"

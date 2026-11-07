@@ -316,6 +316,8 @@ class SpectoApp(QObject):
     # -- canvas --------------------------------------------------------------------------
     def _open_canvas(self) -> None:
         live = self.engine.live  # opens .specto/canvas.json and restores the undo history
+        # opened here, on the GUI thread: the thread every submit runs on (SPEC-18)
+        live.check_thread()
         n = len(live.data["views"])
         print(f"[OK] opened canvas of {self.project.root} ({n} view{'s' if n != 1 else ''})")
         if live.history_note:

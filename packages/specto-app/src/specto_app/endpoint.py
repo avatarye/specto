@@ -134,7 +134,10 @@ if HAVE_QT:
                     break
                 line = bytes(buf[:nl]).decode("utf-8", errors="replace")
                 del buf[: nl + 1]
-                out = self.handler.handle_line(conn, line)
+                # the GUI thread owns the canvas; the lock is every endpoint's all the same
+                # (SPEC-18: one serialise lock for the canvas, whoever calls it)
+                with self.engine.live.serial_lock:
+                    out = self.handler.handle_line(conn, line)
                 if out:
                     self._write(sock, out)
 

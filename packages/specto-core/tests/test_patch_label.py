@@ -132,3 +132,15 @@ def test_a_label_with_a_quote_reads_plainly(live: LiveCanvas):
     assert submitted(live, {"views": {"kobi": {"label": "Bob's frames"}}}) == (
         "relabelled kobi 'Bob's frames'"
     )
+
+
+def test_a_replaced_view_keeps_its_links_phrases():
+    patch = [
+        {"op": "replace", "path": "/views/kobi", "value": {"type": "image", "label": "k"}},
+        {
+            "op": "add",
+            "path": "/links/l9",
+            "value": {"source": {"view": "kobi"}, "target": {"view": "tamu"}},
+        },
+    ]
+    assert patch_label(patch) == "replaced kobi and linked kobi to tamu"

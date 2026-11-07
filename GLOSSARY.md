@@ -427,7 +427,7 @@ The canvas's views and links as they were when a prompt turn began. The agent's 
 _Avoid_: base, snapshot (a snapshot is `snap`'s), checkpoint
 
 **Turn-start conflict**:
-A submit during a prompt turn that would change a field of a view or link that the user also changed, differently, after the turn began (or change one the user removed). It is refused with the object's live entry and is not counted as a failed attempt. A submit that changes other fields of such an object is no conflict: the agent's change and the user's both land.
+A submit during a prompt turn that would change a field of a view or link that the user also changed, differently, after the turn began, change one the user removed, or leave a link the user added without one of its views. It is refused with the object's live entry and is not counted as a failed attempt; the agent keeps the user's value or asks. A submit that changes other fields of such an object is no conflict: the agent's change and the user's both land.
 _Avoid_: merge conflict, race, stale write
 
 **Two-way link**:

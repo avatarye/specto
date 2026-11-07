@@ -19,7 +19,6 @@ from __future__ import annotations
 import copy
 import json
 import os
-import re
 import sys
 import threading
 import time
@@ -41,7 +40,14 @@ from .canvas_document import (
     watch_the_file_tree,
 )
 from .diff_text import patch_label
-from .edits import MISSING, already_removed, field_at, field_paths, merge_edits, three_way
+from .edits import (
+    MISSING,
+    already_removed,
+    edit_conflict,
+    lost_ends,
+    merge_edits,
+    three_way,
+)
 from .errors import PatchError, TxnError
 from .events import EventStream
 from .journal import Journal, JournalEntry
@@ -51,7 +57,14 @@ from .patch import apply_patch, invert_patch, make_patch
 from .project import Project
 from .quotas import Quotas, ViewCostFn, quota_problems
 from .registry import Result
-from .txn import TxnRecord, UndoResult, rebuild_history, stack_applies, touched_objects
+from .txn import (
+    OBJECT_PATH,
+    TxnRecord,
+    UndoResult,
+    rebuild_history,
+    stack_applies,
+    touched_objects,
+)
 from .unknown_files import file_problems
 
 #: The one canvas's id in records and addresses (ADR 0012: there is only one).
@@ -98,7 +111,6 @@ class CanvasConflict(CanvasInvalid):
     code = "conflict"
 
 
-_OBJECT_PATH = re.compile(r"^/(views|links)/([^/]+)")
 #: how many turn-start copies ``mark`` keeps (the prompt bar needs the newest)
 MARK_COPIES = 4
 #: what a submit off the canvas's own thread does: ``warn`` (the app's default), ``raise``
@@ -106,11 +118,12 @@ MARK_COPIES = 4
 THREAD_CHECK_ENV = "SPECTO_THREAD_CHECK"
 
 
-def _conflict(section: str, oid: str, entry: Any, fields: list[str]) -> Problem:
+def _conflict(section: str, oid: str, entry: Any, fields: list[str], *, edit: bool) -> Problem:
     """A turn-start conflict on one object: removed by the user, or changed in
     ``fields`` (dotted paths; ``""`` for the object as a whole) by both sides. ``since``
-    stays the turn's start, so a retry of the same change meets the same conflict: the
-    fix-it says to keep the user's value or ask, never to write over it."""
+    stays the turn's start, so writing over the user's value is refused again: the fix-it
+    says how to keep it, per submit form. An edit leaves the field out; a whole document
+    copies the live value (leaving it out of a document would remove it, refused again)."""
     if entry is MISSING:
         return Problem(
             path=f"/{section}/{oid}",
@@ -119,13 +132,17 @@ def _conflict(section: str, oid: str, entry: Any, fields: list[str]) -> Problem:
         )
     which = ", ".join(f for f in fields if f)
     what = f"{oid}'s {which}" if which else oid
+    how = (
+        "leave it out of your edits"
+        if edit
+        else "copy its live value (from this entry) into your document"
+    )
     return Problem(
         path=f"/{section}/{oid}",
         message=f"{oid} was changed by the user during this turn"
         + (f" ({which})" if which else "")
         + f"; its entry is now {json.dumps(entry, separators=(',', ':'))}",
-        fix=f"keep the user's {what}: leave it out of your submit, or ask the user before "
-        "changing it",
+        fix=f"keep the user's {what}: {how}, or ask the user before changing it",
     )
 
 
@@ -139,6 +156,34 @@ def _link_conflict(lid: str, views: list[str]) -> Problem:
         "which your change removes",
         fix=f"keep {names}, or ask the user before removing it",
     )
+
+
+class SerialLock:
+    """The canvas's one serialise lock (SPEC-18): re-entrant, and it knows its holder. Every
+    endpoint that calls the canvas from threads of its own takes it around each request
+    (the SDK's test endpoints, the app's endpoint); a submit on such a thread passes the
+    thread check only while holding it."""
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._holder: int | None = None
+        self._depth = 0
+
+    def __enter__(self) -> SerialLock:
+        self._lock.acquire()
+        self._holder = threading.get_ident()
+        self._depth += 1
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self._depth -= 1
+        if not self._depth:
+            self._holder = None
+        self._lock.release()
+
+    def held(self) -> bool:
+        """Whether the calling thread holds it."""
+        return self._holder == threading.get_ident()
 
 
 def _changes(patch: list[dict[str, Any]], section: str) -> dict[str, list[str]]:
@@ -220,11 +265,11 @@ class LiveCanvas:
         #: SPEC-18); the newest ``MARK_COPIES`` are kept
         self._marks: dict[int, tuple[int, dict[str, dict[str, Any]]]] = {}
         self._mark_no = 0
-        #: the thread that owns the canvas (the GUI thread in the app): every submit runs
-        #: there, so one submit's read, merge and apply never interleave with another's.
-        #: ``None``: the caller serialises submits with a lock of its own instead (the
-        #: SDK's test endpoints, ``serialised_elsewhere``)
-        self.owner_thread: int | None = threading.get_ident()
+        #: the thread that owns the canvas (the GUI thread in the app, where ``SpectoApp``
+        #: opens it): every submit runs there, or on a thread holding ``serial_lock``, so
+        #: one submit's read, merge and apply never interleave with another's
+        self.owner_thread = threading.get_ident()
+        self.serial_lock = SerialLock()
 
     # -- construction ------------------------------------------------------------------
     @classmethod
@@ -413,7 +458,7 @@ class LiveCanvas:
         turn-start copies (SPEC-18); a field both changed differently is refused with
         ``CanvasConflict``, carrying the live entry (#98). A submit without a ``label``
         gets one from its patch (``diff_text.patch_label``)."""
-        self._check_thread("submit")
+        self.check_thread()
         if (document is None) == (edits is None):
             raise CanvasInvalid(
                 [
@@ -532,26 +577,20 @@ class LiveCanvas:
             depth=len(self.history),
         )
 
-    def serialised_elsewhere(self) -> None:
-        """The caller runs submits from several threads but one at a time, under a lock
-        of its own (the SDK's test endpoints): the thread check stands down."""
-        self.owner_thread = None
-
-    def _check_thread(self, what: str) -> None:
-        """Catch a change that moved ``what`` off the canvas's own thread (SPEC-18): today
-        every submit runs on the GUI thread (the prompt bar's agent tools on the qasync
-        loop, the endpoint's ``QLocalServer``, the gestures), which is what keeps a
-        submit's read, merge and apply whole without a lock. Raises under tests, warns in
-        the app (``THREAD_CHECK_ENV``)."""
-        if self.owner_thread is None or threading.get_ident() == self.owner_thread:
+    def check_thread(self) -> None:
+        """Catch a change of the canvas off its own thread (SPEC-18). Today every submit runs
+        on the GUI thread (the prompt bar's agent tools on the qasync loop, the endpoint's
+        ``QLocalServer``, the gestures) or on a thread holding ``serial_lock`` (the SDK's
+        test endpoints), which keeps a submit's read, merge and apply whole. Anything else
+        raises under tests and warns in the app (``THREAD_CHECK_ENV``)."""
+        if threading.get_ident() == self.owner_thread or self.serial_lock.held():
             return
         mode = os.environ.get(THREAD_CHECK_ENV, "warn")
         if mode == "off":
             return
         message = (
-            f"LiveCanvas.{what} ran on thread {threading.current_thread().name!r}, not the "
-            "thread that owns the canvas: submits must stay on it (no lock guards a "
-            "submit's read, merge and apply)"
+            f"the canvas was changed on thread {threading.current_thread().name!r}, neither "
+            "the thread that owns it nor one holding its serial_lock"
         )
         if mode == "raise":
             raise RuntimeError(message)
@@ -565,7 +604,7 @@ class LiveCanvas:
         named: set[str] = set()
         for rec in self.log:
             for op in (*rec.patch, *rec.inverse):
-                m = _OBJECT_PATH.match(op.get("path", ""))
+                m = OBJECT_PATH.match(op.get("path", ""))
                 if m is not None:
                     named.add(m.group(2))
         return named - set(self.data["views"]) - set(self.data["links"])
@@ -592,15 +631,12 @@ class LiveCanvas:
     ) -> tuple[bool, list[Problem]]:
         """Merge, in place in ``new``, each view or link ``patch`` changes that a user change
         after the mark ``since`` touched, against its turn-start copy. An edit changes what
-        it names: a named field the user also changed, to another value, is a conflict
-        (even when the edit sets it back to its turn-start value), and an object the edit
-        drops without naming it (a link of a removed view) is one too. A whole document is
-        merged three ways (``edits.three_way``), and a link the user added that it leaves
-        without one of its views is a conflict. Returns whether ``new`` changed and the
-        conflicts, each with the live entry. A ``since`` no ``mark`` returned is read as a
-        place in the changes with no copy: every such object is a conflict, as before
-        SPEC-18."""
-        start, base = self._marks.get(since, (since, None))
+        it names (``edits.edit_conflict``); a whole document is merged three ways
+        (``edits.three_way``), and a link the user added that it leaves without one of its
+        views is a conflict. Returns whether ``new`` changed and the conflicts, each with
+        the live entry. ``since`` is a mark id: one no ``mark`` returned (or an evicted
+        one) has no copy, so every object the user changed this session is a conflict."""
+        start, base = self._marks.get(since, (0, None))
         user = {
             oid
             for origin, touched in self._changes[start:]
@@ -611,7 +647,7 @@ class LiveCanvas:
         out: list[Problem] = []
         seen: set[str] = set()
         for op in patch:
-            m = _OBJECT_PATH.match(op["path"])
+            m = OBJECT_PATH.match(op["path"])
             if m is None or m.group(2) not in user or m.group(2) in seen:
                 continue
             section, oid = m.groups()
@@ -619,19 +655,24 @@ class LiveCanvas:
             live_entry = self.data[section].get(oid, MISSING)
             new_entry = new[section].get(oid, MISSING)
             if base is None:
-                out.append(_conflict(section, oid, live_entry, [""]))
+                out.append(_conflict(section, oid, live_entry, [""], edit=edit is not None))
                 continue
             base_entry = base[section].get(oid, MISSING)
             if edit is not None:
-                problem = self._edit_conflict(
-                    section, oid, edit, base_entry, live_entry, new_entry, new
+                clash = edit_conflict(
+                    section, oid, edit, base_entry, live_entry, new_entry, new["views"]
                 )
-                if problem is not None:
-                    out.append(problem)
+                if clash is not None:
+                    kind, which = clash
+                    out.append(
+                        _link_conflict(oid, which)
+                        if kind == "link"
+                        else _conflict(section, oid, live_entry, which, edit=True)
+                    )
                 continue
             merged, fields = three_way(base_entry, live_entry, new_entry)
             if fields:
-                out.append(_conflict(section, oid, live_entry, fields))
+                out.append(_conflict(section, oid, live_entry, fields, edit=False))
                 continue
             if merged is MISSING:
                 new[section].pop(oid, None)
@@ -640,46 +681,10 @@ class LiveCanvas:
             changed = True
         if edit is None and base is not None:
             for lid in sorted(user & set(new["links"])):
-                link = new["links"][lid]
-                lost = [
-                    end["view"]
-                    for end in (link.get("source") or {}, link.get("target") or {})
-                    if end.get("view") not in (None, "project") and end["view"] not in new["views"]
-                ]
+                lost = lost_ends(new["links"][lid], new["views"])
                 if lost:
                     out.append(_link_conflict(lid, lost))
         return changed, out
-
-    @staticmethod
-    def _edit_conflict(
-        section: str,
-        oid: str,
-        edit: dict[str, Any],
-        base_entry: Any,
-        live_entry: Any,
-        new_entry: Any,
-        new: dict[str, Any],
-    ) -> Problem | None:
-        """The turn-start conflict, if any, of an edit on one object the user touched."""
-        named = edit.get(section) if isinstance(edit.get(section), dict) else {}
-        if oid not in named:  # dropped with a view the edit removed
-            if new_entry is MISSING and live_entry is not MISSING and section == "links":
-                gone = [
-                    end.get("view")
-                    for end in (live_entry.get("source") or {}, live_entry.get("target") or {})
-                    if end.get("view") not in new["views"]
-                ]
-                return _link_conflict(oid, [v for v in gone if v])
-            return None
-        if named[oid] is None:  # the edit removes what the user changed
-            return None if live_entry == base_entry else _conflict(section, oid, live_entry, [""])
-        clash = sorted(
-            f
-            for f in field_paths(named[oid])
-            if field_at(live_entry, f) != field_at(base_entry, f)
-            and field_at(new_entry, f) != field_at(live_entry, f)
-        )
-        return _conflict(section, oid, live_entry, clash) if clash else None
 
     # -- undo / redo ------------------------------------------------------------------------------
     def undo(self, *, origin: str = "user") -> UndoResult:

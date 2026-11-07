@@ -278,14 +278,58 @@ def three_way(base: Any, live: Any, agent: Any, path: str = "") -> tuple[Any, li
     return live, [path]
 
 
+def lost_ends(link: Any, views: Any) -> list[str]:
+    """The views a link's ends name that ``views`` lacks (the project source never
+    counts): what a removal leaves the link without."""
+    if not isinstance(link, dict):
+        return []
+    out: list[str] = []
+    for end in (link.get("source"), link.get("target")):
+        view = end.get("view") if isinstance(end, dict) else None
+        if isinstance(view, str) and view != "project" and view not in views:
+            out.append(view)
+    return out
+
+
+def edit_conflict(
+    section: str,
+    oid: str,
+    edit: dict[str, Any],
+    base: Any,
+    live: Any,
+    new: Any,
+    views: Any,
+) -> tuple[str, list[str]] | None:
+    """The turn-start conflict of an edit on one object the user touched (SPEC-18), or
+    ``None`` when it lands. An edit changes what it names: ``("fields", paths)`` for named
+    fields the user changed to another value (even when the edit sets them back to their
+    turn-start value; ``[""]`` for a named removal of what the user changed), and
+    ``("link", views)`` for a user's link the edit drops with a view it removes."""
+    named = edit.get(section) if isinstance(edit.get(section), dict) else {}
+    if oid not in named:
+        if new is MISSING and live is not MISSING and section == "links":
+            return ("link", lost_ends(live, views))
+        return None
+    if named[oid] is None:
+        return None if live == base else ("fields", [""])
+    clash = sorted(
+        f
+        for f in field_paths(named[oid])
+        if field_at(live, f) != field_at(base, f) and field_at(new, f) != field_at(live, f)
+    )
+    return ("fields", clash) if clash else None
+
+
 __all__ = [
     "EDITABLE",
     "MISSING",
     "REFUSED",
     "already_removed",
+    "edit_conflict",
     "edit_problems",
     "field_at",
     "field_paths",
+    "lost_ends",
     "merge_edits",
     "merge_patch",
     "three_way",

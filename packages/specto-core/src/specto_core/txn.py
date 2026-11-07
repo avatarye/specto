@@ -13,7 +13,8 @@ from .errors import PatchError
 from .journal import JournalEntry
 from .patch import apply_patch
 
-_OBJ_RE = re.compile(r"^/(?:views|links)/([^/]+)")
+#: a patch path into one view or link: ``(views|links, id)``
+OBJECT_PATH = re.compile(r"^/(views|links)/([^/]+)")
 
 
 def touched_objects(patch: list[dict[str, Any]]) -> list[str]:
@@ -23,9 +24,9 @@ def touched_objects(patch: list[dict[str, Any]]) -> list[str]:
         for p in (op.get("path"), op.get("from")):
             if not p:
                 continue
-            m = _OBJ_RE.match(p)
+            m = OBJECT_PATH.match(p)
             if m:
-                seen[m.group(1)] = None
+                seen[m.group(2)] = None
     return list(seen)
 
 

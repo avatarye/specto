@@ -341,6 +341,12 @@ Tests sit at three seams:
   `tools/gui_flows/v2_suite.py` in three tiers (below): offscreen through the app's Qt
   test driver, a GPU window, or a real mouse.
 
+The root `conftest.py` sets `SPECTO_THREAD_CHECK=raise`: a change of the canvas on a
+thread that neither owns it (the GUI thread in the app) nor holds its `serial_lock` fails
+the test, here and in the app processes the GUI tests start (the app itself only warns).
+A test that submits from a thread of its own takes `live.serial_lock` around it, as the
+endpoints do.
+
 Seams 1 and 2 are pytest:
 
 ```text

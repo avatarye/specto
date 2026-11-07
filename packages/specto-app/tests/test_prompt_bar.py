@@ -473,3 +473,14 @@ def test_a_turn_that_saves_a_skill_shows_it_in_the_strip_with_open_and_undo(app,
     assert context_block(sessions[0], 3)["skills"] == [
         {"name": "specto:front-run", "description": "Lay out a front run."}
     ]
+
+
+def test_the_canvas_belongs_to_the_gui_thread(app):
+    """SpectoApp opens the canvas (Engine.live is lazy) on the GUI thread: the thread every
+    submit must run on (SPEC-18's thread check)."""
+    import threading
+
+    from PySide6.QtCore import QCoreApplication, QThread
+
+    assert QThread.currentThread() is QCoreApplication.instance().thread()
+    assert app.live.owner_thread == threading.get_ident()

@@ -116,7 +116,9 @@ live.data                                # the live document dict (read only; ne
 live.document()                          # a deep copy to edit and submit
 live.submit(document, origin="user", label="") -> SubmitResult
 live.submit(edits={"views": {"kobi": {"layout": {"position": [330, 0]}}}}, origin=..., since=mark)
-live.mark() -> int                       # a turn start: submit(since=) refuses what the user changed after it
+live.mark() -> int                       # a turn start's id: submit(since=) merges with what the user changed after it
+live.owner_thread; live.serial_lock      # submits run on the owner thread (the GUI thread) or holding serial_lock
+live.check_thread()                      # off both: raises under tests, warns in the app (SPECTO_THREAD_CHECK)
 live.undo() / live.redo() -> UndoResult; live.history: list[TxnRecord]; live.cursor; live.top_id
 live.squash(first_txn_id, label) -> TxnRecord | None    # one prompt turn -> one step
 live.navigate((x, y)) -> bool            # the window frame's origin follows a pan
@@ -427,6 +429,9 @@ before. Thumbnails and posters never open an audio device.
   sublayers; `defaulted` and `unavailable` say what fell back and what needs the stage).
   `uses` names machine capabilities (`specto_core.machine`: `ovrtx`, detected by
   importing ovrtx and ovstage in a child Python), and `describe view:<type>` reports them.
+  Test-only: `SPECTO_THREAD_CHECK` (`warn` by default, `raise` under the test suite,
+  `off`) says what a change of the canvas off its owner thread and off its `serial_lock`
+  does (`LiveCanvas.check_thread`, SPEC-18).
   Test-only: `SPECTO_DISABLE_CAPABILITIES` (comma-separated) makes capabilities absent
   without detecting them, `SPECTO_FAKE_CAPABILITIES` present (the usd view then runs the
   stub USD source in the faked renderer's place); a name in both is disabled. A usd view

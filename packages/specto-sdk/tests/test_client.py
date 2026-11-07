@@ -100,7 +100,7 @@ def test_generated_files_match_registry():
 
 
 def test_tcp_roundtrip_with_push(endpoint):
-    with TcpEndpoint(endpoint.handler) as srv:
+    with TcpEndpoint(endpoint.handler, endpoint.engine.live) as srv:
         a = tcp_client(srv, origin="agent:a")
         b = tcp_client(srv, origin="agent:b")
         assert a.connection != b.connection
@@ -129,7 +129,7 @@ def test_client_open_via_endpoint_file(tmp_path, monkeypatch):
         find_endpoint(proj)
     assert "endpoint.json" in ei.value.fix
     ep = InProcessEndpoint(project=proj)
-    with TcpEndpoint(ep.handler) as srv:
+    with TcpEndpoint(ep.handler, ep.engine.live) as srv:
         srv.advertise(proj)
         info, p = find_endpoint(proj)
         assert info.kind == "tcp" and p.id == proj.id
@@ -170,3 +170,31 @@ def test_pipe_transport_import_guard():
     with pytest.raises(TransportError) as ei:
         PipeTransport("specto-no-such-server-xyz")
     assert "app running" in ei.value.fix
+
+
+def test_an_endpoint_s_requests_hold_the_canvas_lock_and_a_bare_thread_does_not(monkeypatch):
+    """Every endpoint takes the canvas's serial_lock around a request, so its threads may
+    submit; a bare submit from another thread still raises after the endpoint was used."""
+    import threading
+
+    monkeypatch.setenv("SPECTO_THREAD_CHECK", "raise")
+    ep = InProcessEndpoint()
+    live = ep.engine.live
+    results: list[object] = []
+
+    def via_endpoint() -> None:
+        c = ep.client(origin="agent:t")
+        results.append(c.call("canvas.submit", {"edits": {"project": {"label": "Rig"}}}))
+
+    def bare() -> None:
+        try:
+            live.submit(edits={"project": {"label": "Bare"}}, origin="agent:t")
+        except RuntimeError as e:
+            results.append(e)
+
+    for target in (via_endpoint, bare):
+        worker = threading.Thread(target=target)
+        worker.start()
+        worker.join(10)
+    assert results[0]["txn"] and isinstance(results[1], RuntimeError)
+    assert live.data["project"]["label"] == "Rig"

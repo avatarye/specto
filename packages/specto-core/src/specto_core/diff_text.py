@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from .patch import get_at
-from .txn import _OBJ_RE
+from .txn import OBJECT_PATH
 
 
 def _brief_view(view: dict[str, Any]) -> str:
@@ -99,9 +99,9 @@ def patch_label(patch: list[dict[str, Any]], inverse: list[dict[str, Any]] | Non
     ops: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for op in patch:
         path = op.get("path", "")
-        m = _OBJ_RE.match(path)
+        m = OBJECT_PATH.match(path)
         if m is not None:
-            key = (path.split("/")[1], m.group(1))
+            key = (m.group(1), m.group(2))
             rest = [p for p in path[m.end() :].split("/") if p]
         else:
             key = ("root", ".".join(p for p in path.split("/") if p) or "/")
@@ -113,7 +113,7 @@ def patch_label(patch: list[dict[str, Any]], inverse: list[dict[str, Any]] | Non
     whole = {
         oid
         for (section, oid), group in ops.items()
-        if section == "views" and any(not op["parts"] for op in group)
+        if section == "views" and any(not op["parts"] and op["op"] != "replace" for op in group)
     }
     phrases = [
         phrase for key in order if (phrase := _object_phrase(key, ops[key], whole, old)) is not None
