@@ -26,7 +26,7 @@ dict is what ends up in ``item.meta["scene"]``::
     {kind: pointcloud|mesh|splat, role: ".ply", files: {points, kdtree} | {glb} | {},
      count?, bounds?: [[min xyz], [max xyz]], up?: "y"}
 
-``up`` is there only for an item whose file declares its up axis (a converted DAE): the
+``up`` is there only for an item whose file declares its up axis (glTF, a converted DAE): the
 view's ``up`` param turns every other item.
 """
 
@@ -84,7 +84,8 @@ def prepare_scene(
     path = Path(path)
     ext = path.suffix.lower()
     if ext in MESH_EXTS:
-        return {"kind": "mesh", "role": ext, "files": {}}
+        # glTF is Y up by its specification: declared, like a converted DAE (SPEC-50)
+        return {"kind": "mesh", "role": ext, "files": {}, "up": "y"}
     if ext in SPLAT_EXTS:
         return {"kind": "splat", "role": ext, "files": {}}
     if ext in DAE_EXTS:

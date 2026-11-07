@@ -20,6 +20,7 @@ from scene3d_helpers import mesh_samples
 
 import specto_web
 from specto_readers import dae
+from specto_readers.scene3d import prepare_scene
 
 CHILD = Path(__file__).with_name("scene3d_render_child.py")
 WEB = specto_web.find_web_root()
@@ -44,9 +45,9 @@ DAE_UPRIGHT = [[-0.2, 0.0, -0.2], [0.2, 1.2, 0.2]]
 BACKGROUND = (250, 247, 241)  # --color-surface-alt
 
 
-def render(tmp: Path, entry: dict, more: tuple[dict, ...] = ()) -> dict:
+def render(tmp: Path, entry: dict | list[dict], more: tuple[dict, ...] = ()) -> dict:
     plan = {
-        "entries": [entry],
+        "entries": entry if isinstance(entry, list) else [entry],
         "out": str(tmp / "out"),
         "camera": CAMERA,
         "params": {"up": "z"},
@@ -77,8 +78,8 @@ def pixel(step: dict, fx: float, fy: float) -> tuple[int, int, int]:
     return c.red(), c.green(), c.blue()
 
 
-def bounds(step: dict) -> list[list[float]]:
-    return step["report"]["items"]["m"]["bounds"]
+def bounds(step: dict, item: str = "m") -> list[list[float]]:
+    return step["report"]["items"][item]["bounds"]
 
 
 def painted(rgb: tuple[int, int, int]) -> bool:
@@ -133,3 +134,39 @@ def test_a_dae_draws_through_its_glb_upright_whatever_the_up_param(tmp_path: Pat
     r, g, b = pixel(z_up, 0.5, 0.35)
     assert r > b + 60 and r > g + 60, f"not the red texture: {(r, g, b)}"
     assert not painted(pixel(z_up, 0.5, 0.5))  # the gap between them
+
+
+def entry_from_scene(item: str, path: Path, scene: dict) -> dict:
+    """The page's entry for a prepared file, as the host builds it: a derived GLB when
+    resolve wrote one, the file itself otherwise, and the file's own up axis if it has one."""
+    glb = (scene.get("files") or {}).get("glb")
+    entry = {"id": item, "kind": scene["kind"], "file": glb or str(path)}
+    entry["ext"] = ".glb" if glb else scene["role"]
+    if scene.get("up"):
+        entry["up"] = scene["up"]
+    return entry
+
+
+def test_a_mixed_scene_lines_up_under_up_y_and_up_z(tmp_path: Path):
+    """SPEC-50: a Z-up STL, a Z_UP DAE and a glTF (Y up by its spec) in one scene. The STL
+    has no up axis of its own and follows the view's up param; the DAE converted to a Y-up
+    GLB and the glTF both declare theirs, so under up z the STL stands up beside them and
+    under up y it lies along z, while the two Y-up models stand the same in both."""
+    samples = mesh_samples()
+    stl = samples.write_stl(tmp_path / "link.stl")
+    src = samples.write_dae(tmp_path / "robot.dae")
+    cache = tmp_path / "cache"
+    robot = prepare_scene(src, cache)
+    gltf = tmp_path / "model.glb"  # the same Y-up model, as a plain glTF file
+    gltf.write_bytes(Path(robot["files"]["glb"]).read_bytes())
+    entries = [
+        entry_from_scene("stl", stl, prepare_scene(stl, cache)),
+        entry_from_scene("dae", src, robot),
+        entry_from_scene("gltf", gltf, prepare_scene(gltf, cache)),
+    ]
+    out = render(tmp_path, entries)
+    z_up, y_up = out["steps"][:2]
+    assert bounds(z_up, "stl") == UPRIGHT and bounds(y_up, "stl") == LYING
+    for step in (z_up, y_up):
+        assert bounds(step, "dae") == DAE_UPRIGHT
+        assert bounds(step, "gltf") == bounds(step, "dae"), "the glTF and the DAE disagree"

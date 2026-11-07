@@ -621,3 +621,21 @@ def test_an_empty_stl_or_obj_still_opens(tmp_path: Path):
     for name in ("e.obj", "e.stl"):
         scene = prepare_scene(tmp_path / name, tmp_path / "cache")
         assert scene["kind"] == "mesh" and scene["count"] == 0 and "bounds" not in scene
+
+
+def test_a_gltf_declares_y_up_as_its_spec_says(tmp_path: Path):
+    """SPEC-50: glTF is Y up by its specification, like the GLB a DAE converts to; both
+    declare it, so the view's up param turns neither (it turns STL, OBJ, PLY, points and
+    splats, which say nothing about their up axis)."""
+    glb = tmp_path / "model.glb"
+    glb.write_bytes(b"glTF" + bytes(8))
+    gltf = tmp_path / "model.gltf"
+    gltf.write_text("{}", encoding="utf-8")
+    assert prepare_scene(glb, tmp_path / "cache") == {
+        "kind": "mesh",
+        "role": ".glb",
+        "files": {},
+        "up": "y",
+    }
+    assert prepare_scene(gltf, tmp_path / "cache")["up"] == "y"
+    assert "up" not in prepare_scene(write_stl(tmp_path / "link.stl"), tmp_path / "cache")

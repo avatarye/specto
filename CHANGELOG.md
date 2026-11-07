@@ -15,6 +15,11 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- In the 3d view a glTF/GLB keeps its own Y up and is no longer turned by the view's
+  `up` param (SPEC-50, ADR 0028 amended), the same as a converted DAE. A Z-up STL, a DAE
+  and a glTF now line up in one scene under `up: z`. A glTF exported Z up against the glTF
+  specification has to be fixed at its source; `up` turns only STL, OBJ, PLY, point
+  clouds and splats.
 - The generated TypeScript declarations (`packages/specto-web/types/specto-api.d.ts`)
   name every interface with a valid identifier (SPEC-49): the 3d view's state is
   `_3dState`, and a `$defs` name that reaches an interface is mangled the same way, so

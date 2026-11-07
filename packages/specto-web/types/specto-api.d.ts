@@ -382,7 +382,7 @@ step, nothing journaled). */
   interface _3dState {
     /** Point cloud point size in pixels. default: 2 */
     point_size?: number;
-    /** The data's up axis: z for most LiDAR, photogrammetry and robot meshes (STL, OBJ). A DAE is converted to Y up from its own up_axis and is not turned by this. default: "y" */
+    /** The up axis of the data that does not say: z for most LiDAR, photogrammetry and robot meshes (STL, OBJ, PLY, points, splats). glTF/GLB (Y up by its spec) and DAE (converted to Y up from its up_axis) keep their own and are not turned by this. default: "y" */
     up?: "y" | "z";
     /** Scales flying, walking, panning and dollying. default: 1.0 */
     camera_speed?: number;

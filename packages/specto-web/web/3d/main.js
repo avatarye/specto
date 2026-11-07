@@ -8,7 +8,8 @@
  * WASM decoder are, nothing goes to a CDN). STL and OBJ go to Babylon's own loaders (an
  * OBJ's url ends in its file name, so its MTL and textures load next to it; an STL keeps
  * the file's coordinates); a mesh with no material of its own draws in a plain grey. The
- * view param `up` turns the scene's root for z-up data; an entry with its own `up` (a DAE
+ * view param `up` turns the scene's root for z-up data; an entry with its own `up` (a glTF,
+ * Y up by its spec, SPEC-50; a DAE
  * resolve converted to a Y-up GLB, SPEC-42) hangs under a root that param leaves alone.
  * The view param `mesh_unit` (m, cm, mm, in) scales the STL and OBJ items, whose files
  * carry no unit: the host sends the factor (`mesh_scale` in the scene payload, and the

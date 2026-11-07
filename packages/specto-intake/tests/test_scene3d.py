@@ -144,7 +144,7 @@ def test_submitting_a_3d_view_resolves_its_scene_buffers(engine: Engine):
     # Babylon's own loaders take these as they are
     assert by["gauss"] == {"kind": "splat", "role": ".ply", "files": {}}
     assert by["raw"] == {"kind": "splat", "role": ".splat", "files": {}}
-    assert by["model"] == {"kind": "mesh", "role": ".glb", "files": {}}
+    assert by["model"] == {"kind": "mesh", "role": ".glb", "files": {}, "up": "y"}
 
 
 def test_the_file_tree_intaker_does_not_decode_3d_files(engine: Engine, tmp_path: Path):
@@ -215,4 +215,4 @@ def test_robot_meshes_resolve_and_a_converted_dae_is_not_shown_twice(engine: Eng
     (root / "robot.dae").unlink()
     engine.links.resolve("l2")
     by = scenes(engine.links.input_of("kobi", "data"))
-    assert by["robot.dae"] == {"kind": "mesh", "role": ".glb", "files": {}}
+    assert by["robot.dae"] == {"kind": "mesh", "role": ".glb", "files": {}, "up": "y"}

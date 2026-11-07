@@ -92,9 +92,10 @@ STATE_SCHEMA: dict[str, Any] = {
         "up": {
             "enum": ["y", "z"],
             "default": "y",
-            "description": "The data's up axis: z for most LiDAR, photogrammetry and "
-            "robot meshes (STL, OBJ). A DAE is converted to Y up from its own up_axis and "
-            "is not turned by this.",
+            "description": "The up axis of the data that does not say: z for most LiDAR, "
+            "photogrammetry and robot meshes (STL, OBJ, PLY, points, splats). glTF/GLB (Y "
+            "up by its spec) and DAE (converted to Y up from its up_axis) keep their own "
+            "and are not turned by this.",
         },
         "camera_speed": {
             "type": "number",
@@ -161,7 +162,8 @@ SCENE3D_MANIFEST = ViewManifest(
     "resolve, up to about 20 M points), glTF/GLB, PLY, STL and OBJ meshes (an OBJ's MTL "
     "and textures next to it), COLLADA .dae (converted to <name>.dae.glb beside it, its "
     "unit and up_axis applied), Gaussian splats (up to about 2 M). mesh_unit (m, cm, mm, "
-    "in) is what an STL or OBJ unit is; up: z stands Z-up data upright. Unreal Editor "
+    "in) is what an STL or OBJ unit is; up: z stands Z-up data upright (glTF and DAE "
+    "keep their own Y up). Unreal Editor "
     "viewport controls: drag turns "
     "and walks, right-drag looks (W A S D Q E fly, the wheel sets the speed), middle-drag "
     "pans, the wheel dollies, "
@@ -359,7 +361,7 @@ class Scene3DHost(WebViewHost):
                 if scene.get("missing"):  # files an OBJ names that cannot be served
                     entry["missing"] = list(scene["missing"])
             if scene.get("up") in ("y", "z"):
-                # the file declares its up axis (a converted DAE): the view's up param
+                # the file declares its up axis (glTF, a converted DAE): the view's up param
                 # leaves it alone
                 entry["up"] = scene["up"]
             self.entries.append(entry)
