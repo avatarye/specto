@@ -15,9 +15,9 @@ Video and pdf thumbnails fit a ``px`` square at the source's aspect; cards are
 ``CARD_ASPECT`` landscape. The result is an RGBA ``HWC`` ``TypedBuffer`` like the image
 decoder's, so the gallery pushes both the same way.
 
-A video inside an archive (libmpv opens real paths only) is copied out to a temporary
-file for its poster when it is at most ``ARCHIVE_VIDEO_MAX`` bytes, else it gets the
-kind card.
+A video inside an archive (libmpv opens real paths only) is copied into the cache
+folder for its poster (``archived_poster``: capped, bounded in time, cancellable); past
+a bound, or with no cache folder, it gets the kind card.
 
 Cache: per file path plus stat (size, mtime). On disk, one PNG per path and size under
 the project's ``.specto/cache/thumbs/`` (the intaker never lists ``.specto/``), the stat
@@ -45,7 +45,7 @@ import os
 import re
 import shutil
 import sys
-import tempfile
+import threading
 import time
 import weakref
 from collections import OrderedDict
@@ -58,9 +58,9 @@ from PIL import Image, ImageDraw, ImageFont
 from PIL.PngImagePlugin import PngInfo
 
 from specto_core.containers import is_virtual, open_source, split_virtual, stat_virtual
-from specto_core.kinds import DataRef, TypedBuffer
+from specto_core.kinds import DataRef, DecodeRequest, TypedBuffer
 
-THUMB_VERSION = 1  # bump when the pictures change: old cache files are rendered again
+THUMB_VERSION = 2  # bump when the pictures change: old cache files are rendered again
 CARD_ASPECT = 1.5  # width / height of excerpt and kind cards (the gallery's default cell)
 CACHE_SUBDIR = Path(".specto") / "cache" / "thumbs"
 MEMORY_BUDGET = 96 * 1024 * 1024  # bytes of RGBA kept per engine
@@ -85,6 +85,8 @@ _COMPRESSED_TAR = (".tar.gz", ".tgz", ".tar.bz2", ".tar.xz")
 #: the file whose modified time says when the cache was last pruned
 PRUNE_STAMP = ".pruned"
 PRUNE_EVERY_S = 24 * 3600
+#: a writer's ``<hash>.<pid>.tmp`` older than this is a killed worker's leftover
+PRUNE_TMP_AGE_S = 3600.0
 
 IMAGE_KINDS = ("image2d", "image_seq")
 TEXT_KINDS = ("markdown", "json", "geojson", "html", "text")
@@ -145,7 +147,7 @@ def cache_path(cache_dir: str, uri: str, px: int, look: dict[str, Any]) -> Path:
     return Path(cache_dir) / h[:2] / f"{h}.png"
 
 
-def image_look(request: Any) -> dict[str, Any]:
+def image_look(request: DecodeRequest) -> dict[str, Any]:
     """What an image thumbnail's cache key holds besides path and size: the request's
     purpose and options that change the picture, and the decoder's version."""
     return {
@@ -166,27 +168,46 @@ def render_batch(
     refs: list[dict[str, Any]],
     px: int,
     cache_dir: str | None,
-    pal: dict[str, str],
+    look: dict[str, str],
     progress: ProgressFn,
 ) -> list[TypedBuffer | dict[str, str]]:
-    """Thumbnails for ``refs`` (``DataRef`` dumps) at ``px``, from the disk cache when the
-    file's stat still matches, else rendered (and cached). A failing item becomes
-    ``{"error": ...}`` in its slot. ``meta.cache`` says ``disk`` or ``rendered``,
-    ``meta.stat`` the (size, mtime_ns) the picture is of."""
-    from specto_readers.tasks import map_refs
+    """Thumbnails for ``refs`` (``DataRef`` dumps) at ``px`` in the card ``look`` (the
+    palette), from the disk cache when the file's stat still matches, else rendered (and
+    cached). A failing item becomes ``{"error": ...}`` in its slot. ``meta.cache`` says
+    ``disk`` or ``rendered``, ``meta.stat`` the (size, mtime_ns) the picture is of. A
+    cancelled job stops an archived video's copy (``progress.cancelled``)."""
+    from specto_readers import map_refs
 
-    return map_refs(refs, lambda ref: _thumb(ref, int(px), cache_dir, pal), progress, every=8)
+    cancelled = getattr(progress, "cancelled", None)
+    return map_refs(
+        refs, lambda ref: _thumb(ref, int(px), cache_dir, look, cancelled), progress, every=8
+    )
 
 
-def _thumb(ref: DataRef, px: int, cache_dir: str | None, pal: dict[str, str]) -> TypedBuffer:
-    size, mtime = stat_of(ref.uri)
+def _cached(cache_dir: str | None, uri: str, px: int, look: dict[str, Any]) -> Any:
+    """``(stat, sig, path, hit)`` for a thumbnail: the file's stat, its signature, the
+    cache path (None without a cache) and the cached pixels and text when the PNG's stat
+    still matches (else None)."""
+    size, mtime = stat_of(uri)
     sig = f"{size}:{mtime}"
-    path = cache_path(cache_dir, ref.uri, px, pal) if cache_dir else None
-    hit = _png(path, sig) if path is not None else None
-    arr = hit[0] if hit is not None else None
+    path = cache_path(cache_dir, uri, px, look) if cache_dir and px else None
+    hit = _png_cached(path, sig) if path is not None else None
+    return (size, mtime), sig, path, hit
+
+
+def _thumb(
+    ref: DataRef,
+    px: int,
+    cache_dir: str | None,
+    look: dict[str, str],
+    cancelled: Callable[[], bool] | None = None,
+) -> TypedBuffer:
+    (size, mtime), sig, path, hit = _cached(cache_dir, ref.uri, px, look)
     how = "disk"
-    if arr is None:
-        arr = render(ref.uri, ref.kind, px, pal, tmp_dir=cache_dir)
+    if hit is not None:
+        arr = hit[0]
+    else:
+        arr = render(ref.uri, ref.kind, px, look, tmp_dir=cache_dir, cancelled=cancelled)
         how = "rendered"
         if path is not None:
             _write_cached(path, arr, sig, ref.uri)
@@ -202,14 +223,21 @@ def _thumb(ref: DataRef, px: int, cache_dir: str | None, pal: dict[str, str]) ->
     )
 
 
-def _png(path: Path, sig: str | None = None) -> tuple[np.ndarray | None, dict[str, str]] | None:
-    """A cached PNG's text chunks, and its pixels when ``sig`` is given and matches its
-    ``specto-stat``; None when it cannot be read, or the stat does not match."""
+def _png_text(path: Path) -> dict[str, str] | None:
+    """A cached PNG's text chunks (``specto-stat``, ``specto-source``, ...); None when
+    it cannot be read."""
+    try:
+        with Image.open(path) as im:
+            return {str(k): str(v) for k, v in dict(getattr(im, "text", {})).items()}
+    except (OSError, ValueError, SyntaxError):
+        return None
+
+
+def _png_cached(path: Path, sig: str) -> tuple[np.ndarray, dict[str, str]] | None:
+    """A cached PNG's pixels and text when its ``specto-stat`` is ``sig``; else None."""
     try:
         with Image.open(path) as im:
             text = {str(k): str(v) for k, v in dict(getattr(im, "text", {})).items()}
-            if sig is None:
-                return None, text
             if text.get("specto-stat") != sig:
                 return None
             return np.asarray(im.convert("RGBA"), dtype=np.uint8), text
@@ -244,9 +272,7 @@ def image_batch(
     stat still matches is read back; otherwise the image is decoded and, when its source
     has ``IMAGE_CACHE_MIN_PIXELS`` or more, written. ``meta.cache`` says ``disk`` or
     ``decoded``. A failing item becomes ``{"error": ...}`` in its slot."""
-    from specto_core.kinds import DecodeRequest
-    from specto_readers import default_readers
-    from specto_readers.tasks import map_refs
+    from specto_readers import default_readers, map_refs
 
     req = DecodeRequest.model_validate(request)
     px = int(req.max_size or 0)
@@ -258,13 +284,15 @@ def image_batch(
 
 
 def _image_thumb(
-    ref: DataRef, req: Any, px: int, cache_dir: str | None, decoder: Any, look: dict[str, Any]
+    ref: DataRef,
+    req: DecodeRequest,
+    px: int,
+    cache_dir: str | None,
+    decoder: Any,
+    look: dict[str, Any],
 ) -> TypedBuffer:
-    size, mtime = stat_of(ref.uri)
-    sig = f"{size}:{mtime}"
-    path = cache_path(cache_dir, ref.uri, px, look) if cache_dir and px else None
-    hit = _png(path, sig) if path is not None else None
-    if hit is not None and hit[0] is not None:
+    (size, mtime), sig, path, hit = _cached(cache_dir, ref.uri, px, look)
+    if hit is not None:
         arr, text = hit
         return TypedBuffer.from_numpy(
             arr,
@@ -293,7 +321,7 @@ def _image_thumb(
 def submit_images(
     jobs: Any,
     refs: list[DataRef],
-    request: Any,
+    request: DecodeRequest,
     cache_dir: str | None,
     *,
     canvas: str | None = None,
@@ -340,7 +368,7 @@ def prune_cache(cache_dir: str | None, project_root: Path | str | None) -> tuple
     killed writer over an hour old. Links and junctions are never followed; a PNG
     without a ``specto-source`` (or that cannot be read) is kept; a source outside the
     project whose folder is missing too (a drive not plugged in) is kept."""
-    if not cache_dir or not os.path.isdir(cache_dir):
+    if not cache_dir or not os.path.isdir(cache_dir) or _linked_root(cache_dir, project_root):
         return 0, 0
     root = os.path.normcase(os.path.abspath(project_root)) if project_root else None
     kept = removed = 0
@@ -370,16 +398,30 @@ def prune_cache(cache_dir: str | None, project_root: Path | str | None) -> tuple
                 kept += 1
             elif rest.endswith(".tmp") and rest[:-4].isdigit():
                 with contextlib.suppress(OSError):
-                    if time.time() - e.stat(follow_symlinks=False).st_mtime > 3600:
+                    age = time.time() - e.stat(follow_symlinks=False).st_mtime
+                    if age > PRUNE_TMP_AGE_S:
                         os.unlink(e.path)
     return kept, removed
 
 
+def _linked_root(cache_dir: str, project_root: Path | str | None) -> bool:
+    """The cache folder, or a folder above it inside the project (``.specto/cache``,
+    ``.specto``), is a link or a junction: pruning never goes through one."""
+    stop = os.path.normcase(os.path.abspath(project_root)) if project_root else None
+    p = os.path.abspath(cache_dir)
+    while True:
+        if os.path.islink(p) or os.path.isjunction(p):
+            return True
+        parent = os.path.dirname(p)
+        if stop is None or os.path.normcase(parent) == stop or parent == p:
+            return False
+        p = parent
+
+
 def _stale(png: Path, project_root: str | None) -> bool:
-    hit = _png(png)
-    if hit is None:
+    text = _png_text(png)
+    if text is None:
         return False  # unreadable: not provably ours to judge (the next write replaces it)
-    text = hit[1]
     source, sig = text.get("specto-source"), text.get("specto-stat")
     if not source:
         return False
@@ -403,13 +445,14 @@ def maybe_prune(jobs: Any, cache_dir: str | None, project_root: Path | str | Non
     process): the stamp file's modified time says when it last ran."""
     if not cache_dir or cache_dir in _pruned or not os.path.isdir(cache_dir):
         return None
-    _pruned.add(cache_dir)
     stamp = Path(cache_dir) / PRUNE_STAMP
     try:
-        if time.time() - stamp.stat().st_mtime < PRUNE_EVERY_S:
-            return None
+        recent = time.time() - stamp.stat().st_mtime < PRUNE_EVERY_S
     except OSError:
-        pass
+        recent = False
+    _pruned.add(cache_dir)
+    if recent:
+        return None
     with contextlib.suppress(OSError):
         stamp.touch()
     return jobs.submit("thumbs.prune", _prune_job, cache_dir, str(project_root or ""))
@@ -421,20 +464,28 @@ def _prune_job(cache_dir: str, project_root: str, progress: ProgressFn) -> tuple
 
 # -- rendering --------------------------------------------------------------------------
 def render(
-    uri: str, kind: str, px: int, pal: dict[str, str], *, tmp_dir: str | None = None
+    uri: str,
+    kind: str,
+    px: int,
+    look: dict[str, str],
+    *,
+    tmp_dir: str | None = None,
+    cancelled: Callable[[], bool] | None = None,
 ) -> np.ndarray:
-    """The thumbnail of one file as RGBA ``HWC``, no cache. ``tmp_dir`` (the cache
-    folder) takes the copy of an archived video."""
+    """The thumbnail of one file as RGBA ``HWC`` in the card ``look``, no cache.
+    ``tmp_dir`` (the cache folder) takes the copy of an archived video; without one an
+    archived video gets the kind card. ``cancelled`` stops that copy."""
     if kind == "video_ref":
-        frame = (
-            archived_poster(uri, px, tmp_dir=tmp_dir) if is_virtual(uri) else video_poster(uri, px)
-        )
-        return frame if frame is not None else kind_card(uri, kind, px, pal)
+        if is_virtual(uri):
+            frame = archived_poster(uri, px, tmp_dir=tmp_dir, cancelled=cancelled)
+        else:
+            frame = video_poster(uri, px)
+        return frame if frame is not None else kind_card(uri, kind, px, look)
     if kind == "pdf":
         return pdf_page(uri, px)
     if kind in TEXT_KINDS:
-        return excerpt_card(uri, kind, px, pal)
-    return kind_card(uri, kind, px, pal)
+        return excerpt_card(uri, kind, px, look)
+    return kind_card(uri, kind, px, look)
 
 
 def _fit(im: Image.Image, px: int) -> np.ndarray:
@@ -624,16 +675,26 @@ def video_poster(path: str, px: int) -> np.ndarray | None:
     return _fit(Image.fromarray(frame, "RGBA"), px)
 
 
-def archived_poster(uri: str, px: int, *, tmp_dir: str | None = None) -> np.ndarray | None:
+def archived_poster(
+    uri: str,
+    px: int,
+    *,
+    tmp_dir: str | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> np.ndarray | None:
     """The poster frame of a video inside an archive: libmpv opens real paths only, so
-    the member is copied out first, as ``<40 hex>.<pid>.tmp`` under ``tmp_dir`` (the
-    cache folder, so a killed worker's leftover is pruned) or the system's temporary
-    folder, and removed afterwards. None (the kind card) when libmpv is missing, the
-    member is over its cap (``ARCHIVE_VIDEO_MAX``; ``ARCHIVE_VIDEO_MAX_INMEMORY`` for a
-    compressed tar, read whole into memory), the drive lacks the room, or the copy takes
-    over ``ARCHIVE_COPY_TIMEOUT_S``."""
+    the member is copied out first, as ``<40 hex>.<pid>.tmp`` in the cache folder
+    ``tmp_dir`` (a leftover is pruned), and removed afterwards.
+
+    None (the kind card) when there is no cache folder, libmpv is missing, the member is
+    over its cap (``ARCHIVE_VIDEO_MAX``; ``ARCHIVE_VIDEO_MAX_INMEMORY`` for a compressed
+    tar, read whole into memory), the drive lacks the room, the copy takes over
+    ``ARCHIVE_COPY_TIMEOUT_S`` or the job is cancelled. The copy runs on a thread of its
+    own, so neither a slow share's blocking read nor a compressed tar's whole-member
+    read can hold the job past its bound: the job gives up on it, and the thread removes
+    its file when it ends (the next prune, if it never does)."""
     hit = split_virtual(uri)
-    if libmpv() is None or hit is None:
+    if tmp_dir is None or libmpv() is None or hit is None:
         return None
     archive, inner = hit[0], hit[1].lstrip("/")
     st = os.stat(archive)
@@ -646,7 +707,7 @@ def archived_poster(uri: str, px: int, *, tmp_dir: str | None = None) -> np.ndar
     if member is None or member.size > cap:
         return None
     h = hashlib.sha1(f"poster|{uri}".encode()).hexdigest()
-    folder = Path(tmp_dir) / h[:2] if tmp_dir else Path(tempfile.gettempdir())
+    folder = Path(tmp_dir) / h[:2]
     try:
         folder.mkdir(parents=True, exist_ok=True)
         if shutil.disk_usage(folder).free < member.size + ARCHIVE_COPY_MARGIN:
@@ -654,17 +715,60 @@ def archived_poster(uri: str, px: int, *, tmp_dir: str | None = None) -> np.ndar
     except OSError:
         return None
     tmp = folder / f"{h}.{os.getpid()}.tmp"
+    copy = _ArchiveCopy(uri, tmp)
+    copy.start()
+    deadline = time.monotonic() + ARCHIVE_COPY_TIMEOUT_S
+    while not copy.done.wait(0.05):
+        if time.monotonic() > deadline or (cancelled is not None and cancelled()):
+            copy.abandon()
+            return None
+    if not copy.ok:
+        return None
     try:
-        deadline = time.monotonic() + ARCHIVE_COPY_TIMEOUT_S
-        with open(tmp, "wb") as out, open_source(uri) as src:
-            while chunk := src.read(1024 * 1024):
-                out.write(chunk)
-                if time.monotonic() > deadline:
-                    return None
         return video_poster(str(tmp), px)
     finally:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
+
+
+class _ArchiveCopy:
+    """An archive member copied to ``tmp`` on a daemon thread: ``done`` when it ended,
+    ``ok`` when the whole member was written. ``abandon()`` stops it at the next chunk;
+    an abandoned or failed copy removes its file when the thread ends."""
+
+    CHUNK = 1024 * 1024
+
+    def __init__(self, uri: str, tmp: Path) -> None:
+        self.uri = uri
+        self.tmp = tmp
+        self.done = threading.Event()
+        self.ok = False
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="specto-poster-copy", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def abandon(self) -> None:
+        self._stop.set()
+
+    def _run(self) -> None:
+        try:
+            with open(self.tmp, "wb") as out, open_source(self.uri) as src:
+                while not self._stop.is_set():
+                    chunk = src.read(self.CHUNK)
+                    if not chunk:
+                        self.ok = True
+                        break
+                    out.write(chunk)
+        except Exception:
+            self.ok = False
+        finally:
+            if not self.ok or self._stop.is_set():
+                self.ok = False
+                with contextlib.suppress(OSError):
+                    os.unlink(self.tmp)
+            self.done.set()
 
 
 @functools.lru_cache(maxsize=16)

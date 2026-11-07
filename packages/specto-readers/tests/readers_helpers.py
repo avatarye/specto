@@ -71,6 +71,20 @@ def pid(progress) -> int:
     return os.getpid()
 
 
+def until_cancelled(marker: str, progress) -> str:
+    """A long job that asks ``progress.cancelled()`` and stops when told: it leaves
+    ``marker`` behind so the test sees that it heard the cancel."""
+    import time
+
+    deadline = time.monotonic() + 20
+    while time.monotonic() < deadline:
+        if progress.cancelled():
+            Path(marker).write_text("cancelled", encoding="utf-8")
+            return "stopped"
+        time.sleep(0.02)
+    return "never told"
+
+
 def qt_loaded(progress) -> bool:
     import sys
 

@@ -402,7 +402,12 @@ before. Thumbnails and posters never open an audio device.
   JobInfo`, `cancel`, `status`, `list`; `InlineJobManager` (tests), `ThreadJobManager`
   (core, link resolves), `PoolJobManager` (app: `cores - 2` processes, no Qt in workers,
   results in shared memory). `fn(*args, progress=...)` returns a picklable value or a
-  `BufferSpec`. Events `job.progress|done|failed` on `engine.app_events`.
+  `BufferSpec`; `progress` is a `jobs.Progress`: `progress(p, message)` reports and
+  `progress.cancelled()` says the job was cancelled (the pool sends `("cancel", id)` to
+  the running worker), so a long job stops; a job that never asks runs on and its result
+  is dropped. `specto_readers.map_refs(refs, one, progress)` is the loop of a batch job:
+  one result, or `{"error", "uri"}`, per ref. Events `job.progress|done|failed` on
+  `engine.app_events`.
 - Events (`EventStream`, ring per canvas): `doc.patched {txn, patch, kind, origin,
   touched}`, `canvas.submitted`, `canvas.squashed`, `canvas.saved`, `canvas.save_failed
   {path, error, what, fix}` (section 3), `history.restored`, `view.health`,
@@ -444,6 +449,19 @@ before. Thumbnails and posters never open an audio device.
   relative to root}`, `size` and `mtime_ns` (the item's total and newest), `stat {role
   -> [size, mtime_ns]}` (per part, recorded at intake, so file listings such as the
   file tree never stat again). `intake.preview` explains a spec without a canvas.
+- Thumbnail cache (`specto_app.thumbs`, SPEC-17): under `<project>/.specto/cache/thumbs/`,
+  one `<xx>/<hash>.png` per file, size and look, `hash` the sha1 of `THUMB_VERSION`, the
+  path, the size and the look (`cache_path`), `xx` its first two characters. Text chunks:
+  `specto-stat` (`size:mtime_ns`, compared on read), `specto-source` (the path) and, for
+  images, `specto-source-w`/`-h`. Cards are keyed by the theme palette; images (written
+  only from 2 MP up, `IMAGE_CACHE_MIN_PIXELS`) by `image_look(request)`: the purpose, the
+  `exif_transpose` option and `IMAGE_DECODER_VERSION`. Writers go through
+  `<hash>.<pid>.tmp`, and an archived video's copy for its poster is one too.
+  `prune_cache(cache_dir, project_root)` deletes the PNGs of files gone or changed and
+  writers' leftovers over `PRUNE_TMP_AGE_S`, touching only names of that shape, never
+  through a link or a junction (the cache folder itself included), keeping PNGs with no
+  source; `maybe_prune` runs it as a job when a gallery opens, at most once a day
+  (`.pruned` stamp's time).
 
 ## 9. Quotas and locks (`specto_core.quotas`, `locks`)
 

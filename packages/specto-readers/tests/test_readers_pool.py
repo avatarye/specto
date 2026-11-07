@@ -20,6 +20,7 @@ from readers_helpers import (
     qt_loaded,
     raise_error,
     sleep_then,
+    until_cancelled,
 )
 
 from specto_core.jobs import InlineJobManager
@@ -137,6 +138,24 @@ def test_unpicklable_function_fails_cleanly(pool: PoolJobManager):
 def test_workers_never_import_qt(pool: PoolJobManager):
     j = pool.submit("t", qt_loaded)
     assert pool.wait([j], WAIT) and j.result is False
+
+
+def test_a_cancelled_running_job_hears_it_through_progress(pool: PoolJobManager, tmp_path):
+    """SPEC-17: cancel reaches a running job (``progress.cancelled()``), so a long one
+    (an archived video's copy) stops instead of running on to a dropped result."""
+    import time
+
+    marker = tmp_path / "heard"
+    j = pool.submit("t", until_cancelled, str(marker))
+    deadline = time.monotonic() + 20
+    while j.state != "running" and time.monotonic() < deadline:
+        pool.poll(0.05)
+    time.sleep(0.2)
+    pool.cancel(j.id)
+    while not marker.exists() and time.monotonic() < deadline:
+        pool.poll(0.05)
+    assert marker.read_text(encoding="utf-8") == "cancelled"
+    assert j.state == "cancelled"
 
 
 def test_events_and_default_size():

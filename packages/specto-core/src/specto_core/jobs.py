@@ -22,6 +22,26 @@ from .events import EventStream
 JobState = Literal["queued", "running", "done", "failed", "cancelled"]
 
 
+class Progress:
+    """The ``progress`` a job function gets: ``progress(p, message)`` reports, and
+    ``progress.cancelled()`` says whether the job was cancelled, so a long job (a copy,
+    a slow read) can stop instead of running to a result nobody takes."""
+
+    def __init__(
+        self,
+        report: Callable[[float, str], None],
+        cancelled: Callable[[], bool] | None = None,
+    ) -> None:
+        self._report = report
+        self._cancelled = cancelled or (lambda: False)
+
+    def __call__(self, p: float, message: str = "") -> None:
+        self._report(p, message)
+
+    def cancelled(self) -> bool:
+        return bool(self._cancelled())
+
+
 def jsonable(value: Any) -> Any:
     """A job result as JSON for ``job.status``/``job.list``: models dump, shared-memory
     results report their ``BufferSpec`` (the bytes stay with the GUI-side owner), and
@@ -172,7 +192,10 @@ class ThreadJobManager(JobManager):
 
         def run() -> None:
             try:
-                result = fn(*args, progress=lambda p, m="": self._progress(job, p, m), **kwargs)
+                progress = Progress(
+                    lambda p, m="": self._progress(job, p, m), lambda: job.state == "cancelled"
+                )
+                result = fn(*args, progress=progress, **kwargs)
                 error = None
             except Exception as e:
                 result, error = None, f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -245,7 +268,8 @@ class InlineJobManager(JobManager):
         job = self._new(kind, canvas)
         job.state = "running"
         try:
-            result = fn(*args, progress=lambda p, m="": self._progress(job, p, m), **kwargs)
+            progress = Progress(lambda p, m="": self._progress(job, p, m))
+            result = fn(*args, progress=progress, **kwargs)
             self._finish(job, result=result)
         except Exception as e:
             self._finish(job, error=f"{type(e).__name__}: {e}\n{traceback.format_exc()}")

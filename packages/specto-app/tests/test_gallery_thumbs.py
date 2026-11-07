@@ -544,3 +544,149 @@ def test_an_archived_video_over_its_cap_gets_the_kind_card(project: Project, mon
     assert w > h and (w, h) != (96, 64)  # a 3:2 card, no poster
     cache = Path(thumbs.cache_dir_for(project.root))
     assert not list(cache.rglob("*.tmp"))  # no copy was made, nothing left
+
+
+# -- SPEC-17 review round 2 ------------------------------------------------------------------
+
+
+def _zip_member(project: Project, name: str = "v.mp4", size: int = 4096, suffix: str = ".zip"):
+    """An archive holding one fake video member; its virtual path."""
+    import tarfile
+    import zipfile
+
+    from specto_core.containers import join_virtual
+
+    archive = project.root / "data" / f"clips{suffix}"
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    payload = project.root / name
+    payload.write_bytes(bytes(range(256)) * (size // 256))
+    if suffix == ".zip":
+        with zipfile.ZipFile(archive, "w") as z:
+            z.write(payload, name)
+    else:
+        with tarfile.open(archive, "w:gz") as t:
+            t.add(payload, arcname=name)
+    payload.unlink()
+    return join_virtual(str(archive), name)
+
+
+@pytest.fixture
+def mpv():
+    from specto_app import thumbs
+
+    if thumbs.libmpv() is None:
+        pytest.skip("no libmpv (build the native plugin)")
+    return thumbs
+
+
+def test_an_archived_video_without_a_cache_folder_gets_the_kind_card(project: Project, mpv):
+    uri = _zip_member(project)
+    assert mpv.archived_poster(uri, 176, tmp_dir=None) is None
+    assert not Path(mpv.cache_dir_for(project.root)).exists()  # nothing was written
+
+
+def test_a_compressed_tar_member_over_its_lower_cap_is_not_copied(
+    project: Project, mpv, monkeypatch
+):
+    uri = _zip_member(project, size=8192, suffix=".tar.gz")
+    monkeypatch.setattr(mpv, "ARCHIVE_VIDEO_MAX_INMEMORY", 4096)  # a zip would still copy it
+    cache = mpv.cache_dir_for(project.root)
+    assert mpv.archived_poster(uri, 176, tmp_dir=cache) is None
+    assert not list(Path(cache).rglob("*.tmp"))
+
+
+def test_no_room_on_the_drive_means_no_copy(project: Project, mpv, monkeypatch):
+    from collections import namedtuple
+
+    uri = _zip_member(project)
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(mpv.shutil, "disk_usage", lambda p: usage(10**9, 10**9, 1024))
+    cache = mpv.cache_dir_for(project.root)
+    assert mpv.archived_poster(uri, 176, tmp_dir=cache) is None
+    assert not list(Path(cache).rglob("*.tmp"))
+
+
+class _SlowSource:
+    """A member read that blocks (a slow share): every read takes ``delay`` seconds."""
+
+    def __init__(self, delay: float) -> None:
+        self.delay = delay
+        self.reads = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, n: int = -1) -> bytes:
+        import time as _time
+
+        self.reads += 1
+        _time.sleep(self.delay)
+        return b"x" * 1024
+
+
+def test_a_copy_past_its_bound_is_given_up_and_its_file_removed(project: Project, mpv, monkeypatch):
+    import time as _time
+
+    uri = _zip_member(project)
+    slow = _SlowSource(0.4)
+    monkeypatch.setattr(mpv, "open_source", lambda u: slow)
+    monkeypatch.setattr(mpv, "ARCHIVE_COPY_TIMEOUT_S", 0.3)
+    cache = mpv.cache_dir_for(project.root)
+    t0 = _time.monotonic()
+
+    assert mpv.archived_poster(uri, 176, tmp_dir=cache) is None
+
+    assert _time.monotonic() - t0 < 1.5  # the job is not held by the blocking read
+    deadline = _time.monotonic() + 5
+    while list(Path(cache).rglob("*.tmp")) and _time.monotonic() < deadline:
+        _time.sleep(0.05)
+    assert not list(Path(cache).rglob("*.tmp"))  # the copy stopped and removed its file
+    reads = slow.reads
+    _time.sleep(1.0)
+    assert slow.reads == reads  # and reads no more
+
+
+def test_a_cancelled_job_stops_the_copy(project: Project, mpv, monkeypatch):
+    import time as _time
+
+    uri = _zip_member(project)
+    slow = _SlowSource(0.1)
+    monkeypatch.setattr(mpv, "open_source", lambda u: slow)
+    cache = mpv.cache_dir_for(project.root)
+    asked = _time.monotonic() + 0.3
+    t0 = _time.monotonic()
+
+    got = mpv.archived_poster(uri, 176, tmp_dir=cache, cancelled=lambda: _time.monotonic() > asked)
+
+    assert got is None and _time.monotonic() - t0 < 1.5
+    reads = slow.reads
+    _time.sleep(0.6)
+    assert slow.reads <= reads + 1  # it stops at the next chunk
+
+
+def test_a_junctioned_cache_root_is_not_followed(project: Project, tmp_path: Path):
+    import subprocess
+
+    from specto_app import thumbs
+
+    if os.name != "nt":
+        pytest.skip("a Windows junction")
+    elsewhere = tmp_path / "elsewhere"
+    victim = elsewhere / "ab" / f"ab{'3' * 38}.png"
+    victim.parent.mkdir(parents=True)
+    Image.new("RGB", (4, 4)).save(victim, pnginfo=_png_info(str(tmp_path / "gone.md")))
+    cache = Path(thumbs.cache_dir_for(project.root))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    made = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(cache), str(elsewhere)], capture_output=True
+    )
+    if made.returncode != 0:
+        pytest.skip("no junction")
+
+    assert thumbs.prune_cache(str(cache), project.root) == (0, 0)
+
+    assert victim.exists()
+    os.rmdir(cache)  # the junction alone

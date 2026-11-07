@@ -119,3 +119,37 @@ def test_job_result_serialises_shared_memory_and_unknown_objects():
     out = info.model_dump(mode="json")["result"]
     assert out[0]["buffer"]["shm"] == "psm_x"
     assert out[1] == {"type": "object"} and out[2] == {"n": 1}
+
+
+def _until_cancelled(progress) -> str:
+    import time
+
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if progress.cancelled():
+            return "stopped"
+        time.sleep(0.01)
+    return "never told"
+
+
+def test_a_thread_job_hears_its_cancel_through_progress():
+    """SPEC-17: ``progress.cancelled()`` turns True once the job is cancelled, so a long
+    job stops; an inline job is never cancelled mid-run."""
+    import time
+
+    from specto_core.jobs import ThreadJobManager
+
+    jobs = ThreadJobManager()
+    j = jobs.submit("t", _until_cancelled)
+    time.sleep(0.1)
+    jobs.cancel(j.id)
+    t0 = time.monotonic()
+    while jobs.list() and any(t.is_alive() for t in list(jobs._threads.values())):
+        if time.monotonic() - t0 > 5:
+            break
+        time.sleep(0.01)
+    assert time.monotonic() - t0 < 5 and j.state == "cancelled"
+    jobs.shutdown()
+    seen: list[bool] = []
+    InlineJobManager().submit("t", lambda progress: seen.append(progress.cancelled()))
+    assert seen == [False]

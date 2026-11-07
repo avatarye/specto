@@ -33,7 +33,7 @@ from typing import Any
 import numpy as np
 
 from specto_core.events import EventStream
-from specto_core.jobs import JobFn, JobInfo, JobManager
+from specto_core.jobs import JobFn, JobInfo, JobManager, Progress
 from specto_core.kinds import BufferSpec, TypedBuffer
 
 DoneFn = Callable[[JobInfo], None]
@@ -112,9 +112,11 @@ def _export(obj: Any, held: dict[str, shared_memory.SharedMemory]) -> tuple[str,
 
 def _worker_main(conn: Connection, worker_id: int) -> None:
     held: dict[str, shared_memory.SharedMemory] = {}
+    #: messages a running job's cancel check read off the pipe, for the loop to handle
+    deferred: deque[tuple] = deque()
     while True:
         try:
-            msg = conn.recv()
+            msg = deferred.popleft() if deferred else conn.recv()
         except (EOFError, OSError):
             break
         op = msg[0]
@@ -129,10 +131,24 @@ def _worker_main(conn: Connection, worker_id: int) -> None:
         if op != "run":
             continue
         _, job_id, fn, args, kwargs = msg
+        cancelled = {"flag": False}
 
-        def progress(p: float, m: str = "", _jid: str = job_id) -> None:
+        def report(p: float, m: str = "", _jid: str = job_id) -> None:
             conn.send(("progress", _jid, float(p), str(m)))
 
+        def is_cancelled(_jid: str = job_id, _flag: dict = cancelled) -> bool:
+            # the parent's ("cancel", job id) arrives on the pipe while the job runs;
+            # anything else read meanwhile waits for the loop
+            with contextlib.suppress(EOFError, OSError):
+                while conn.poll(0):
+                    got = conn.recv()
+                    if got[0] == "cancel":
+                        _flag["flag"] = _flag["flag"] or got[1] == _jid
+                    else:
+                        deferred.append(got)
+            return _flag["flag"]
+
+        progress = Progress(report, is_cancelled)
         try:
             result = fn(*args, progress=progress, **kwargs)
             conn.send(("done", job_id, _export(result, held)))
@@ -271,8 +287,11 @@ class PoolJobManager(JobManager):
                     return job
             for w in self._workers:
                 if w.job is job:
-                    # cannot interrupt a running decoder; drop its result when it lands
+                    # a running job hears it through progress.cancelled() (a long copy
+                    # stops); a decoder that never asks runs on, and its result is dropped
                     w.cancelled.add(job.id)
+                    with contextlib.suppress(OSError, ValueError):
+                        w.conn.send(("cancel", job.id))
                     self._complete(job, cancelled=True)
                     return job
         return job
