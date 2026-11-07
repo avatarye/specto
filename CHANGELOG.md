@@ -15,6 +15,18 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The gallery's render thread no longer builds thumbnails while the GUI waits (SPEC-1).
+  A pushed thumbnail goes to the item's own prepare thread (every tier's downsample, its
+  gutter, its mip chain). The render thread only uploads prepared cells, at most 24
+  tiles and 3 ms per frame. A new atlas page is cleared on the GPU (`glClearTexImage`)
+  instead of a 16 MB CPU fill and upload. Over 13,200 images scrolled at 40 rows/s the
+  item's sync averages 0.8 ms (was 2.1) with a worst of 17 ms (was 25-31), and the frame
+  p99 is 18-31 ms (was 25-29). The frames still over 33 ms are on the GUI thread: Python's
+  gen-2 collection (55-80 ms, about once in 13 s with 13k items) and Python work under
+  CPU contention. Decode workers run below normal priority. `tools/bench_gallery.py`
+  reports frames over 33 ms and the worst frame from the item's own render-thread timing
+  (`GalleryItem.frameTimes`), and `--trace-stalls` names GUI-thread stalls and gen-2
+  collections.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the

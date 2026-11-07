@@ -112,6 +112,9 @@ def test_qmldir_and_qmltypes_describe_the_item():
         "currentSuffix",
         "drawnCaption",
         "captionScrimColor",
+        "frameTimes",
+        "syncMaxMs",
+        "pagesCreated",
     ):
         assert f'name: "{name}"' in types, name
 
@@ -201,6 +204,31 @@ def test_galleryitem_loads_in_pyside6_offscreen(app):
     assert len(g.missing(0, 49, 2)) == 50  # clear resets staged and failed flags
     del g, comp, engine
     app.processEvents()
+
+
+@gui_test
+def test_thumbs_are_prepared_off_the_render_thread_and_dropped_with_the_item(app):
+    """SPEC-1: a pushed thumb goes to the item's prepare thread (tiers, gutters, mips),
+    not to the render thread; clearing or deleting the item with work queued neither
+    hangs nor keeps the thumbs."""
+    import time
+
+    from PySide6.QtCore import QByteArray
+
+    engine, comp, g = _item(app, GRID % (400, 1000, 600, 4))
+    big = QByteArray(bytes([128]) * (384 * 288 * 4))
+    for i in range(400):
+        assert g.pushThumb(i, big, 384, 288)
+    assert g.frameTimes() == []  # no window: no frames timed
+    assert g.property("syncMaxMs") == 0 and g.property("pagesCreated") == 0
+    t0 = time.perf_counter()
+    g.clearThumbs()  # whatever is mid-prepare belongs to the old collection
+    assert len(g.missing(0, 399, 2)) == 400
+    for i in range(400):
+        g.pushThumb(i, big, 384, 288)
+    del g, comp, engine  # the destructor stops and joins the prepare thread
+    app.processEvents()
+    assert time.perf_counter() - t0 < 10.0
 
 
 @gui_test
