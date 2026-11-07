@@ -18,7 +18,7 @@ allocation, so these counters do not drop when a view frees its textures: they s
 high-water mark. So the bench measures what paused views *keep*:
 
 - **tour** (one app per view type): ``--copies`` views of the type, each on its own
-  intaker, take turns on screen; the others are parked far off the canvas (paused).
+  intaker, take turns on screen; the others are moved far off the canvas (off-screen, paused).
   ``kept_mb`` is the growth per extra view visited: a paused view that releases leaves
   its memory to the next one (growth near 0), one that keeps it adds its whole
   footprint. ``resume_ms`` is the time from bringing the first view back until its slot
@@ -54,8 +54,8 @@ from console_utf8 import utf8_stdio  # noqa: E402
 from gui_platform import kill_tree, popen_kwargs  # noqa: E402
 from gui_qtdrive import Endpoint, Flow, QtFlow, app_env, open_drive, wait_for  # noqa: E402
 
-#: how far a parked view moves (canvas px): beyond any window frame
-PARK_DX = 40000
+#: how far an off-screen view moves (canvas px): beyond any window frame
+OFF_DX = 40000
 #: where the view on tour sits, and its size (canvas px)
 SPOT = (320, 0)
 SIZE = (1000, 760)
@@ -75,6 +75,43 @@ SEED_VIEWS = {
 }
 #: the bench's own sources for the types that have bigger content than the seed's
 SOURCES = {"gallery": ["big"], "image": ["photo"]}
+#: types the seed canvas has no view of: their link, built here
+EXTRA_LINKS: dict[str, dict[str, Any]] = {
+    # the map reads the test data's GeoJSON into its features port
+    "map": {"kind": "read_contents", "port": "features", "params": {"sources": ["geo"]}},
+    # the usd view plays one small stage (renderer auto: RTX where ovrtx is present)
+    "usd": {
+        "kind": "intaker",
+        "port": "data",
+        "scope": "pinned",
+        "params": {"sources": ["worlds"], "screener": ["@usd"], "sort": "natural"},
+    },
+}
+TYPES = [*SEED_VIEWS, *EXTRA_LINKS]
+#: a small Z-up stage, no lights (the usd view lights it with its fallback dome)
+STAGE = """#usda 1.0
+(
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+)
+
+def Xform "World"
+{
+    def Cube "Box"
+    {
+        double size = 2
+        color3f[] primvars:displayColor = [(0.9, 0.1, 0.08)]
+    }
+    def Sphere "Ball"
+    {
+        double radius = 1.5
+        color3f[] primvars:displayColor = [(0.1, 0.8, 0.2)]
+        double3 xformOp:translate = (5, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+    }
+}
+"""
 #: the tour's view ids (names: two consonant-vowel syllables)
 TOUR_IDS = ("tava", "teve", "tivi", "tovo", "tuvu", "dava", "deve", "divi")
 
@@ -266,9 +303,9 @@ class Session:
         first to the last."""
         after = []
         for _ in range(n):
-            self.move(vid, PARK_DX)
+            self.move(vid, OFF_DX)
             time.sleep(self.bench.ns.settle)
-            self.move(vid, -PARK_DX)
+            self.move(vid, -OFF_DX)
             time.sleep(self.bench.ns.settle)
             after.append(self.mem(1))
             print(f"[OK] {vid} off and back {len(after)}: {after[-1]} MB", flush=True)
@@ -319,9 +356,24 @@ class Bench:
         (self.project / "photo").mkdir()
         photo = Image.effect_noise((6000, 4000), 60).convert("RGB")
         photo.save(self.project / "photo" / "big.jpg")
+        shutil.copytree(testdata / "geo", self.project / "geo")
+        (self.project / "worlds").mkdir()
+        (self.project / "worlds" / "plain.usda").write_text(STAGE, encoding="utf-8")
 
     def link_for(self, vtype: str) -> dict[str, Any]:
         """The seed canvas's intaker into the view of ``vtype``, with the bench's sources."""
+        if vtype in EXTRA_LINKS:
+            spec = dict(EXTRA_LINKS[vtype])
+            link = {
+                "kind": spec["kind"],
+                "source": {"view": "project", "port": "all_files"},
+                "target": {"view": "", "port": spec["port"]},
+                "params": copy.deepcopy(spec["params"]),
+                "summary": {"sentence": f"The {vtype} view shows the bench's {vtype} data."},
+            }
+            if "scope" in spec:
+                link["scope"] = spec["scope"]
+            return link
         vid = SEED_VIEWS[vtype]
         link = next(v for v in self.seed_doc["links"].values() if v["target"]["view"] == vid)
         link = copy.deepcopy(link)
@@ -338,7 +390,7 @@ class Bench:
             doc["views"][vid] = {
                 "type": vtype,
                 "label": f"{vtype} {i}",
-                "layout": {"position": [SPOT[0] + PARK_DX * (i + 1), SPOT[1]], "size": list(SIZE)},
+                "layout": {"position": [SPOT[0] + OFF_DX * (i + 1), SPOT[1]], "size": list(SIZE)},
                 "params": {},
                 "locked": False,
             }
@@ -350,26 +402,28 @@ class Bench:
     def tour(self, vtype: str) -> dict[str, Any]:
         copies = self.ns.copies
         with Session(self, vtype) as s:
-            s.submit(self.tour_canvas(vtype, copies), f"bench: {copies} {vtype} views, parked")
+            s.submit(self.tour_canvas(vtype, copies), f"bench: {copies} {vtype} views, off-screen")
             time.sleep(4)
             base = s.mem()
             on: list[float] = []
-            parked: list[float] = []
+            offscreen: list[float] = []
             refs: dict[str, Any] = {}
             for i in range(copies):
                 vid = TOUR_IDS[i]
-                s.move(vid, -PARK_DX * (i + 1))
+                s.move(vid, -OFF_DX * (i + 1))
                 s.fill(vid, vtype)
                 on.append(s.mem())
                 refs[vid] = s.grab(vid)
                 if i == 0 and s.flow is not None:
                     s.flow.shot(f"{vtype}-t0.png")
-                s.move(vid, PARK_DX * (i + 1))
+                s.move(vid, OFF_DX * (i + 1))
                 time.sleep(self.ns.settle)
-                parked.append(s.mem())
-                print(f"[OK] {vtype} {vid}: on {on[-1]} MB, parked {parked[-1]} MB", flush=True)
+                offscreen.append(s.mem())
+                print(
+                    f"[OK] {vtype} {vid}: on {on[-1]} MB, off-screen {offscreen[-1]} MB", flush=True
+                )
             first = TOUR_IDS[0]
-            s.move(first, -PARK_DX)
+            s.move(first, -OFF_DX)
             resume_ms, last = s.same_again(first, refs[first])
             if s.flow is not None:
                 s.flow.shot(f"{vtype}-back.png")
@@ -377,10 +431,28 @@ class Bench:
             back = s.mem()
             drift = s.toggle(self.ns.type_toggles)
             pan_drift = s.pan_cycles(first, self.ns.type_pans)
+            idle = None
+            if self.ns.idle_wait > 0:
+                # what an off-screen view still keeps after a long while (the usd view
+                # stops its renderer after idle_kill_s)
+                s.move(first, OFF_DX)
+                time.sleep(self.ns.settle)
+                soon = s.mem()
+                time.sleep(self.ns.idle_wait)
+                later = s.mem()
+                s.move(first, -OFF_DX)
+                back_ms, back_diff = s.same_again(first, refs[first], limit=60.0)
+                idle = {
+                    "soon_mb": soon,
+                    "later_mb": later,
+                    "after_s": self.ns.idle_wait,
+                    "resume_ms": back_ms,
+                    "resume_diff": round(back_diff, 2),
+                }
         row = {
             "base_mb": base,
             "on_mb": on,
-            "parked_mb": parked,
+            "offscreen_mb": offscreen,
             "back_mb": back,
             "footprint_mb": round(on[0] - base, 1),
             "kept_mb": round((on[-1] - on[0]) / max(1, copies - 1), 1),
@@ -388,6 +460,7 @@ class Bench:
             "resume_diff": round(last, 2),
             "toggle_drift_mb": drift,
             "pan_drift_mb": pan_drift,
+            "idle": idle,
         }
         print(f"[OK] {vtype}: {row}", flush=True)
         return row
@@ -421,7 +494,7 @@ class Bench:
     def run(self) -> int:
         self.work.mkdir(parents=True, exist_ok=True)
         self.seed()
-        types = [t for t in self.ns.types.split(",") if t] if self.ns.types else list(SEED_VIEWS)
+        types = [t for t in self.ns.types.split(",") if t] if self.ns.types else list(TYPES)
         for vtype in types:
             self.report["tour"][vtype] = self.tour(vtype)
         if self.ns.toggles:
@@ -449,13 +522,19 @@ def main() -> int:
         sys.exit("[ERROR] Windows only (GPU Process Memory counters)")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--work", required=True, type=Path)
-    ap.add_argument("--types", default="", help=f"comma-separated, of {', '.join(SEED_VIEWS)}")
+    ap.add_argument("--types", default="", help=f"comma-separated, of {', '.join(TYPES)}")
     ap.add_argument(
         "--copies", type=int, default=3, help=f"views of each type on the tour (<= {len(TOUR_IDS)})"
     )
     ap.add_argument("--toggles", type=int, default=20)
     ap.add_argument(
         "--type-toggles", type=int, default=0, help="overworld round trips in each tour"
+    )
+    ap.add_argument(
+        "--idle-wait",
+        type=float,
+        default=0.0,
+        help="seconds an off-screen view waits, then measured",
     )
     ap.add_argument("--type-pans", type=int, default=0, help="off-and-back trips in each tour")
     ap.add_argument("--load", type=float, default=8.0, help="seconds a view gets to load")
