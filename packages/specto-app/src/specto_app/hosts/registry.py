@@ -25,7 +25,7 @@ import inspect
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from PySide6.QtCore import QObject, Signal, Slot
+from PySide6.QtCore import QObject, QTimer, Signal, Slot
 from PySide6.QtQuick import QQuickItem
 
 from specto_core import Engine
@@ -79,8 +79,10 @@ class HostRegistry(QObject):
         # view id -> health before the pause (status, message, hint); the registry owns
         # the pause bookkeeping
         self._paused: dict[str, dict[str, str]] = {}
-        # paused views whose item is out of the scene, its GPU memory freed (SPEC-3)
+        # paused views whose item is out of the scene, its GPU memory freed (SPEC-3),
+        # and the timers of the ones that will be once off-screen long enough
         self._released: set[str] = set()
+        self._release_timers: dict[str, QTimer] = {}
         self._off_patch = ctx.live.on_patch(self._on_patch)
         self._off_events = ctx.live.events.subscribe(self._on_event)
         ctx.health_listeners.append(self.healthChanged.emit)
@@ -338,6 +340,7 @@ class HostRegistry(QObject):
     def dispose(self, view_id: str) -> None:
         self._paused.pop(view_id, None)
         self._released.discard(view_id)
+        self._cancel_release(view_id)
         h = self.hosts.pop(view_id, None)
         self.ctx.links.detach(view_id)
         self._slots.pop(view_id, None)
@@ -369,11 +372,14 @@ class HostRegistry(QObject):
         if h is None:
             return {}
         try:
-            return h.snapshot()
+            snap = h.snapshot()
+            if getattr(h, "release_when_paused", False) and isinstance(snap, dict):
+                snap["released"] = view_id in self._released
+            return snap
         except Exception as e:
             return {"error": f"{type(e).__name__}: {e}"}
 
-    # -- pause / resume (contracts section 16) ------------------------------------------------
+    # -- pause / resume (contracts sections 11, 12) -------------------------------------------
     def pause(self, view_id: str, why: str = "off-screen") -> bool:
         """Tell a live host its view is off-screen (or collapsed, #114: ``why`` is the
         health message); health becomes ``paused`` (the previous health is kept for
@@ -389,9 +395,9 @@ class HostRegistry(QObject):
         self._paused[view_id].update(self.ctx.health_of(view_id))
         pause = getattr(h, "pause", None)
         try:
-            self._release(view_id, h)  # first: the host's pause sees its item out
             if callable(pause):
                 pause()
+            self._schedule_release(view_id, h)
             self.ctx.set_health(view_id, "paused", "off-screen")
         except Exception as e:
             self.ctx.set_health(view_id, "error", f"pause: {type(e).__name__}: {e}")
@@ -404,6 +410,7 @@ class HostRegistry(QObject):
             return False
         resume = getattr(h, "resume", None)
         try:
+            self._cancel_release(view_id)
             self._restore(view_id, h)
             if callable(resume):
                 resume()
@@ -420,27 +427,64 @@ class HostRegistry(QObject):
         """True while a paused view's item is out of the scene (``release_when_paused``)."""
         return view_id in self._released
 
-    def _release(self, view_id: str, host: Any) -> None:
-        """A paused host that asks for it (``release_when_paused``) has its item taken out
-        of the scene: the window deletes the item's scene-graph nodes on its next frame,
-        and with them their textures, atlases and render targets (SPEC-3). The item and
-        its state (scroll, zoom, selection) stay; ``_restore`` puts it back."""
-        item = getattr(host, "item", None)
-        if item is None or not getattr(host, "release_when_paused", False):
+    def _schedule_release(self, view_id: str, host: Any) -> None:
+        """A paused host that asks for it (``release_when_paused``) gives back its GPU
+        memory once it has stayed paused ``release_delay_s`` (SPEC-3): panning a view out
+        and straight back costs nothing, one left off-screen is released."""
+        if not getattr(host, "release_when_paused", False):
             return
-        if item.parentItem() is not self._slots.get(view_id):
+        delay = float(getattr(host, "release_delay_s", 0.0))
+        if delay <= 0:
+            self._release(view_id)
+            return
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._release(view_id))
+        self._release_timers[view_id] = timer
+        timer.start(int(delay * 1000))
+
+    def _cancel_release(self, view_id: str) -> None:
+        timer = self._release_timers.pop(view_id, None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+
+    def _release(self, view_id: str) -> None:
+        """The paused host's item leaves the scene: the window deletes the item's
+        scene-graph nodes on its next frame, and with them their textures, atlases and
+        render targets. The item and its state (scroll, zoom, selection) stay;
+        ``_restore`` puts it back. The host hears it through ``on_release``."""
+        self._cancel_release(view_id)
+        host = self.hosts.get(view_id)
+        item = getattr(host, "item", None)
+        if host is None or item is None or view_id not in self._paused:
+            return
+        slot = self._slots.get(view_id)
+        if slot is None or item.parentItem() is not slot:
             return  # not in a slot (headless, or the slot is being rebuilt)
         self._released.add(view_id)
         item.setParentItem(None)
+        hook = getattr(host, "on_release", None)
+        if callable(hook):
+            hook()
 
     def _restore(self, view_id: str, host: Any) -> None:
+        """Back from a release: the item goes into its slot (or, with none now, hidden
+        into the parking until a slot takes it), then the host hears ``on_restore``."""
         if view_id not in self._released:
             return
         self._released.discard(view_id)
         slot = self._slots.get(view_id)
         item = getattr(host, "item", None)
-        if slot is not None and item is not None:
-            self._place(item, slot)
+        if item is not None:
+            if slot is not None:
+                self._place(item, slot)
+            else:
+                item.setParentItem(self._parking)
+                item.setVisible(False)
+        hook = getattr(host, "on_restore", None)
+        if callable(hook):
+            hook()
 
     def snapshot_image(self, view_id: str) -> Any:
         """The host's own image, or None (the shell then crops a window grab)."""

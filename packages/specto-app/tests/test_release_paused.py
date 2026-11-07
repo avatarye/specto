@@ -1,4 +1,4 @@
-"""Paused views release their GPU memory (SPEC-3; contracts section 16): a paused host
+"""Paused views release their GPU memory (SPEC-3; contracts section 11): a paused host
 whose item can rebuild itself (``release_when_paused``) has the item taken out of the
 scene, so the window deletes its scene-graph nodes and the textures, atlases and render
 targets they hold; on resume the item goes back into its slot with its state. Offscreen
@@ -33,7 +33,9 @@ def images(app, n: int = 12) -> None:
         Image.new("RGB", (64, 48), (20 * i % 255, 90, 160)).save(root / f"f{i:03}.png")
 
 
-def gallery(app, spin, vid: str = "kobi", position: tuple = (300, 40)) -> QuickViewHost:
+def gallery(
+    app, spin, vid: str = "kobi", position: tuple = (300, 40), delay: float = 0.0
+) -> QuickViewHost:
     doc = app.live.document()
     doc["views"][vid] = {
         "type": "gallery",
@@ -43,7 +45,9 @@ def gallery(app, spin, vid: str = "kobi", position: tuple = (300, 40)) -> QuickV
     pin(doc, vid, sources=["frames"])
     submit(app, doc, "a gallery")
     spin(until=lambda: vid in app.hosts.hosts and app.hosts.hosts[vid].gallery.count() == 12)
-    return app.hosts.hosts[vid]
+    host = app.hosts.hosts[vid]
+    host.release_delay_s = delay  # released at once unless a test asks for the grace
+    return host
 
 
 def in_scene(app, host: QuickViewHost, vid: str) -> bool:
@@ -65,6 +69,7 @@ def test_a_paused_gallery_leaves_the_scene_and_comes_back_as_it_was(app, spin):
     assert app.hosts.is_released("kobi")
     assert host.item.window() is None and host.item.parentItem() is None
     assert app.controller.views["kobi"]["health"] == "paused"
+    assert app.hosts.snapshot("kobi")["released"] is True
 
     app.controller.home()
     spin(until=lambda: not app.hosts.is_paused("kobi"))
@@ -122,6 +127,54 @@ def test_a_slot_rebuilt_while_released_gets_the_item_only_on_resume(app, spin):
     new.deleteLater()
 
 
+def test_panning_out_and_straight_back_releases_nothing_staying_out_does(app, spin):
+    """The grace (``release_delay_s``): a view panned away and back before it runs out
+    keeps its item in the scene, so it comes back without paying a reopen; one left
+    off-screen past it is released."""
+    import time
+
+    images(app)
+    host = gallery(app, spin, delay=0.4)
+    app.controller.panBy(3000, 0)
+    spin(until=lambda: app.hosts.is_paused("kobi"))
+    assert not app.hosts.is_released("kobi") and host.item.window() is app.window
+    app.controller.home()
+    spin(until=lambda: not app.hosts.is_paused("kobi"))
+    spin(600)  # past the grace: the cancelled release does not fire later
+    assert not app.hosts.is_released("kobi") and in_scene(app, host, "kobi")
+
+    app.controller.panBy(3000, 0)
+    t0 = time.monotonic()
+    spin(until=lambda: app.hosts.is_released("kobi"))
+    assert time.monotonic() - t0 >= 0.35
+    assert host.item.window() is None
+
+
+def test_a_view_without_a_slot_is_never_marked_released(app, spin):
+    images(app)
+    host = gallery(app, spin)
+    slot = app.hosts.slot_of("kobi")
+    app.hosts.detach("kobi", slot)  # the slot went (a rebuild): the item waits parked
+    assert app.hosts.pause("kobi")
+    assert not app.hosts.is_released("kobi")
+    app.hosts.resume("kobi")
+    assert app.hosts.attach("kobi", slot)
+    assert in_scene(app, host, "kobi")
+
+
+def test_a_released_item_whose_slot_went_waits_hidden_until_a_slot_takes_it(app, spin):
+    images(app)
+    host = gallery(app, spin)
+    app.controller.panBy(3000, 0)
+    spin(until=lambda: app.hosts.is_released("kobi"))
+    slot = app.hosts.slot_of("kobi")
+    app.hosts.detach("kobi", slot)
+    app.hosts.resume("kobi")
+    assert host.item.parentItem() is app.hosts._parking and not host.item.isVisible()
+    assert app.hosts.attach("kobi", slot)
+    assert in_scene(app, host, "kobi")
+
+
 def test_a_paused_image_lets_go_of_its_picture_and_shows_it_again_as_it_was(app, spin):
     from PIL import Image
     from PySide6.QtQuick import QQuickItem
@@ -139,6 +192,7 @@ def test_a_paused_image_lets_go_of_its_picture_and_shows_it_again_as_it_was(app,
     submit(app, doc, "an image")
     spin(until=lambda: "dena" in app.hosts.hosts)
     host = app.hosts.hosts["dena"]
+    host.release_delay_s = 0
     img = host.item.findChild(QQuickItem, "image")
     spin(until=lambda: host.image_status == "ready", timeout=10)
     item = host.item
@@ -149,11 +203,12 @@ def test_a_paused_image_lets_go_of_its_picture_and_shows_it_again_as_it_was(app,
     item.setProperty("navSerial", item.property("navSerial") + 1)
     spin(until=lambda: abs(host.zoom - 0.8) < 1e-6)
     center = host.center
-    assert not host.release_when_paused  # the texture follows the picture, not the node
+    assert host.release_when_paused
 
     app.controller.panBy(3000, 0)
-    spin(until=lambda: app.hosts.is_paused("dena"))
-    assert img.property("source").toString() == ""  # the picture and its texture let go
+    spin(until=lambda: app.hosts.is_released("dena"))
+    # out of the scene and the picture let go: its texture lives as long as the picture
+    assert img.property("source").toString() == "" and host.item.window() is None
     assert item.property("source").toString().endswith("big.png")  # what to show stays
     assert app.controller.views["dena"]["health"] == "paused"
 
@@ -203,6 +258,7 @@ def test_a_resumed_gallery_decodes_its_thumbnails_again_after_its_first_frame(tm
 
     host.pause()
     fake.drop_atlas()  # what leaving the scene does to the native item
+    host.on_restore()
     host.resume()
     qapp.processEvents()
     assert not fake.pushed  # the item has not drawn back in the scene yet
