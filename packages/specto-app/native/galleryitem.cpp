@@ -915,6 +915,21 @@ void GalleryItem::mouseMoveEvent(QMouseEvent *event)
     event->accept();
 }
 
+void GalleryItem::mouseUngrabEvent()
+{
+    // the grab went elsewhere (another item took it, or the item left the scene while
+    // pressed, SPEC-3): no release follows, so end the press and any drag here
+    if (!m_pressed)
+        return;
+    m_pressed = false;
+    m_pressIndex = -1;
+    if (m_dragging) {
+        m_dragging = false;
+        emit draggingChanged();
+        endGesture();
+    }
+}
+
 void GalleryItem::mouseReleaseEvent(QMouseEvent *event)
 {
     if (!m_pressed) {
@@ -1366,6 +1381,7 @@ void GalleryItem::reportStats(const int resident[TierCount], int uploads, int ev
         QMutexLocker lock(&m_stagedMutex);
         m_statStaged = int(m_staged.size());
     }
+    m_lastSyncMs = m_clock.elapsed();
     if (uploads > 0) {
         m_lastUploadMs = m_clock.elapsed();
         m_uploadsSinceAspect += uint32_t(uploads);
@@ -1390,8 +1406,10 @@ void GalleryItem::publishStats()
         m_uploadsSinceAspect = 0;
         maybeUpdateAspect();
     }
-    // the fade-in of freshly uploaded tiles needs a few more frames
-    if (more || (m_lastUploadMs >= 0 && m_clock.elapsed() - m_lastUploadMs < 220))
+    // the fade-in of freshly uploaded tiles needs a few more frames: judged by the frame
+    // reported, not by now, so a GUI thread that runs this late still asks for the frame
+    // that finishes the fade (the tiles' alpha is baked into the vertices at sync)
+    if (more || (m_lastUploadMs >= 0 && m_lastSyncMs - m_lastUploadMs < 220))
         update();
     emit statsChanged();
 }

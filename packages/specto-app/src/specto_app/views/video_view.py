@@ -200,6 +200,10 @@ class VideoBridge(QObject):
 class VideoHost(Stepping, QuickViewHost):
     """One live video view; see the module docstring."""
 
+    #: paused, the item leaves the scene: its node frees mpv's render context and the
+    #: frame buffer, which hold nearly all of a video's GPU memory (SPEC-3)
+    release_when_paused = True
+
     def __init__(
         self,
         ctx: HostContext,
@@ -232,6 +236,13 @@ class VideoHost(Stepping, QuickViewHost):
         self._final_pending = False  # a gesture ended: emit once mpv lands
         self._was_playing = False  # for the shell's pause / resume
         self._seek_target: int | None = None  # a seek in flight: steps build on it
+        # paused out of the scene (SPEC-3): the frame to show again once mpv has reopened
+        # the file for the new render context; position changes nobody asked for until
+        # then (the old context's last frame going, the reopening) are not emitted
+        self._landing: int | None = None
+        # released while playing: play again once back on the frame (0 no, 1 waiting for
+        # the file to reopen, 2 waiting for the landing)
+        self._play_on_landing = 0
         self._params: dict[str, Any] = {}
         self.tl = TimelineController(self)
         self.tl.on_scrub = self.scrub
@@ -314,6 +325,8 @@ class VideoHost(Stepping, QuickViewHost):
         self.position = 0.0
         self._following = True  # positions reported while the file opens are not ours
         self._seek_target = None
+        self._landing = None
+        self._play_on_landing = 0
         self._rebuild_timemap()
         if self.item is not None:
             self.item.setProperty("caption", self.caption())
@@ -452,6 +465,14 @@ class VideoHost(Stepping, QuickViewHost):
             f"{self.mpv.property('videoWidth')}x{self.mpv.property('videoHeight')} "
             f"{self.fps:.3f} fps, {self.frame_count} frames, {self.duration:.3f} s",
         )
+        if self._landing is not None:
+            # reopened for a new render context (back in the scene): the frame it showed,
+            # or the one a time received meanwhile asked for
+            frame, self._landing = self._landing, None
+            self.seek_frame(frame, following=True)
+            if self._play_on_landing:
+                self._play_on_landing = 2
+            return
         # a view that opens while a time already sits on its port lands on it
         value = self.ctx.links.input_of(self.view_id, TIME)
         if isinstance(value, TimeValue):
@@ -487,7 +508,10 @@ class VideoHost(Stepping, QuickViewHost):
             if self._seek_target is None:  # the landing report of a followed seek
                 self._following = False
                 self._emit_time()
-        else:
+                if self._play_on_landing == 2 and self.mpv is not None:
+                    self._play_on_landing = 0
+                    self.mpv.play()
+        elif self._landing is None:
             self._emit_time()
 
     @Slot()
@@ -569,6 +593,8 @@ class VideoHost(Stepping, QuickViewHost):
             return
         self._following = following
         self._final_pending = final and not following
+        if self._landing is not None:
+            self._landing = frame  # out of the scene: the frame to show on the way back
         if self.mpv is not None:
             self._seek_target = frame
             self._apply_audio_to_mpv()  # queued ahead of the seek: silent through it
@@ -719,10 +745,20 @@ class VideoHost(Stepping, QuickViewHost):
             self.mpv.pause()
         super().pause()
 
+    def on_release(self) -> None:
+        """Out of the scene, the item's node frees mpv's render context, and the item
+        reopens its file for the next one: keep the frame shown for the way back (no
+        position change goes out until then)."""
+        if self.loaded:
+            self._landing = self.frame
+
     def resume(self) -> None:
         super().resume()
         if self._was_playing and self.mpv is not None:
-            self.mpv.play()
+            if self._landing is not None:
+                self._play_on_landing = 1  # once reopened and back on its frame
+            else:
+                self.mpv.play()
         self._was_playing = False
 
     # -- following a time ------------------------------------------------------------------

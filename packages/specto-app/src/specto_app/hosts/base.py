@@ -228,6 +228,19 @@ class QuickViewHost(QObject):
 
     healthChanged = Signal(str, str)
 
+    #: a view paused for ``release_delay_s`` gives back its GPU memory (contracts
+    #: section 11, SPEC-3): the registry takes its item out of the scene, the window
+    #: deletes its scene-graph nodes and with them what they hold (atlases, render
+    #: targets, a video's render context), and ``on_release`` lets the host free what
+    #: lives elsewhere (an image's decoded picture). On resume the item goes back into
+    #: its slot with its own state (scroll, zoom, selection), ``on_restore`` runs, then
+    #: ``resume``. Set by the views whose items rebuild by themselves; web views keep
+    #: their pages (ADR 0030).
+    release_when_paused: bool = False
+    #: how long a view stays paused before it is released: panning out and straight
+    #: back costs nothing
+    release_delay_s: float = 3.0
+
     def __init__(self, ctx: HostContext, view_id: str, manifest: ViewManifest) -> None:
         super().__init__()
         self.ctx = ctx
@@ -249,7 +262,7 @@ class QuickViewHost(QObject):
         """Structured state for ``snap``. Default: the view's health."""
         return {"health": self.ctx.health_of(self.view_id)}
 
-    # -- pause / resume / snapshot image (contracts section 16) ---------------------------
+    # -- pause / resume / snapshot image (contracts sections 11, 12) ----------------------
     def pause(self) -> None:
         """The view left the screen (panned out, or the overworld opened): stop per-frame
         work and release GPU memory where the engine allows. Default: the flag only."""
@@ -257,6 +270,12 @@ class QuickViewHost(QObject):
 
     def resume(self) -> None:
         self._host_paused = False
+
+    def on_release(self) -> None:
+        """The paused view's item has left the scene (``release_when_paused``)."""
+
+    def on_restore(self) -> None:
+        """The released item is back in its slot; ``resume`` follows."""
 
     def snapshot_image(self) -> Any:
         """A ``QImage`` of the view as it looks now, or None to let the shell crop it out

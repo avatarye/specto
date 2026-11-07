@@ -126,6 +126,7 @@ class GalleryItemLike(Protocol):
     def cell_aspect(self) -> float: ...
     def stats(self) -> dict[str, Any]: ...
     def set_caption(self, text: str) -> None: ...
+    def after_frame(self, fn: Callable[[], None]) -> None: ...
 
     # callbacks the host installs; the adapter wires them to the item's signals
     on_selected: Callable[[int, int], None] | None
@@ -203,6 +204,7 @@ class NativeGallery:
         self.on_gesture_ended: Callable[[], None] | None = None
         self.on_wanted_changed: Callable[[], None] | None = None
         self.on_drag: Callable[[int, int], None] | None = None
+        self._after_frame: Callable[[], None] | None = None  # the pending after_frame
         g.userSelected.connect(self._selected)
         g.activated.connect(self._activated)
         g.quickLook.connect(self._quick_look)
@@ -345,6 +347,28 @@ class NativeGallery:
     def set_caption(self, text: str) -> None:
         self.root.setProperty("caption", text)
 
+    def after_frame(self, fn: Callable[[], None]) -> None:
+        """Call ``fn`` once, after the item's next frame (its stats land on the GUI thread
+        after each one); a report from a frame drawn before this call does not count."""
+        item = self.item
+        before = int(item.property("frames"))
+        self._drop_after_frame()  # a call not yet run gives way to this one
+
+        def once() -> None:
+            if int(item.property("frames")) <= before:
+                return
+            self._drop_after_frame()
+            fn()
+
+        self._after_frame = once
+        item.statsChanged.connect(once)
+
+    def _drop_after_frame(self) -> None:
+        once, self._after_frame = self._after_frame, None
+        if once is not None:
+            with contextlib.suppress(RuntimeError, TypeError):
+                self.item.statsChanged.disconnect(once)
+
     def cell_rect(self, index: int) -> Any:
         """The tile's cell in scene coordinates (``QRectF``), empty when scrolled out."""
         r = self.item.cellRectOf(int(index))
@@ -353,6 +377,9 @@ class NativeGallery:
 
 class GalleryHost(QuickViewHost):
     """One live gallery view; see the module docstring."""
+
+    #: paused, the item leaves the scene and its atlas goes with its node (SPEC-3)
+    release_when_paused = True
 
     def __init__(
         self,
@@ -1080,6 +1107,13 @@ class GalleryHost(QuickViewHost):
             },
             "stats": stats,
         }
+
+    # -- pause / resume (contracts sections 11, 12) ----------------------------------------
+    def on_restore(self) -> None:
+        """Released, the item went back into the scene with an empty atlas: its first
+        frame there finds nothing resident, so the pump decodes what the view shows again
+        once that frame is drawn."""
+        self.gallery.after_frame(self.schedule_pump)
 
     def dispose(self) -> None:
         if self.disposed:

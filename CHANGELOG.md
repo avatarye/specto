@@ -15,6 +15,19 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Paused galleries, images and videos give back their GPU memory (SPEC-3, ADR 0030). A
+  paused view is one off-screen, collapsed or behind the overworld. After 3 s paused,
+  the view leaves the scene: the gallery's atlas and the video's frame buffer and mpv
+  render context are freed, and an image lets go of its decoded picture. A view panned
+  out and straight back keeps everything. Each comes back as it was: scroll, zoom,
+  selection, the frame shown, playing or not. Coming back costs
+  the decode: a gallery re-decodes its visible thumbnails (about 0.6 s), an image its
+  picture (0.4 s for a 24-megapixel photo), and a video reopens its file (about 1.4 s).
+  An off-screen video kept about 265 MB even if never shown and now keeps under 2 MB; a
+  gallery with a filled atlas kept 67 MB and now keeps 1 MB. Web views keep their pages,
+  because QtWebEngine offers no release that pays off. `tools/bench_gpu_release.py`
+  measures it all on the GPU tier. Also fixed: gallery thumbnails could stay half faded
+  in when the app was busy.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the
