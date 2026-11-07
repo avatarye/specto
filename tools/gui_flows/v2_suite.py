@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import time
@@ -43,6 +42,7 @@ ROOT = HERE.parent.parent
 SESSION = HERE.parent / "gui_session.py"
 QTDRIVE = HERE.parent / "gui_qtdrive.py"
 sys.path.insert(0, str(HERE.parent))
+import gui_scratch  # noqa: E402
 from console_utf8 import utf8_stdio  # noqa: E402
 
 TIER_NAMES = ("offscreen", "gpu", "mouse")
@@ -979,8 +979,13 @@ def run_entry(name: str, entry: dict, work: Path, out: Path) -> list[dict]:
     project = work / f"v49-{name}"
     t0 = time.monotonic()
     # every run starts from nothing: some seeds fill an existing project in place (their
-    # try-it use), and a canvas, picks or settings left by the last run would show
-    shutil.rmtree(project, ignore_errors=True)
+    # try-it use), and a canvas, picks or settings left by the last run would show. Only a
+    # folder a GUI session created (its mark) or an empty one is wiped (SPEC-7)
+    try:
+        gui_scratch.prepare_project(project, fresh=True)
+    except SystemExit as e:
+        why = f"{e} (a --work folder from before SPEC-7 carries no mark: delete {project} once)"
+        return [{"entry": name, "flow": "seed", "ok": False, "seconds": 0.0, "error": why}]
     s = entry["seed"]
     if callable(s):
         s(project)
@@ -990,6 +995,8 @@ def run_entry(name: str, entry: dict, work: Path, out: Path) -> list[dict]:
         if r.returncode != 0:
             return [{"entry": name, "flow": "seed", "ok": False, "seconds": time.monotonic() - t0,
                      "error": f"seed failed: {r.stdout}{r.stderr}"}]  # fmt: skip
+    project.mkdir(parents=True, exist_ok=True)
+    gui_scratch.mark(project)  # a seed may have wiped and rebuilt it: ours all the same
     results: list[dict] = []
     for i, sess in enumerate(entry["sessions"]):
         cmd = session_cmd(tier, project, out, work, name, i, sess)

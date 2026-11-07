@@ -413,8 +413,13 @@ desktop only while holding the desktop lock: under `desktop_lock.py run` they us
 lock, otherwise they take it themselves (`gui_session.py --lock-wait`), and they refuse
 a desktop another session holds. A session ends only the process tree it started.
 Without `--project` it runs on a folder of its own under the temp dir, removed at the
-end; `--fresh` (here and in `gui_qtdrive.py`) wipes only a folder a GUI session created
-or an empty one, and refuses any other. On Linux,
+end (old ones a killed session left are swept). `--fresh` (here and in
+`gui_qtdrive.py`, and the suite reseeding an entry's folder) runs under the lock and
+wipes only a folder a GUI session created (its `.specto/gui-scratch` mark names that
+folder) or an empty one, and refuses any other; a `--work` folder from before this rule
+carries no mark, so delete it once. The lock file is written whole; a lock whose holder
+is gone, or that stopped beating, is stale. `--keep` leaves the app open but releases the
+lock. On Linux,
 `tools/nested_display.py run -- ...` keeps it on a nested Xephyr display (needs
 `python-xlib` in the pyautogui venv and `xclip`). Do not run it while someone is using the
 desktop: it clicks.

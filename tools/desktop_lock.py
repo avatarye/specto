@@ -8,9 +8,11 @@ two at once click into each other's windows. Hold this lock for the whole GUI se
     uv run python tools/desktop_lock.py release <name>
     uv run python tools/desktop_lock.py status
 
-The lock is a file in the temp dir holding {name, pid, since, beat}. A holder that
-stopped refreshing it for STALE_S (default 20 min; `run` refreshes every 30 s) is
-considered dead and the lock is taken over.
+The lock is a file in the temp dir holding {name, pid, since, beat}, written whole
+(a temp file and ``os.replace``). It is stale, and taken over, when its holder's pid is
+gone or it stopped refreshing it for STALE_S (default 20 min; `run` refreshes every
+30 s). A lock that cannot be read (a holder mid-write) is busy, never stale, unless its
+file has not changed for STALE_S.
 
 The tools that drive the desktop (gui_session.py, gui_drive.py) hold it themselves
 (``held``, SPEC-7): under ``run`` they use its lock (``run`` names it to its command in
@@ -25,6 +27,7 @@ import argparse
 import contextlib
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -43,15 +46,81 @@ ENV_NAME = "SPECTO_DESKTOP_LOCK_NAME"
 ENV_PRIVATE = "SPECTO_PRIVATE_DISPLAY"
 
 
-def _read() -> dict | None:
+def _read_text() -> str | None:
     try:
-        return json.loads(LOCK.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        return LOCK.read_text(encoding="utf-8")
+    except OSError:
         return None
 
 
+def _parse(text: str | None) -> dict | None:
+    try:
+        info = json.loads(text or "")
+    except ValueError:
+        return None
+    return info if isinstance(info, dict) else None
+
+
+def _read() -> dict | None:
+    return _parse(_read_text())
+
+
 def _write(info: dict) -> None:
-    LOCK.write_text(json.dumps(info), encoding="utf-8")
+    """Write the lock whole: a reader sees the old content or the new, never half."""
+    tmp = LOCK.with_name(f"{LOCK.name}.{os.getpid()}.{secrets.token_hex(3)}.tmp")
+    tmp.write_text(json.dumps(info), encoding="utf-8")
+    for _ in range(40):
+        try:
+            os.replace(tmp, LOCK)
+            return
+        except PermissionError:  # Windows: a reader has it open this instant
+            time.sleep(0.05)
+    tmp.unlink(missing_ok=True)
+    raise PermissionError(f"cannot write {LOCK}")
+
+
+def pid_alive(pid: int) -> bool:
+    """Whether process ``pid`` runs (no psutil: the pyautogui venv has none)."""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5  # access denied: it exists
+        try:
+            code = ctypes.c_ulong()
+            ok = k32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return bool(ok) and code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def stale_reason(info: dict | None, now: float) -> str:
+    """Why the lock (as read: ``None`` when unreadable) may be taken over; ``""`` when it
+    is held."""
+    if info is None:
+        try:
+            age = now - LOCK.stat().st_mtime
+        except OSError:
+            return ""
+        return f"unreadable and unchanged for {age:.0f} s" if age > STALE_S else ""
+    pid = info.get("pid")
+    if isinstance(pid, int) and not pid_alive(pid):
+        return f"its holder (pid {pid}) is gone"
+    beat = info.get("beat")
+    if not isinstance(beat, (int, float)):
+        return "it records no beat"
+    return f"no beat for {now - beat:.0f} s" if now - beat > STALE_S else ""
 
 
 def acquire(name: str, wait_s: float = 3600.0) -> bool:
@@ -66,17 +135,21 @@ def acquire(name: str, wait_s: float = 3600.0) -> bool:
             print(f"[OK] desktop lock acquired by {name}")
             return True
         except FileExistsError:
-            info = _read() or {}
-            if info.get("name") == name:
+            text = _read_text()
+            info = _parse(text)
+            if info is not None and info.get("name") == name:
                 _write({**info, "beat": now})
                 print(f"[OK] desktop lock already held by {name}")
                 return True
-            if now - float(info.get("beat", 0)) > STALE_S:
-                print(f"[WARN] taking over stale desktop lock from {info.get('name')}")
+            why = stale_reason(info, now)
+            # take it over only as judged: a lock rewritten meanwhile is someone's new one
+            if why and _read_text() == text:
+                holder = (info or {}).get("name", "?")
+                print(f"[WARN] taking over the stale desktop lock of {holder}: {why}")
                 LOCK.unlink(missing_ok=True)
                 continue
             if not announced:
-                print(f"[..] desktop busy ({info.get('name')}); waiting")
+                print(f"[..] desktop busy ({(info or {}).get('name', 'being written')}); waiting")
                 announced = True
         if time.monotonic() >= deadline:
             print("[ERROR] timed out waiting for the desktop lock")
@@ -122,9 +195,9 @@ def run(name: str, cmd: list[str], wait_s: float) -> int:
 def held(name: str, wait_s: float = 3600.0) -> Iterator[None]:
     """Drive the desktop only while holding its lock (SPEC-7). Under ``run`` (its name in
     ENV_NAME, and the lock still under that name) the run's lock serves and stays the
-    run's; otherwise take it as ``name``, waiting up to ``wait_s``, and free it at the
-    end. ``SystemExit`` when someone else holds it past the wait. A private display
-    (ENV_PRIVATE) needs none."""
+    run's; otherwise take it as ``name`` plus a nonce (a recycled pid never matches an
+    old lock), waiting up to ``wait_s``, and free it at the end. ``SystemExit`` when
+    someone else holds it past the wait. A private display (ENV_PRIVATE) needs none."""
     if os.environ.get(ENV_PRIVATE):
         yield
         return
@@ -132,6 +205,7 @@ def held(name: str, wait_s: float = 3600.0) -> Iterator[None]:
     if outer and (_read() or {}).get("name") == outer:
         yield
         return
+    name = f"{name}-{secrets.token_hex(3)}"
     if not acquire(name, wait_s):
         raise SystemExit(
             f"[ERROR] the desktop lock is held by {(_read() or {}).get('name')}: another GUI "

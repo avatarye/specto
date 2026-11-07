@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import time
@@ -54,8 +55,40 @@ def holder(path: Path) -> str | None:
 
 def test_a_session_takes_the_lock_itself_and_frees_it(lock):
     with desktop_lock.held("gui-session-1", wait_s=0):
-        assert holder(lock) == "gui-session-1"
+        name = holder(lock)
+        assert name.startswith("gui-session-1-") and len(name) > len("gui-session-1-")  # nonce
     assert not lock.exists()
+
+
+def test_an_unreadable_lock_is_busy_until_it_has_not_changed_for_the_stale_time(lock):
+    """A holder mid-write leaves an empty or torn file for an instant: a waiter never
+    deletes it then. Only one left unchanged for STALE_S is taken over."""
+    import os
+
+    lock.write_text('{"name": "some', encoding="utf-8")
+    assert not desktop_lock.acquire("me", 0)
+    assert lock.read_text(encoding="utf-8") == '{"name": "some'
+    old = time.time() - desktop_lock.STALE_S - 60
+    os.utime(lock, (old, old))
+    assert desktop_lock.acquire("me", 0) and holder(lock) == "me"
+
+
+def test_a_lock_whose_holder_is_gone_is_stale(lock):
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait(30)
+    now = time.time()
+    lock.write_text(
+        json.dumps({"name": "crashed", "pid": gone.pid, "since": now, "beat": now}),
+        encoding="utf-8",
+    )
+    assert desktop_lock.acquire("me", 0) and holder(lock) == "me"
+
+
+def test_the_lock_is_written_whole(lock):
+    assert desktop_lock.acquire("me", 0)
+    desktop_lock._write({"name": "me", "pid": 1, "since": 1.0, "beat": 2.0})
+    assert json.loads(lock.read_text(encoding="utf-8"))["beat"] == 2.0
+    assert not list(lock.parent.glob(f"{lock.name}.*.tmp"))
 
 
 def test_a_session_under_desktop_lock_run_uses_its_lock(lock, monkeypatch):
@@ -115,6 +148,71 @@ def test_fresh_takes_an_empty_folder(tmp_path):
     project.mkdir()
     gui_scratch.prepare_project(project, fresh=True)
     assert gui_scratch.is_scratch(project)
+
+
+def test_a_copied_marked_folder_is_not_the_copy_s_own(tmp_path):
+    """The mark names its folder's resolved path: a copy (or a move) of a session's
+    folder carries a mark that does not name it, so --fresh refuses it."""
+    import shutil
+
+    original = tmp_path / "proj"
+    gui_scratch.prepare_project(original, fresh=False)
+    (original / "data.txt").write_text("x", encoding="utf-8")
+    copy = tmp_path / "copy"
+    shutil.copytree(original, copy)
+    assert gui_scratch.is_scratch(original) and not gui_scratch.is_scratch(copy)
+    with pytest.raises(SystemExit):
+        gui_scratch.prepare_project(copy, fresh=True)
+    assert (copy / "data.txt").exists()
+    record = gui_scratch.owner(original)
+    assert record["pid"] == os.getpid() and record["nonce"]
+
+
+def test_fresh_waits_for_the_lock_before_it_wipes(tmp_path, lock, monkeypatch):
+    """--fresh runs under the desktop lock: while another session holds it, the folder
+    it may be using is not touched."""
+    project = tmp_path / "proj"
+    gui_scratch.prepare_project(project, fresh=False)
+    (project / "in-use.txt").write_text("x", encoding="utf-8")
+    assert desktop_lock.acquire("someone", 0)
+    argv = ["gui_session.py", "--project", str(project), "--out", str(tmp_path / "out")]
+    monkeypatch.setattr(sys, "argv", [*argv, "--fresh", "--lock-wait", "0"])
+    assert gui_session.main() == 2
+    assert (project / "in-use.txt").exists()
+
+
+def test_old_session_roots_whose_creator_is_gone_are_swept(tmp_path, monkeypatch):
+    monkeypatch.setattr(gui_scratch.tempfile, "tempdir", str(tmp_path))
+    old, mine, young = (gui_scratch.session_root() for _ in range(3))
+    for project, pid, age in ((old, 0, 2 * 86400), (mine, os.getpid(), 2 * 86400), (young, 0, 60)):
+        record = gui_scratch.owner(project)
+        record.update(pid=pid, created=time.time() - age)
+        (project / gui_scratch.MARKER).write_text(json.dumps(record), encoding="utf-8")
+    assert gui_scratch.sweep_session_roots() == [old.parent]
+    assert not old.parent.exists() and mine.exists() and young.exists()
+
+
+def test_the_suite_wipes_only_its_own_entry_folders(tmp_path):
+    """v2_suite.run_entry reseeds an entry's folder only when a session made it (or it is
+    empty); a folder of someone else's under the same name is left alone."""
+    spec = importlib.util.spec_from_file_location(
+        "v2_suite_t", _PATH.parent / "gui_flows" / "v2_suite.py"
+    )
+    suite = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(suite)
+    entry = {"seed": lambda project: (project / "seeded.txt").write_text("s"), "sessions": []}
+    work = tmp_path / "work"
+    foreign = work / "v49-x"
+    foreign.mkdir(parents=True)
+    (foreign / "mine.txt").write_text("keep", encoding="utf-8")
+    (result,) = suite.run_entry("x", entry, work, tmp_path / "out")
+    assert not result["ok"] and "delete" in result["error"]
+    assert (foreign / "mine.txt").read_text(encoding="utf-8") == "keep"
+    (foreign / "mine.txt").unlink()  # emptied by hand: the suite takes it from now on
+    assert suite.run_entry("x", entry, work, tmp_path / "out") == []
+    (foreign / "stale.txt").write_text("from the last run", encoding="utf-8")
+    assert suite.run_entry("x", entry, work, tmp_path / "out") == []
+    assert not (foreign / "stale.txt").exists() and (foreign / "seeded.txt").exists()
 
 
 def test_no_project_means_a_per_session_root(tmp_path, monkeypatch):

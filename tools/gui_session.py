@@ -104,7 +104,11 @@ def main() -> int:
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--fresh", action="store_true")
     ap.add_argument("--app-log", type=Path, default=None)
-    ap.add_argument("--keep", action="store_true", help="leave the app running")
+    ap.add_argument(
+        "--keep",
+        action="store_true",
+        help="leave the app running (the desktop lock is released all the same)",
+    )
     ap.add_argument("--pool", action="store_true", help="worker pool instead of --inline-jobs")
     ap.add_argument("--extra", default="", help="extra specto-app flags")
     ap.add_argument(
@@ -135,13 +139,21 @@ def main() -> int:
     # run with UnicodeEncodeError under a cp1252 default (#147's fix, here too)
     utf8_stdio()
     own_root = ns.project is None
+    if ns.keep:
+        print(
+            "[WARN] --keep: the app stays open after the session, but the desktop lock is "
+            "released with it; take the lock before driving that window by hand"
+        )
     try:
-        if own_root:
-            ns.project = gui_scratch.session_root()
-            print(f"[OK] session project {ns.project}")
-        else:
-            gui_scratch.prepare_project(ns.project, fresh=ns.fresh)
+        # under the lock: --fresh never wipes a folder the lock's holder is using
         with desktop_lock.held(f"gui-session-{os.getpid()}", ns.lock_wait):
+            if own_root:
+                for old in gui_scratch.sweep_session_roots():
+                    print(f"[OK] swept an old session folder {old}")
+                ns.project = gui_scratch.session_root()
+                print(f"[OK] session project {ns.project}")
+            else:
+                gui_scratch.prepare_project(ns.project, fresh=ns.fresh)
             return session(ns)
     except SystemExit as e:
         print(e)
