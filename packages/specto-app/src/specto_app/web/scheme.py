@@ -310,6 +310,9 @@ def locate_item(
     if rel is not None:
         entry["rel"] = rel
         p2 = resolve_relative(p, rel)
+        allowed = getattr(items, "side_allowed", None)
+        if p2 is not None and allowed is not None and not allowed(col, key, role, p2):
+            p2 = None  # the item's resolver serves no such file next to it (SPEC-43)
         if p2 is None:
             entry["status"] = "not_found"
         return p2

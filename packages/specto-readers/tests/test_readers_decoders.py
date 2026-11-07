@@ -60,6 +60,7 @@ def test_manifest_matches_core_vocabulary():
         "pdf",
         "scene3d",
         "text",
+        "urdf",
         "usd",
         "video",
     }

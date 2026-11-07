@@ -664,7 +664,7 @@
     "additionalProperties": false,
     "properties": {
      "type": {
-      "description": "The view type, with its role: file_tree (browser), gallery (browser), image (viewer), video (player), json (viewer), markdown (viewer), map (scene), 3d (scene), html (viewer), pdf (viewer), preview (viewer), usd (player), scratch (browser), text (viewer). A browser shows many items of a collection and outputs a selection; a viewer shows the one selected item in its native form; a player is a viewer whose item has a timeline; a scene places many items in one space. A browser's selection feeds a viewer or player: the gallery browses, the image view or video shows what it picks.",
+      "description": "The view type, with its role: file_tree (browser), gallery (browser), image (viewer), video (player), json (viewer), markdown (viewer), map (scene), 3d (scene), html (viewer), pdf (viewer), preview (viewer), usd (player), scratch (browser), text (viewer), urdf (viewer). A browser shows many items of a collection and outputs a selection; a viewer shows the one selected item in its native form; a player is a viewer whose item has a timeline; a scene places many items in one space. A browser's selection feeds a viewer or player: the gallery browses, the image view or video shows what it picks.",
       "enum": [
        "file_tree",
        "gallery",
@@ -679,7 +679,8 @@
        "preview",
        "usd",
        "scratch",
-       "text"
+       "text",
+       "urdf"
       ],
       "title": "Type",
       "type": "string"
@@ -2734,7 +2735,8 @@
   "pdf",
   "table",
   "message_stream",
-  "pose_track"
+  "pose_track",
+  "urdf"
  ],
  "port_types": [
   {
@@ -2766,6 +2768,7 @@
     "pdf",
     "preview",
     "text",
+    "urdf",
     "usd",
     "video"
    ],
@@ -2803,6 +2806,7 @@
     "pdf",
     "preview",
     "scratch",
+    "urdf",
     "usd"
    ],
    "outputs_of": [
@@ -2815,6 +2819,7 @@
     "markdown",
     "preview",
     "scratch",
+    "urdf",
     "usd",
     "video"
    ],
@@ -2853,6 +2858,7 @@
    "outputs_of": [
     "json",
     "markdown",
+    "urdf",
     "usd"
    ],
    "link_kinds": [
@@ -2866,10 +2872,12 @@
    "two_way": false,
    "inputs_of": [
     "3d",
+    "urdf",
     "usd"
    ],
    "outputs_of": [
     "3d",
+    "urdf",
     "usd"
    ],
    "link_kinds": [

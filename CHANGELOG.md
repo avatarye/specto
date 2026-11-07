@@ -15,6 +15,15 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- A new `urdf` view shows one robot description (SPEC-43.1, ADR 0029; the page is
+  SPEC-43.2). A double-click on a `.urdf` opens it. Specto parses the file with the
+  standard library (no new dependency; a DOCTYPE or entity declaration is refused) and
+  finds its meshes itself: `params.package_paths` first, then the nearest `package.xml`,
+  then `ROS_PACKAGE_PATH` and `AMENT_PREFIX_PATH`, never by stripping prefixes and never
+  over the network. A mesh that is missing or unreadable draws as a placeholder and turns
+  the view's health to the new amber `warn`, with one note per cause; `snap` lists each
+  one. The agent poses the robot through `params.joints` (radians and metres), and a
+  slider release is one undo step.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the

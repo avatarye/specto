@@ -306,17 +306,27 @@ def test_the_session_prompt_carries_the_view_types_and_link_kinds_so_describe_is
     before a one-submit change. The standing reference (built from the engine: every view
     type's ports and params, every link kind's params and examples) rides in the system
     prompt, cached by the CLI; the prompt says the context's document is the state."""
+    from specto_app.hosts import HostContext, HostRegistry
     from specto_app.prompt.reference import reference_text
     from specto_app.prompt.session import SYSTEM_PROMPT
+    from specto_app.views import factories
 
+    # as the app builds it (app.py): core's view types plus the app's (3d, urdf, ...)
     engine = Engine(project=None)
+    reg = HostRegistry(HostContext(engine, None), load_entry_points=False)
+    for factory in factories():
+        reg.add_factory(factory)
     ref = reference_text(lambda n, a: engine.call(n, a, PROMPT_BAR))
+    reg.dispose_all()
 
     assert "gallery" in ref and "file_tree" in ref and "selected_files" in ref
     assert "intaker" in ref and '"scope":"selection"' in ref and '"scope":"pinned"' in ref
     assert "follow" in ref and "time_map" in ref and "read_contents" in ref
-    assert "tile" in ref  # a view type's params with their defaults
-    assert len(ref) < 16000  # a few thousand tokens, read from the cache after turn one
+    assert "tile" in ref and "urdf" in ref  # view types' params with their defaults
+    # about 6-7k tokens, read from the cache after turn one. Measured with the app's view
+    # types: 23.9k on main before SPEC-43 (the old 16000 counted core's only), 25.8k
+    # with the urdf view's card (2.0k); a new card is trimmed before this is raised
+    assert len(ref) < 26500
     opts = agent_options(Path("."), server=None, reference=ref)
     assert opts.system_prompt.startswith(SYSTEM_PROMPT) and opts.system_prompt.endswith(ref)
     assert "do not call state" in SYSTEM_PROMPT and "do not call describe" in SYSTEM_PROMPT

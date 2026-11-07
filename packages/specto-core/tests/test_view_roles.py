@@ -25,6 +25,7 @@ SPEC_ROLES = {
     "3d": "scene",
     "map": "scene",
     "text": "viewer",  # SPEC-32: the "Not supported" view, one short text in its native form
+    "urdf": "viewer",  # SPEC-43: one robot, never the root view
 }
 
 

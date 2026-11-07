@@ -166,7 +166,7 @@ NAV_KEYS = (
     "drag turns and walks, right-drag looks (W A S D Q E fly, wheel sets speed), "
     "middle-drag pans, wheel dollies, Alt+drag orbits, F frames"
 )
-VIEW_KEYS = {"3d": NAV_KEYS, "usd": NAV_KEYS}
+VIEW_KEYS = {"3d": NAV_KEYS, "usd": NAV_KEYS, "urdf": NAV_KEYS}
 #: the status bar's line while the wiring layer shows (#82)
 WIRING_HINT = "wiring layer: ` or Esc leaves, click a link dot to open the link"
 HINT_SEP = "  ·  "
@@ -219,8 +219,9 @@ def status_hint(info: dict[str, Any], *, hovered: bool) -> str:
         parts.append(AUTO_UPDATE_ON if auto else AUTO_UPDATE_OFF)
     if hovered and info.get("floating"):
         parts.append(FLOATING_HINT)
-    if hovered and health == "ok" and not info.get("hint") and not info.get("approval"):
-        # a healthy view offers its gestures while hovered: a viewer's step keys first,
+    if hovered and health in ("ok", "warn") and not info.get("hint") and not info.get("approval"):
+        # a working view (warn works too, SPEC-43) offers its gestures while hovered: a
+        # viewer's step keys first,
         # then the host's own line for its state (the usd view's camera mode, #39), else
         # the type's
         steps = step_hint(str(info.get("stepType") or info.get("type", "")))

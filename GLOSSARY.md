@@ -177,7 +177,7 @@ The short text a gallery draws on each thumbnail: the item's key (`params.captio
 _Avoid_: label (that is a view's or a link's), title, footer (that is the view's footer)
 
 **Viewer**:
-A view role: shows the one selected item of its input collection in its native form (image, markdown, json, html, pdf, preview), with previous and next controls to step through the collection. A viewer has no gallery mode.
+A view role: shows the one selected item of its input collection in its native form (image, markdown, json, html, pdf, preview, urdf), with previous and next controls to step through the collection. A viewer has no gallery mode.
 _Avoid_: view (for the role), inspector, reader (that is the locator and decoder)
 
 **Scene**:
@@ -199,6 +199,14 @@ _Avoid_: quick look view, live preview, floating preview (that is a floating vie
 **Text view**:
 A view type (`text`, viewer role) showing one short text the canvas document carries; the "Not supported: <name> (<ext>)" view an unsupported file opens in. It accepts no data kind.
 _Avoid_: note (that is a scratch pad page), message view, placeholder
+
+**URDF view**:
+A view type (`urdf`, viewer role, never the root view) showing one robot description (`.urdf`) in a Babylon.js page beside the 3d view's: its links and joints in the ROBOT panel (links nested under the joints that hold them, a slider per moving joint), its pose from `params.joints` (radians and metres) or the zero pose, the 3d view's camera, environment and VIEW panel. Its meshes resolve through the package resolver; one not found draws as a placeholder and turns health to warn. Specto only views URDF: it never edits one (ADR 0029).
+_Avoid_: robot view, URDF viewer (in prose), 3d view mode
+
+**Package resolver**:
+How the URDF view finds the files a URDF names (`package://<name>/...`, `file://`, relative paths): `params.package_paths` first, then the nearest `package.xml` naming the package (up from the URDF, then the project's folders), then `ROS_PACKAGE_PATH` and `AMENT_PREFIX_PATH`, and a relative path next to the URDF. It never guesses by stripping the `package://<name>/` prefix, never reaches out of a package folder and never fetches over the network; what it cannot find is listed with its cause, and only mesh and image files it finds are served (ADR 0029).
+_Avoid_: filename handler, mesh search, ROS lookup
 
 **Scratch pad**:
 The project's one place to keep things while looking (#184): a view type (`scratch`, browser role, at most one per canvas) of named pages (tabs), each page one markdown note `.specto/scratch/<page>.md`, rendered like the markdown view (outline, zoom) and editable in place (a rendered / source toggle, autosaved). What the user drops or pastes there from any view or another app is appended as markdown: text as text, pictures as png files in `<page>.assets/` embedded with `![...]()`, files and prims as links relative to the page, an item from a view as a short quote naming its source; the agent reads and edits the pages with its scratch tools. `pages.json` keeps the order, the names and the active page. It needs no input link (a source of its own, reachable like the project source); the page it shows (`params.page`, else the active page) goes out on `items` (the note, then the files it links) and a clicked file link on `selection`. Every change to a page's text or to the pages is an undo step on the pad's own stack, which shares Ctrl+Z with the canvas in time order; switching pages is navigation. The project node's double-click opens it.
@@ -537,7 +545,7 @@ Work that may take longer than a moment (scan, decode, thumbnails, recipe apply)
 _Avoid_: task, process, background operation
 
 **Health**:
-A view's current condition (`ok`, `loading`, `paused`, `error`) with a message, visible to the user and the agent.
+A view's current condition (`ok`, `loading`, `paused`, `warn`, `error`) with a message, visible to the user and the agent. `warn` (amber) is a view that works but says something is off, one note per cause (the URDF view's meshes not found).
 _Avoid_: status, state
 
 **Quota**:
