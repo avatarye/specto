@@ -31,8 +31,10 @@ Gaussian splats through Babylon's own loaders. The host is glue on
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import numpy as np
 
@@ -43,7 +45,7 @@ from specto_readers.kdtree import KdTree
 from specto_readers.scene3d import load_points
 
 from ..hosts.base import HostContext, SimpleFactory
-from ..web.scheme import item_url
+from ..web.scheme import ROOT_ANCHOR, item_url
 from ..web.webview import WebViewHost
 from .file_tree import format_bytes
 
@@ -72,7 +74,12 @@ DEFAULT_PARAMS: dict[str, Any] = {
     "environment_intensity": 1.0,
     "environment_background": False,
     "environment_rotation": 0.0,
+    "mesh_unit": "m",
 }
+#: what one unit of an STL or OBJ file is, in metres (``mesh_unit``; neither format says)
+MESH_UNITS: dict[str, float] = {"m": 1.0, "cm": 0.01, "mm": 0.001, "in": 0.0254}
+#: the entries ``mesh_unit`` scales: the formats without units
+UNITLESS_EXTS = (".stl", ".obj")
 STATE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -130,6 +137,12 @@ STATE_SCHEMA: dict[str, Any] = {
             "default": 0.0,
             "description": "Turns the environment about the up axis, in degrees.",
         },
+        "mesh_unit": {
+            "enum": list(MESH_UNITS),
+            "default": "m",
+            "description": "What one unit of an STL or OBJ file is: m (default), cm, mm or in "
+            "(robot STLs are often millimetres). Other formats carry their own scale.",
+        },
         "panels": {
             "type": "object",
             "description": "The VIEW and ITEMS side panels' {collapsed, width} by name.",
@@ -147,8 +160,9 @@ SCENE3D_MANIFEST = ViewManifest(
     doc="Babylon.js scene of every 3D item on its data input: point clouds (decoded at "
     "resolve, up to about 20 M points), glTF/GLB, PLY, STL and OBJ meshes (an OBJ's MTL "
     "and textures next to it), COLLADA .dae (converted to <name>.dae.glb beside it, its "
-    "unit and up_axis applied), Gaussian splats (up to about 2 M). STL and OBJ numbers are "
-    "metres; up: z stands Z-up data upright. Unreal Editor viewport controls: drag turns "
+    "unit and up_axis applied), Gaussian splats (up to about 2 M). mesh_unit (m, cm, mm, "
+    "in) is what an STL or OBJ unit is; up: z stands Z-up data upright. Unreal Editor "
+    "viewport controls: drag turns "
     "and walks, right-drag looks (W A S D Q E fly, the wheel sets the speed), middle-drag "
     "pans, the wheel dollies, "
     "Alt+drag orbits the selection, F frames the selection or the scene; click a point "
@@ -226,6 +240,21 @@ def environment_entries() -> list[dict[str, Any]]:
     return out
 
 
+def sibling_path(part: str, root: str) -> str:
+    """The URL tail a part is fetched by so the files it names resolve beside it: under
+    the link's root when the part is inside it (``@root/robot/meshes/panel.obj``: a
+    ``../textures/skin.png`` may then leave the OBJ's folder, not the project, ADR 0028),
+    else its own name."""
+    if root:
+        try:
+            rel = Path(os.path.relpath(part, root))
+        except ValueError:  # another drive
+            rel = None
+        if rel is not None and rel.parts and ".." not in rel.parts and not rel.is_absolute():
+            return "/".join([ROOT_ANCHOR, *(quote(seg, safe="") for seg in rel.parts)])
+    return quote(Path(part).name, safe="")
+
+
 def _file_size(path: str | None) -> int | None:
     if not path:
         return None
@@ -254,11 +283,19 @@ class Scene3DHost(WebViewHost):
         return {**DEFAULT_PARAMS, **self.page.params}
 
     def scene_payload(self) -> dict[str, Any]:
+        params = self.view_params()
+        unit = MESH_UNITS.get(str(params.get("mesh_unit")), 1.0)
+        entries = []
+        for e in self.entries:
+            e = dict(e)
+            if unit != 1.0 and e.get("ext") in UNITLESS_EXTS and e.get("bounds"):
+                e["bounds"] = [[x * unit for x in corner] for corner in e["bounds"]]
+            entries.append(e)
         return {
-            "entries": [dict(e) for e in self.entries],
-            "params": self.view_params(),
+            "entries": entries,
+            "params": params,
             "generation": self.collection.generation if self.collection else 0,
-            "camera": initial_camera(self.entries),
+            "camera": initial_camera(entries),
             "environments": environment_entries(),
         }
 
@@ -268,6 +305,7 @@ class Scene3DHost(WebViewHost):
         self._trees.clear()  # the pick data of the old collection goes with it
         col = self.collection
         link = col.link if col else ""
+        root = col.root if col else ""
         for i, it in enumerate(col.items if col else []):
             scene = it.meta.get("scene")
             if not isinstance(scene, dict):
@@ -293,6 +331,10 @@ class Scene3DHost(WebViewHost):
                 entry["bounds"] = scene.get("bounds")
             elif kind == "mesh" and "glb" in files:
                 entry["url"] = item_url(link, it.key, "glb")
+                if scene.get("version"):
+                    # a converted DAE keeps its GLB's path: the version makes a new URL, so
+                    # an open view loads the GLB again when the DAE changes
+                    entry["url"] += "?v=" + quote(str(scene["version"]), safe="")
                 entry["ext"] = ".glb"
                 entry["count"] = scene.get("count")
                 entry["bounds"] = scene.get("bounds")
@@ -303,12 +345,14 @@ class Scene3DHost(WebViewHost):
                 # own name so its sibling .bin / .mtl and textures resolve next to it
                 url = item_url(link, it.key, role)
                 if role.lower() in SIBLING_EXTS:
-                    url += "/" + Path(it.parts[role]).name
+                    url += "/" + sibling_path(it.parts[role], root)
                 entry["url"] = url
                 entry["ext"] = role.lower()
                 if scene.get("bounds"):  # STL and OBJ: measured at resolve
                     entry["count"] = scene.get("count")
                     entry["bounds"] = scene.get("bounds")
+                if scene.get("missing"):  # files an OBJ names that cannot be served
+                    entry["missing"] = list(scene["missing"])
             if scene.get("up") in ("y", "z"):
                 # the file declares its up axis (a converted DAE): the view's up param
                 # leaves it alone
@@ -328,7 +372,13 @@ class Scene3DHost(WebViewHost):
                 self.set_health("paused", "no data")
             else:
                 n = len(self.entries)
-                self.set_health("ok", f"{n} item{'s' if n != 1 else ''}")
+                said = f"{n} item{'s' if n != 1 else ''}"
+                missing = [
+                    f"{e['label']}: {', '.join(e['missing'])} not found or outside the project"
+                    for e in self.entries
+                    if e.get("missing")
+                ]
+                self.set_health("ok", " · ".join([said, *missing]))
             return
         if port == SELECTION:
             self.selection = value if isinstance(value, Selection) else None
@@ -433,6 +483,7 @@ class Scene3DHost(WebViewHost):
             "selection": list(self.selection.keys) if self.selection else [],
             "picked": self.picked,
             "environment": self.view_params()["environment"],
+            "missing": {e["id"]: e["missing"] for e in self.entries if e.get("missing")},
         }
 
     def dispose(self) -> None:

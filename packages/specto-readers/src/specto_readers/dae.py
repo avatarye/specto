@@ -2,27 +2,38 @@
 so resolve converts a DAE to a GLB that Babylon's glTF loader draws.
 
 - **Converter**: trimesh (MIT) reading through pycollada (BSD-3-Clause), both pure Python
-  on numpy; textures are decoded with Pillow and embedded in the GLB. trimesh keeps each
-  instance's accumulated node transform (the hierarchy itself is flattened under the
-  root), triangles and polylists, normals, UVs, vertex colours and the common profile's
-  materials (diffuse colour or texture, emission, transparency, shininess as roughness).
-  Cameras, lights, animation and skins are dropped.
-- **Units and up axis**: neither trimesh nor pycollada applies them, so ``convert`` does:
-  ``<unit meter>`` scales to metres and ``<up_axis>`` turns the scene to glTF's Y up with
-  a rotation (never a mirror): Z_UP maps (x, y, z) to (x, z, -y), X_UP to (-y, x, z),
-  as COLLADA's axis table says (right, up, in). The result is metres, Y up, so the scene
-  entry declares ``up: "y"`` and the view's ``up`` param leaves it alone.
+  on numpy; textures are decoded with Pillow and embedded in the GLB. pycollada parses
+  with the standard library's ElementTree (lxml is not installed; it would also resolve
+  external entities). trimesh keeps each instance's accumulated node transform (the
+  hierarchy itself is flattened under the root), triangles and polylists, normals, UVs,
+  vertex colours and the common profile's materials (diffuse colour or texture, emission,
+  transparency, shininess as roughness). Cameras, lights, animation and skins are
+  dropped.
+- **Units and up axis**: neither trimesh nor pycollada applies them, so the conversion
+  does: ``<unit meter>`` scales to metres and ``<up_axis>`` turns the scene to glTF's Y up
+  with a rotation (never a mirror): Z_UP maps (x, y, z) to (x, z, -y), X_UP to
+  (-y, x, z), as COLLADA's axis table says (right, up, in). The result is metres, Y up,
+  so the scene entry declares ``up: "y"`` and the view's ``up`` param leaves it alone.
+- **Bounded**: a DAE over ``DAE_MAX_BYTES`` is refused, and the conversion runs in a child
+  Python (``python -m specto_readers.dae``) that is killed after ``CONVERT_TIMEOUT_S``.
 - **Where the GLB goes** (``prepare``): next to the DAE as ``<name>.dae.glb`` (the
-  converted mesh), regenerated when the DAE is newer than it; when the DAE's folder cannot
-  take it (read-only, a stale read-only converted mesh), into the cache folder,
-  ``<cache>/scene3d/<file key>.dae.glb``, keyed by the DAE's path, size and mtime.
+  converted mesh). The GLB carries the DAE's size and mtime it was made from (and the
+  converter's version) in ``asset.extras.specto``, and is used only while they match, so
+  a DAE swapped for an older copy is converted again too. When the DAE's folder cannot
+  take the file (read-only, a read-only stale converted mesh in the way, a path too long,
+  another writer holding it), it goes to the cache folder instead,
+  ``<cache>/scene3d/<file key>.dae.glb``.
+- **Version**: the scene entry's ``version`` names the source state, so a view that has
+  the model open loads the new GLB when the DAE changes (its URL changes).
 """
 
 from __future__ import annotations
 
 import json
 import os
-import threading
+import struct
+import subprocess
+import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,15 +41,21 @@ from typing import Any
 
 import numpy as np
 
-CACHE_SUBDIR = "scene3d"
+from .scenecache import cache_folder, cached, write_atomic
+
 CONVERTED_SUFFIX = ".glb"
 #: what a converted mesh's name ends with (case-insensitively)
 CONVERTED_TAIL = ".dae" + CONVERTED_SUFFIX
 UP_AXES = ("X_UP", "Y_UP", "Z_UP")
+#: bumped when the conversion changes what it writes: older converted meshes are redone
+CONVERTER_VERSION = 1
+DAE_MAX_BYTES = 256 * 1024 * 1024
+CONVERT_TIMEOUT_S = 120.0
 
 
 class DaeError(ValueError):
-    """A DAE that cannot be converted (unreadable, malformed, nothing to draw)."""
+    """A DAE that cannot be converted (unreadable, malformed, too big, too slow, nothing
+    to draw)."""
 
 
 @dataclass(frozen=True)
@@ -94,18 +111,86 @@ def to_gltf_frame(asset: DaeAsset) -> np.ndarray:
     return m
 
 
-def convert(src: Path | str, dst: Path | str) -> dict[str, Any]:
-    """Convert one DAE to a GLB at ``dst`` (written whole or not at all); returns
-    ``{count, bounds}``: vertices written and the scene's box in metres, Y up. Raises
-    ``DaeError`` when there is nothing to convert; ``OSError`` when ``dst`` cannot be
-    written."""
-    src, dst = Path(src), Path(dst)
-    data, info = _convert_bytes(src)
-    _write_atomic(data, dst)
-    return info
+def source_stamp(src: Path) -> dict[str, int]:
+    """What a converted mesh was made from: the DAE's size and mtime, and the converter."""
+    st = src.stat()
+    return {"size": st.st_size, "mtime_ns": st.st_mtime_ns, "converter": CONVERTER_VERSION}
 
 
-def _convert_bytes(src: Path) -> tuple[bytes, dict[str, Any]]:
+def version_of(stamp: dict[str, int]) -> str:
+    return f"{stamp['size']}-{stamp['mtime_ns']}-{stamp['converter']}"
+
+
+# -- the GLB's own record --------------------------------------------------------------------
+
+
+def _split_glb(data: bytes) -> tuple[dict[str, Any], bytes]:
+    magic, version, _length = struct.unpack_from("<4sII", data, 0)
+    n, kind = struct.unpack_from("<I4s", data, 12)
+    if magic != b"glTF" or version != 2 or kind != b"JSON":
+        raise DaeError("not a GLB")
+    return json.loads(data[20 : 20 + n]), data[20 + n :]
+
+
+def _join_glb(gltf: dict[str, Any], rest: bytes) -> bytes:
+    text = json.dumps(gltf, separators=(",", ":")).encode("utf-8")
+    text += b" " * (-len(text) % 4)
+    head = struct.pack("<I4s", len(text), b"JSON") + text
+    return struct.pack("<4sII", b"glTF", 2, 12 + len(head) + len(rest)) + head + rest
+
+
+def with_record(data: bytes, record: dict[str, Any]) -> bytes:
+    """The GLB with ``asset.extras.specto`` set to ``record``."""
+    gltf, rest = _split_glb(data)
+    asset = gltf.setdefault("asset", {"version": "2.0"})
+    asset.setdefault("extras", {})["specto"] = record
+    return _join_glb(gltf, rest)
+
+
+def glb_record(path: Path) -> dict[str, Any] | None:
+    """A converted mesh's ``asset.extras.specto`` (its source stamp, count and bounds), or
+    None when the file is missing, not a GLB, or not one Specto wrote."""
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(20)
+            if len(head) < 20:
+                return None
+            n, kind = struct.unpack_from("<I4s", head, 12)
+            if head[:4] != b"glTF" or kind != b"JSON" or n > 64 * 1024 * 1024:
+                return None
+            gltf = json.loads(fh.read(n))
+    except (OSError, ValueError, struct.error):
+        return None
+    rec = ((gltf.get("asset") or {}).get("extras") or {}).get("specto")
+    return rec if isinstance(rec, dict) else None
+
+
+def _matches(glb: Path, stamp: dict[str, int]) -> dict[str, Any] | None:
+    rec = glb_record(glb)
+    return rec if rec is not None and rec.get("source") == stamp else None
+
+
+# -- the conversion --------------------------------------------------------------------------
+
+
+def scene_info(scene: Any) -> dict[str, Any]:
+    """``{count, bounds}`` of a trimesh scene: vertices of every placed instance, and the
+    world box (None when empty)."""
+    count = 0
+    for node in scene.graph.nodes_geometry:
+        _transform, geom_name = scene.graph[node]
+        count += len(getattr(scene.geometry.get(geom_name), "vertices", ()))
+    bounds = scene.bounds
+    if bounds is None:
+        return {"count": int(count), "bounds": None}
+    return {
+        "count": int(count),
+        "bounds": [[round(float(x), 9) for x in row] for row in np.asarray(bounds)],
+    }
+
+
+def _convert_here(src: Path, stamp: dict[str, int]) -> bytes:
+    """The conversion itself (in the child process): the GLB bytes, its record set."""
     import trimesh  # heavy import, paid only when a DAE is converted
 
     asset = read_asset(src)
@@ -117,98 +202,135 @@ def _convert_bytes(src: Path) -> tuple[bytes, dict[str, Any]]:
     if not scene.geometry:
         raise DaeError(f"{src.name}: no geometry to show")
     scene.apply_transform(to_gltf_frame(asset))
-    count = 0
-    for node in scene.graph.nodes_geometry:
-        _transform, geom_name = scene.graph[node]
-        geom = scene.geometry.get(geom_name)
-        count += len(getattr(geom, "vertices", ()))
-    bounds = scene.bounds
-    data = scene.export(file_type="glb")
-    return data, {"count": int(count), "bounds": _bounds_list(bounds)}
+    info = scene_info(scene)
+    return with_record(scene.export(file_type="glb"), {"source": stamp, **info})
 
 
-def _bounds_list(bounds: Any) -> list[list[float]] | None:
-    if bounds is None:
-        return None
-    return [[round(float(x), 9) for x in row] for row in np.asarray(bounds)]
-
-
-def _write_atomic(data: bytes, dst: Path) -> None:
-    """``dst`` gets ``data`` whole or not at all (a temporary beside it, then a rename)."""
-    tmp = dst.with_name(f".{dst.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+def _child_main(argv: list[str]) -> int:
+    src, out = Path(argv[0]), Path(argv[1])
     try:
-        tmp.write_bytes(data)
-        os.replace(tmp, dst)
-    except OSError:
-        tmp.unlink(missing_ok=True)
-        raise
+        data = _convert_here(src, json.loads(argv[2]))
+    except DaeError as e:
+        print(json.dumps({"error": str(e)}))
+        return 2
+    write_atomic(data, out)
+    print(json.dumps({"ok": True}))
+    return 0
 
 
-def _fresh(glb: Path, src: Path) -> bool:
+def _convert_bounded(src: Path, out: Path, stamp: dict[str, int]) -> None:
+    """Convert in a child Python killed after ``CONVERT_TIMEOUT_S``; the GLB lands at
+    ``out``. Raises ``DaeError``."""
+    size = stamp["size"]
+    if size > DAE_MAX_BYTES:
+        raise DaeError(
+            f"{src.name}: {size / 2**20:.0f} MB; the 3d view converts DAE files up to "
+            f"{DAE_MAX_BYTES / 2**20:.0f} MB"
+        )
+    cmd = [sys.executable, "-m", "specto_readers.dae", str(src), str(out), json.dumps(stamp)]
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
     try:
-        return glb.is_file() and glb.stat().st_mtime_ns >= src.stat().st_mtime_ns
-    except OSError:
-        return False
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=CONVERT_TIMEOUT_S,
+            check=False,
+            creationflags=flags,
+        )
+    except subprocess.TimeoutExpired as e:
+        out.unlink(missing_ok=True)
+        raise DaeError(
+            f"{src.name}: conversion took longer than {CONVERT_TIMEOUT_S:g} s, stopped"
+        ) from e
+    said = (res.stdout or "").strip().splitlines()
+    answer: dict[str, Any] = {}
+    if said:
+        try:
+            answer = json.loads(said[-1])
+        except ValueError:
+            answer = {}
+    if res.returncode != 0 or not answer.get("ok"):
+        if answer.get("error"):
+            raise DaeError(str(answer["error"]))
+        tail = (res.stderr or "").strip().splitlines()
+        raise DaeError(f"{src.name}: conversion failed: {tail[-1] if tail else res.returncode}")
 
 
-def _glb_bounds(glb: Path) -> dict[str, Any]:
-    """``{count, bounds}`` of an existing GLB (a converted mesh this cache has not seen)."""
-    import trimesh
-
-    try:
-        scene = trimesh.load_scene(str(glb), file_type="glb", process=False)
-    except Exception as e:
-        raise DaeError(f"{glb.name}: {type(e).__name__}: {e}") from e
-    count = sum(len(getattr(g, "vertices", ())) for g in scene.geometry.values())
-    return {"count": int(count), "bounds": _bounds_list(scene.bounds)}
+def convert(src: Path | str, dst: Path | str) -> dict[str, Any]:
+    """Convert one DAE to a GLB at ``dst`` (bounded; written whole or not at all); returns
+    the GLB's record: ``{source, count, bounds}``."""
+    src, dst = Path(src), Path(dst)
+    _convert_bounded(src, dst, source_stamp(src))
+    rec = glb_record(dst)
+    if rec is None:
+        raise DaeError(f"{src.name}: the conversion wrote no readable GLB")
+    return rec
 
 
 def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
     """The 3D view's scene entry for a DAE: ``{kind: mesh, role: .dae, files: {glb},
-    count, bounds, up: "y"}``, converting when no fresh GLB exists (module docstring).
-    ``key`` names the DAE's identity (path, size, mtime) in the cache."""
+    count, bounds, up: "y", version}``, converting when no matching GLB exists (module
+    docstring). ``key`` names the DAE's identity (path, size, mtime) in the cache."""
     src = Path(src)
-    cache = Path(cache_dir) / CACHE_SUBDIR
-    meta_path = cache / f"{key}.dae.json"
-    if meta_path.is_file():
-        try:
-            cached = json.loads(meta_path.read_text(encoding="utf-8"))
-        except ValueError:
-            cached = None
-        if cached and _fresh(Path(cached.get("files", {}).get("glb", "")), src):
-            return cached
-    side = converted_path(src)
-    if _fresh(side, src):
-        glb, info = side, _glb_bounds(side)
-    else:
-        data, info = _convert_bytes(src)
+    stamp = source_stamp(src)
+    cache = cache_folder(cache_dir)
+
+    def make() -> dict[str, Any]:
+        side = converted_path(src)
+        rec = _matches(side, stamp)
         glb = side
-        try:
-            _write_atomic(data, side)
-        except OSError:  # the DAE's folder cannot take it: the cache can
-            glb = cache / f"{key}{CONVERTED_TAIL}"
+        if rec is None:
             cache.mkdir(parents=True, exist_ok=True)
-            _write_atomic(data, glb)
-    scene: dict[str, Any] = {"kind": "mesh", "role": ".dae", "files": {"glb": str(glb)}}
-    scene["count"] = info["count"]
-    if info.get("bounds") is not None:
-        scene["bounds"] = info["bounds"]
-    scene["up"] = "y"
-    cache.mkdir(parents=True, exist_ok=True)
-    meta_path.write_text(json.dumps(scene), encoding="utf-8")
-    return scene
+            fresh = cache / f"{key}.{os.getpid()}.convert.glb"
+            try:
+                _convert_bounded(src, fresh, stamp)
+                try:
+                    write_atomic(fresh.read_bytes(), side)
+                except OSError:  # the DAE's folder cannot take it: the cache can
+                    glb = cache / f"{key}{CONVERTED_TAIL}"
+                    os.replace(fresh, glb)
+            finally:
+                fresh.unlink(missing_ok=True)
+            rec = glb_record(glb)
+            if rec is None:
+                raise DaeError(f"{src.name}: the conversion wrote no readable GLB")
+        scene: dict[str, Any] = {"kind": "mesh", "role": ".dae", "files": {"glb": str(glb)}}
+        scene["count"] = rec.get("count", 0)
+        if rec.get("bounds") is not None:
+            scene["bounds"] = rec["bounds"]
+        scene["up"] = "y"
+        scene["version"] = version_of(stamp)
+        return scene
+
+    def valid(scene: dict[str, Any]) -> bool:
+        glb = Path((scene.get("files") or {}).get("glb", ""))
+        return _matches(glb, stamp) is not None
+
+    return cached(cache / f"{key}.dae.json", make, valid)
 
 
 __all__ = [
-    "CACHE_SUBDIR",
     "CONVERTED_SUFFIX",
     "CONVERTED_TAIL",
+    "CONVERTER_VERSION",
+    "CONVERT_TIMEOUT_S",
+    "DAE_MAX_BYTES",
     "DaeAsset",
     "DaeError",
     "convert",
     "converted_path",
+    "glb_record",
     "is_converted",
     "prepare",
     "read_asset",
+    "scene_info",
+    "source_stamp",
     "to_gltf_frame",
+    "version_of",
+    "with_record",
 ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(_child_main(sys.argv[1:]))

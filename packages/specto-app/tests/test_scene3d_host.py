@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gc
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,7 @@ from specto_app.web.runtime import reset_runtime, runtime
 from specto_core import Engine, Project
 from specto_core.jobs import InlineJobManager
 from specto_core.links import CameraValue, Selection
+from specto_readers import dae
 
 CAMERA = {
     "position": [3.0, 4.0, 12.5],
@@ -117,6 +119,7 @@ def test_the_host_tells_its_page_what_to_load_from_the_items_host(engine: Engine
         "environment_intensity": 1.0,
         "environment_background": False,
         "environment_rotation": 0.0,
+        "mesh_unit": "m",  # what an STL or OBJ unit is (SPEC-42)
     }
     assert ctx.health_of("kobi") == {"status": "ok", "message": "5 items", "hint": ""}
     # the items host serves the derived buffers beside the item's own part, to this view
@@ -171,18 +174,18 @@ def test_robot_meshes_load_through_babylon_and_the_dae_through_its_glb(
     engine: Engine, tmp_path: Path
 ):
     """SPEC-42: an STL and an OBJ go to Babylon's loaders by ``ext`` with the bounds resolve
-    measured; the OBJ is fetched by its own name so its MTL and texture resolve next to it
-    on the items host; a DAE loads as the GLB written beside it and declares its up axis
-    (the view's up param leaves it alone)."""
-    from specto_app.web.scheme import locate_item
-
+    measured; the OBJ is fetched under the link's root (``@root/<path>``) so its MTL and
+    textures resolve next to it, ``../`` included, as long as they stay in the project; a
+    DAE loads as the GLB written beside it, at a URL that names the DAE's state, and
+    declares its up axis (the view's up param leaves it alone)."""
     samples = mesh_samples()
     scans = tmp_path / "proj" / "scans"
     samples.write_stl(scans / "link.stl")
-    samples.write_obj(scans / "panel.obj")
+    (scans / "meshes").mkdir()
+    samples.write_obj(scans / "meshes" / "panel.obj", texture_ref="../textures/skin.png")
     samples.write_dae(scans / "robot.dae")
     submit_scene(engine)
-    _ctx, host = make_host(engine)
+    ctx, host = make_host(engine)
     by = {e["id"]: e for e in host.scene_payload()["entries"]}
     box = [list(samples.BOX_LO), list(samples.BOX_HI)]
     link = by["link"]
@@ -192,27 +195,91 @@ def test_robot_meshes_load_through_babylon_and_the_dae_through_its_glb(
         ".stl",
     )
     assert link["count"] == 36 and _rounded(link["bounds"]) == box and "up" not in link
-    panel = by["panel"]
-    assert panel["url"] == "specto://items/l2/panel/obj/panel.obj" and panel["ext"] == ".obj"
-    assert panel["count"] == 24 and _rounded(panel["bounds"]) == box
+    panel = by["meshes/panel"]
+    assert panel["url"] == "specto://items/l2/meshes%2Fpanel/obj/@root/scans/meshes/panel.obj"
+    assert panel["ext"] == ".obj" and panel["count"] == 24 and _rounded(panel["bounds"]) == box
+    assert "missing" not in panel
     robot = by["robot"]
-    assert robot["url"] == "specto://items/l2/robot/glb" and robot["ext"] == ".glb"
+    version = dae.version_of(dae.source_stamp(scans / "robot.dae"))
+    assert robot["url"] == f"specto://items/l2/robot/glb?v={version}" and robot["ext"] == ".glb"
     assert robot["label"] == "robot.dae" and robot["up"] == "y"
     assert _rounded(robot["bounds"]) == samples.DAE_BOUNDS_M_YUP
     assert runtime().items.parts("l2", "robot")[".glb"] == str(scans / "robot.dae.glb")
+    assert ctx.health_of("kobi")["message"] == "8 items"
+
+    # what Babylon's OBJ loader asks for next to .../obj/@root/scans/meshes/panel.obj; the
+    # browser has resolved the ../ before the request
+    obj = "/l2/meshes%2Fpanel/obj"
+    assert served(f"{obj}/@root/scans/meshes/panel.mtl") == (scans / "meshes/panel.mtl").resolve()
+    assert served(f"{obj}/@root/scans/textures/skin.png") == (scans / "textures/skin.png").resolve()
+    # nothing outside the project, nothing without the anchor's root
+    outside = tmp_path / "secret.png"
+    outside.write_bytes(b"x")
+    assert served(f"{obj}/@root/../secret.png") is None
+    assert served(f"{obj}/@root") is None
+
+
+def served(path: str) -> Path | None:
+    from specto_app.web.scheme import locate_item
 
     rt = runtime()
+    entry: dict = {"status": "ok"}
+    return locate_item("items", path, "kobi.page", caps_of=rt.caps_of, items=rt.items, entry=entry)
 
-    def served(path: str) -> Path | None:
-        entry: dict = {"status": "ok"}
-        return locate_item(
-            "items", path, "kobi.page", caps_of=rt.caps_of, items=rt.items, entry=entry
-        )
 
-    # what Babylon's OBJ loader asks for next to specto://items/l2/panel/obj/panel.obj
-    assert served("/l2/panel/obj/panel.mtl") == (scans / "panel.mtl").resolve()
-    assert served("/l2/panel/obj/textures/panel.png") == (scans / "textures/panel.png").resolve()
-    assert served("/l2/panel/obj/../secret.txt") is None
+def test_an_obj_texture_outside_the_project_is_named_in_health(engine: Engine, tmp_path: Path):
+    samples = mesh_samples()
+    samples.write_obj(tmp_path / "proj" / "scans" / "lid.obj", texture_ref="../../lid.png")
+    submit_scene(engine)
+    ctx, host = make_host(engine)
+    lid = {e["id"]: e for e in host.scene_payload()["entries"]}["lid"]
+    assert lid["missing"] == ["../../lid.png"]
+    assert ctx.health_of("kobi") == {
+        "status": "ok",
+        "message": "6 items · lid.obj: ../../lid.png not found or outside the project",
+        "hint": "",
+    }
+    assert host.snapshot()["missing"] == {"lid": ["../../lid.png"]}
+
+
+def test_an_open_view_loads_the_dae_again_when_it_changes(engine: Engine, tmp_path: Path):
+    """The converted mesh keeps its path; the entry's URL names the DAE's state, so the page
+    (which reloads an item whose URL changed) draws the new GLB."""
+    samples = mesh_samples()
+    src = samples.write_dae(tmp_path / "proj" / "scans" / "robot.dae")
+    submit_scene(engine)
+    _ctx, host = make_host(engine)
+    sink = Sink(host.bridge)
+    host.bridge.ready()
+    before = {e["id"]: e for e in sink.last("scene")["entries"]}["robot"]
+    samples.write_dae(src, unit_meter=1.0)  # now metres: a hundred times bigger
+    later = src.stat().st_mtime_ns + 5_000_000_000
+    os.utime(src, ns=(later, later))
+    engine.links.resolve("l2")
+    host.flush()
+    after = {e["id"]: e for e in sink.last("scene")["entries"]}["robot"]
+    assert after["url"] != before["url"] and after["url"].startswith(
+        "specto://items/l2/robot/glb?v="
+    )
+    assert _rounded(after["bounds"]) == [[-20.0, 0.0, -20.0], [20.0, 120.0, 20.0]]
+    assert dae.glb_record(src.with_name("robot.dae.glb"))["source"] == dae.source_stamp(src)
+
+
+def test_mesh_unit_scales_stl_and_obj_bounds_only(engine: Engine, tmp_path: Path):
+    """``mesh_unit``: what one STL or OBJ unit is (robot STLs are often millimetres); the
+    first camera frames the scaled bounds, other formats keep theirs."""
+    samples = mesh_samples()
+    samples.write_stl(tmp_path / "proj" / "scans" / "link.stl")
+    submit_scene(engine)
+    doc = engine.live.document()
+    doc["views"]["kobi"]["params"] = {"mesh_unit": "mm"}
+    engine.live.submit(doc, origin="agent:test", label="millimetres")
+    _ctx, host = make_host(engine)
+    payload = host.scene_payload()
+    by = {e["id"]: e for e in payload["entries"]}
+    assert payload["params"]["mesh_unit"] == "mm"
+    assert _rounded(by["link"]["bounds"]) == [[-0.0002, -0.0002, 0.0], [0.0002, 0.0002, 0.0008]]
+    assert by["cloud"]["bounds"] == [[-1.0, 0.0, -2.0], [3.0, 4.0, 2.5]]  # a PLY: as it is
 
 
 def _rounded(bounds) -> list[list[float]]:

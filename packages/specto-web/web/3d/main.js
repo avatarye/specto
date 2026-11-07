@@ -10,6 +10,8 @@
  * the file's coordinates); a mesh with no material of its own draws in a plain grey. The
  * view param `up` turns the scene's root for z-up data; an entry with its own `up` (a DAE
  * resolve converted to a Y-up GLB, SPEC-42) hangs under a root that param leaves alone.
+ * The view param `mesh_unit` (m, cm, mm, in) scales the STL and OBJ items, whose files
+ * carry no unit.
  * Navigation is Unreal Editor's viewport (#152),
  * the shared web module viewnav.js (its header has the table): drag turns and walks,
  * right-drag looks with W A S D Q E flying and the wheel setting the speed, middle-drag
@@ -53,6 +55,8 @@
   const IDLE_FRAMES = 12;      // frames rendered after the last change (camera inertia)
   const SETTLE_MAX_MS = 60000; // a splat that never reports settled stops costing frames here
   const PLAIN_MESH = "#9ea4ab";  // a mesh whose file has no material (STL; OBJ without MTL)
+  const MESH_UNITS = { m: 1, cm: 0.01, mm: 0.001, in: 0.0254 };   // metres per STL/OBJ unit
+  const UNITLESS = [".stl", ".obj"];
 
   let engine = null, scene = null, camera = null, root = null, lights = [];
   const declaredRoots = {};    // up axis -> the root of the items whose file declares it
@@ -538,6 +542,7 @@
       }
       node.mesh = mesh;
       node.mesh.parent = declaredRoots[e.up] || root;
+      applyUnit(node);
       node.mesh.metadata = Object.assign({}, node.mesh.metadata || {}, { entry: e.id, kind: e.kind });
       node.mesh.getChildMeshes().forEach(function (m) {
         m.metadata = Object.assign({}, m.metadata || {}, { entry: e.id, kind: e.kind, collision: e.kind === "mesh" && COLLISION_NAME.test(m.name || "") });
@@ -615,8 +620,16 @@
     return mat;
   }
 
+  /** An STL or OBJ item at the view's mesh_unit (its file says nothing). */
+  function applyUnit(node) {
+    if (!node.mesh || UNITLESS.indexOf(node.entry.ext) < 0) return;
+    const k = MESH_UNITS[params.mesh_unit] || 1;
+    node.mesh.scaling = new BABYLON.Vector3(k, k, k);
+  }
+
   function applyParams() {
     if (!root) return;
+    Object.keys(nodes).forEach(function (id) { applyUnit(nodes[id]); });
     // z-up data (LiDAR, most photogrammetry) is turned to Babylon's y-up at the root
     root.rotation = params.up === "z" ? new BABYLON.Vector3(-Math.PI / 2, 0, 0) : BABYLON.Vector3.Zero();
     const ps = params.point_size || 2;

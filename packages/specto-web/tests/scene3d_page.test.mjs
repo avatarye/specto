@@ -318,6 +318,33 @@ test("robot meshes: an STL keeps its coordinates and draws grey; a converted DAE
   assert.equal(holder("arm").parent.name, "root:y");
   assert.equal(holder("link").parent.rotation.x, -Math.PI / 2);
   assert.equal(holder("arm").parent.rotation.x, 0);
+  // mesh_unit scales the STL (a unitless file), never the converted DAE
+  assert.equal(holder("link").scaling.x, 1);
+  page.notify("params", { mesh_unit: "mm" });
+  await settle();
+  assert.equal(holder("link").scaling.x, 0.001);
+  assert.equal(holder("link").scaling.z, 0.001);
+  assert.notEqual(holder("arm").scaling.x, 0.001, "a DAE keeps its own scale");
+});
+
+test("a converted DAE whose version changed loads again: same item, new URL (SPEC-42)", async () => {
+  const page = bootPage();
+  const arm = (v) => ({ ...glb("arm"), label: "arm.dae", up: "y", url: "specto://items/l2/arm/glb?v=" + v });
+  page.notify("scene", scenePayload([arm("1")]));
+  await settle();
+  const [first] = page.imports[0].resolve([{ name: "box", material: "pbr", vertices: 24 }]);
+  await settle();
+  assert.deepEqual(liveItems(page.scene), ["arm"]);
+  assert.equal(page.imports[0].url, "specto://items/l2/arm/glb?v=1");
+  // the DAE changed: the host sends the same item at a new version
+  page.notify("scene", scenePayload([arm("2")], 2));
+  await settle();
+  assert.equal(page.imports.length, 2, "imported again");
+  assert.equal(page.imports[1].url, "specto://items/l2/arm/glb?v=2");
+  assert.ok(first.disposed, "the old GLB's meshes are gone");
+  page.imports[1].resolve([{ name: "box", material: "pbr", vertices: 24 }]);
+  await settle();
+  assert.deepEqual(liveItems(page.scene), ["arm"]);
 });
 
 test("None hides every item and All shows them again", async () => {

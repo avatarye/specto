@@ -192,7 +192,7 @@ def resolve_intaker(
         progress(0.8, f"{len(kept)} files, grouping")
     items = group_items(spec, kept)
     if link.get("target_type") in SCENE_VIEWS:
-        attach_scenes(items, progress=progress)
+        attach_scenes(items, progress=progress, root=base)
     if progress:
         progress(1.0, f"{len(items)} items")
     return Collection(items=items, root=str(base))

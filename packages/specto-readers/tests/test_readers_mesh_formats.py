@@ -194,10 +194,13 @@ def test_an_unchanged_dae_reuses_its_glb_and_a_newer_one_regenerates_it(tmp_path
     stamp = side.stat().st_mtime_ns
     again = prepare_scene(src, tmp_path / "cache")
     assert again["files"]["glb"] == str(side) and side.stat().st_mtime_ns == stamp
-    # a converted mesh left by an earlier session (no cache entry) is reused while it is fresh
+    # a converted mesh left by an earlier session (no cache entry) is reused while it
+    # matches, with the same numbers as the first conversion (instances counted)
     fresh_cache = prepare_scene(src, tmp_path / "other-cache")
     assert fresh_cache["files"]["glb"] == str(side) and side.stat().st_mtime_ns == stamp
     assert r5(fresh_cache["bounds"]) == DAE_BOUNDS_M_YUP
+    assert fresh_cache["count"] == again["count"] == 48
+    assert fresh_cache["version"] == again["version"]
     # the DAE changes (in metres now): the GLB is written again, with the new size
     write_dae(src, unit_meter=1.0)
     later = stamp + 5_000_000_000
@@ -205,6 +208,40 @@ def test_an_unchanged_dae_reuses_its_glb_and_a_newer_one_regenerates_it(tmp_path
     changed = prepare_scene(src, tmp_path / "cache")
     assert side.stat().st_mtime_ns != stamp
     assert r5(changed["bounds"]) == [[-20, 0, -20], [20, 120, 20]]
+    assert changed["version"] != again["version"]  # an open view loads the new GLB
+
+
+def test_a_dae_swapped_for_an_older_copy_is_converted_again(tmp_path: Path):
+    """The converted mesh records the DAE it came from (size, mtime): a checkout or a
+    restore that puts back an older DAE, older than the GLB, does not keep the GLB."""
+    src = write_dae(tmp_path / "robot.dae")
+    side = dae.converted_path(src)
+    prepare_scene(src, tmp_path / "cache")
+    assert dae.glb_record(side)["source"] == dae.source_stamp(src)
+    # an older copy comes back: smaller numbers (metres), an mtime before the GLB's
+    write_dae(src, unit_meter=1.0)
+    old = side.stat().st_mtime_ns - 60_000_000_000
+    os.utime(src, ns=(old, old))
+    assert side.stat().st_mtime_ns > src.stat().st_mtime_ns
+    scene = prepare_scene(src, tmp_path / "cache")
+    assert r5(scene["bounds"]) == [[-20, 0, -20], [20, 120, 20]]
+    assert dae.glb_record(side)["source"] == dae.source_stamp(src)
+    # a GLB Specto did not write (no record) next to a DAE is replaced, never trusted
+    side.write_bytes(read_glb_bytes_without_record(side))
+    assert dae.glb_record(side) is None
+    again = prepare_scene(src, tmp_path / "cache-2")
+    assert dae.glb_record(side)["source"] == dae.source_stamp(src)
+    assert again["count"] == 48
+
+
+def read_glb_bytes_without_record(path: Path) -> bytes:
+    gltf, blob = read_glb(path)
+    gltf["asset"].pop("extras", None)
+    text = json.dumps(gltf).encode("utf-8")
+    text += b" " * (-len(text) % 4)
+    body = struct.pack("<I4s", len(text), b"JSON") + text
+    body += struct.pack("<I4s", len(blob), b"BIN\0") + blob
+    return struct.pack("<4sII", b"glTF", 2, 12 + len(body)) + body
 
 
 def test_a_folder_that_cannot_take_the_glb_falls_back_to_the_cache(
@@ -212,14 +249,14 @@ def test_a_folder_that_cannot_take_the_glb_falls_back_to_the_cache(
 ):
     (tmp_path / "ro").mkdir()
     src = write_dae(tmp_path / "ro" / "robot.dae")
-    real = dae._write_atomic
+    real = dae.write_atomic
 
     def read_only(data: bytes, dst: Path) -> None:
         if dst.parent == src.parent:
             raise PermissionError(13, "read-only folder", str(dst))
         real(data, dst)
 
-    monkeypatch.setattr(dae, "_write_atomic", read_only)
+    monkeypatch.setattr(dae, "write_atomic", read_only)
     scene = prepare_scene(src, tmp_path / "cache")
     glb = Path(scene["files"]["glb"])
     assert not dae.converted_path(src).exists()
@@ -231,6 +268,29 @@ def test_a_folder_that_cannot_take_the_glb_falls_back_to_the_cache(
     os.utime(dae.converted_path(src), ns=(old, old))
     again = prepare_scene(src, tmp_path / "cache2")
     assert Path(again["files"]["glb"]).parent == tmp_path / "cache2" / "scene3d"
+
+
+def test_a_dae_too_big_or_too_slow_is_refused_with_a_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    src = write_dae(tmp_path / "robot.dae")
+    monkeypatch.setattr(dae, "DAE_MAX_BYTES", 1000)
+    with pytest.raises(dae.DaeError, match=r"robot\.dae: \d+ MB; the 3d view converts DAE"):
+        prepare_scene(src, tmp_path / "cache")
+    monkeypatch.setattr(dae, "DAE_MAX_BYTES", 256 * 2**20)
+    monkeypatch.setattr(dae, "CONVERT_TIMEOUT_S", 0.01)
+    with pytest.raises(dae.DaeError, match=r"conversion took longer than 0\.01 s, stopped"):
+        prepare_scene(src, tmp_path / "cache")
+    assert not dae.converted_path(src).exists()
+    assert not list((tmp_path / "cache" / "scene3d").glob("*.glb"))
+
+
+def test_pycollada_parses_without_lxml():
+    """lxml is not in the runtime: the licence notice says so, and ElementTree does not
+    fetch external entities a COLLADA file might name."""
+    from collada import xmlutil
+
+    assert xmlutil.HAVE_LXML is False
 
 
 def test_a_broken_dae_raises_and_writes_nothing(tmp_path: Path):
@@ -268,6 +328,52 @@ def test_an_obj_passes_through_with_its_bounds(tmp_path: Path):
         "count": 24,
     }
     assert (tmp_path / "panel.mtl").is_file() and (tmp_path / "textures" / "panel.png").is_file()
+
+
+def test_stl_and_obj_are_read_in_blocks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The resolve-time scan reads big text files block by block (bounded memory): a
+    block size smaller than a line still gives the whole file's numbers."""
+    from specto_readers import scene3d
+
+    monkeypatch.setattr(scene3d, "SCAN_CHUNK", 7)
+    for path in (write_stl(tmp_path / "a.stl", binary=False), write_obj(tmp_path / "b.obj")):
+        scene = prepare_scene(path, tmp_path / "cache")
+        assert r5(scene["bounds"]) == [list(BOX_LO), list(BOX_HI)], path.name
+    monkeypatch.setattr(scene3d, "SCAN_CHUNK", 60)  # a binary STL: facets in steps of one
+    scene = prepare_scene(write_stl(tmp_path / "c.stl"), tmp_path / "cache")
+    assert scene["count"] == 36 and r5(scene["bounds"]) == [list(BOX_LO), list(BOX_HI)]
+
+
+def test_an_stl_or_obj_over_the_limit_is_refused_with_a_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from specto_readers import scene3d
+
+    monkeypatch.setattr(scene3d, "LOADER_MAX_BYTES", 100)
+    with pytest.raises(scene3d.MeshError, match=r"link\.stl: 0 MB; the 3d view opens STL files"):
+        prepare_scene(write_stl(tmp_path / "link.stl"), tmp_path / "cache")
+
+
+def test_an_obj_names_its_textures_relative_to_itself_within_the_root(tmp_path: Path):
+    """Robot packages keep textures beside the meshes folder (``../textures``): those
+    resolve while they stay inside the root; one outside it, or missing, is named."""
+    pkg = tmp_path / "pkg"
+    (pkg / "meshes").mkdir(parents=True)
+    obj = write_obj(pkg / "meshes" / "panel.obj", texture_ref="../textures/skin.png")
+    scene = prepare_scene(obj, tmp_path / "cache", root=pkg)
+    assert "missing" not in scene
+    # outside the root: refused (the items host would not serve it either)
+    out = write_obj(pkg / "meshes" / "lid.obj", texture_ref="../../elsewhere/lid.png")
+    assert (tmp_path / "elsewhere" / "lid.png").is_file()
+    scene = prepare_scene(out, tmp_path / "cache", root=pkg)
+    assert scene["missing"] == ["../../elsewhere/lid.png"]
+    # missing files: the MTL's texture, and an MTL that is not there
+    (pkg / "textures" / "skin.png").unlink()
+    assert prepare_scene(obj, tmp_path / "cache", root=pkg)["missing"] == ["../textures/skin.png"]
+    (pkg / "meshes" / "panel.mtl").unlink()
+    assert prepare_scene(obj, tmp_path / "cache", root=pkg)["missing"] == ["panel.mtl"]
+    # no root (a Python link's collection): only that the files are there
+    assert "missing" not in prepare_scene(out, tmp_path / "cache")
 
 
 def test_an_empty_stl_or_obj_still_opens(tmp_path: Path):

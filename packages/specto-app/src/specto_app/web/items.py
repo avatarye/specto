@@ -28,6 +28,9 @@ class ItemResolver(Protocol):
 
     def keys(self, link_id: str) -> list[str]: ...
 
+    # optional: ``root(link_id) -> str | None``, the folder a part's ``@root/`` relative
+    # paths resolve under (the collection's root); a resolver without it serves none
+
 
 def _table_of(items: Iterable[Item | dict[str, Any]]) -> dict[str, dict[str, str]]:
     table: dict[str, dict[str, str]] = {}
@@ -92,6 +95,11 @@ class LinkItems:
             return {Path(e.path).suffix.lower(): str(Path(v.root) / e.path)}
         return None
 
+    def root(self, link_id: str) -> str | None:
+        """The folder the link's collection was found under (the project folder)."""
+        v = self.value_of(link_id)
+        return (v.root or None) if isinstance(v, Collection) else None
+
     def keys(self, link_id: str) -> list[str]:
         v = self.value_of(link_id)
         if isinstance(v, Collection):
@@ -128,6 +136,14 @@ class CompositeItems:
             if k:
                 return k
         return []
+
+    def root(self, link_id: str) -> str | None:
+        for r in self.resolvers:
+            fn = getattr(r, "root", None)
+            found = fn(link_id) if callable(fn) else None
+            if found:
+                return found
+        return None
 
 
 def pick_role(parts: dict[str, str], wanted: Iterable[str]) -> str | None:

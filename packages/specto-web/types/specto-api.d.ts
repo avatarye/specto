@@ -396,6 +396,8 @@ step, nothing journaled). */
     environment_background?: boolean;
     /** Turns the environment about the up axis, in degrees. default: 0.0 */
     environment_rotation?: number;
+    /** What one unit of an STL or OBJ file is: m (default), cm, mm or in (robot STLs are often millimetres). Other formats carry their own scale. default: "m" */
+    mesh_unit?: "m" | "cm" | "mm" | "in";
     /** The VIEW and ITEMS side panels' {collapsed, width} by name. */
     panels?: Record<string, unknown>;
   }

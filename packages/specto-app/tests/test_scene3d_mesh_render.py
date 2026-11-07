@@ -44,13 +44,13 @@ DAE_UPRIGHT = [[-0.2, 0.0, -0.2], [0.2, 1.2, 0.2]]
 BACKGROUND = (250, 247, 241)  # --color-surface-alt
 
 
-def render(tmp: Path, entry: dict) -> dict:
+def render(tmp: Path, entry: dict, more: tuple[dict, ...] = ()) -> dict:
     plan = {
         "entries": [entry],
         "out": str(tmp / "out"),
         "camera": CAMERA,
         "params": {"up": "z"},
-        "steps": [{"environment": "none"}, {"up": "y"}],
+        "steps": [{"environment": "none"}, {"up": "y"}, *more],
     }
     res = subprocess.run(
         [sys.executable, str(CHILD), json.dumps(plan)],
@@ -87,9 +87,12 @@ def painted(rgb: tuple[int, int, int]) -> bool:
 
 def test_an_stl_draws_grey_and_follows_the_up_param(tmp_path: Path):
     stl = mesh_samples().write_stl(tmp_path / "link.stl")
-    out = render(tmp_path, {"id": "m", "kind": "mesh", "file": str(stl), "ext": ".stl"})
-    z_up, y_up = out["steps"]
+    entry = {"id": "m", "kind": "mesh", "file": str(stl), "ext": ".stl"}
+    out = render(tmp_path, entry, ({"up": "z", "mesh_unit": "cm"},))
+    z_up, y_up, in_cm = out["steps"]
     assert bounds(z_up) == UPRIGHT and bounds(y_up) == LYING
+    # mesh_unit cm: the numbers are centimetres, the box 8 mm tall (the page rounds to cm)
+    assert bounds(in_cm) == [[-0.0, 0.0, -0.0], [0.0, 0.01, 0.0]]
     r, g, b = pixel(z_up, 0.5, 0.5)
     assert painted((r, g, b)) and max(r, g, b) - min(r, g, b) < 24 and max(r, g, b) < 200
 
@@ -97,7 +100,7 @@ def test_an_stl_draws_grey_and_follows_the_up_param(tmp_path: Path):
 def test_an_obj_draws_its_mtl_texture_and_follows_the_up_param(tmp_path: Path):
     obj = mesh_samples().write_obj(tmp_path / "panel.obj")
     out = render(tmp_path, {"id": "m", "kind": "mesh", "file": str(obj), "ext": ".obj"})
-    z_up, y_up = out["steps"]
+    z_up, y_up = out["steps"][:2]
     assert bounds(z_up) == UPRIGHT and bounds(y_up) == LYING
     r, g, b = pixel(z_up, 0.5, 0.5)
     assert g > r + 60 and g > b + 60, f"not the green texture: {(r, g, b)}"
@@ -110,7 +113,7 @@ def test_a_dae_draws_through_its_glb_upright_whatever_the_up_param(tmp_path: Pat
     dae.convert(src, glb)
     entry = {"id": "m", "kind": "mesh", "file": str(glb), "ext": ".glb", "up": "y"}
     out = render(tmp_path, entry)
-    z_up, y_up = out["steps"]
+    z_up, y_up = out["steps"][:2]
     assert bounds(z_up) == DAE_UPRIGHT and bounds(y_up) == DAE_UPRIGHT
     # the blue box from 0 to 40 cm, the textured red one from 80 to 120 cm
     r, g, b = pixel(z_up, 0.5, 0.65)

@@ -88,8 +88,11 @@ def write_stl(path: Path, *, binary: bool = True, lo=BOX_LO, hi=BOX_HI) -> Path:
     return path
 
 
-def write_obj(path: Path, *, lo=BOX_LO, hi=BOX_HI, texture: bool = True) -> Path:
-    """``<stem>.obj`` + ``<stem>.mtl`` (+ ``textures/<stem>.png``, green) beside it."""
+def write_obj(
+    path: Path, *, lo=BOX_LO, hi=BOX_HI, texture: bool = True, texture_ref: str | None = None
+) -> Path:
+    """``<stem>.obj`` + ``<stem>.mtl`` (+ ``textures/<stem>.png``, green) beside it;
+    ``texture_ref`` names the texture another way (``../shared/skin.png``), written there."""
     stem = path.stem
     lines = [f"mtllib {stem}.mtl", f"o {stem}"]
     faces = box_faces(lo, hi)
@@ -105,8 +108,9 @@ def write_obj(path: Path, *, lo=BOX_LO, hi=BOX_HI, texture: bool = True) -> Path
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
     mtl = ["newmtl skin", "Kd {:g} {:g} {:g}".format(*OBJ_KD)]
     if texture:
-        write_png(path.parent / "textures" / f"{stem}.png", GREEN)
-        mtl.append(f"map_Kd textures/{stem}.png")
+        tex = texture_ref or f"textures/{stem}.png"
+        write_png((path.parent / tex).resolve(), GREEN)
+        mtl.append(f"map_Kd {tex}")
     (path.parent / f"{stem}.mtl").write_text("\n".join(mtl) + "\n", encoding="ascii")
     return path
 
