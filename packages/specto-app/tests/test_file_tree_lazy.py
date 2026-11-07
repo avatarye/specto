@@ -115,10 +115,10 @@ def test_expanding_a_folder_lists_that_folder_alone_and_counts_once_its_subtree_
     listed: list[str] = []
     real = listing.TreeLister.list_dir
 
-    def list_dir(self, path=""):
+    def list_dir(self, path="", cancelled=None):
         if str(self.base) == str(project.root):  # this tree's listings, not a leftover host's
             listed.append(path)
-        return real(self, path)
+        return real(self, path, cancelled)
 
     monkeypatch.setattr(listing.TreeLister, "list_dir", list_dir)
     engine = Engine(project=project, jobs=InlineJobManager())
@@ -274,10 +274,10 @@ def test_auto_update_lists_the_loaded_folders_only_and_shows_arrivals_in_place(
     listed: list[str] = []
     real = listing.TreeLister.list_dir
 
-    def list_dir(self, path=""):
+    def list_dir(self, path="", cancelled=None):
         if str(self.base) == str(project.root):  # this tree's listings, not a leftover host's
             listed.append(path)
-        return real(self, path)
+        return real(self, path, cancelled)
 
     monkeypatch.setattr(listing.TreeLister, "list_dir", list_dir)
     jobs = ThreadJobManager()
@@ -323,9 +323,9 @@ def test_the_gui_thread_never_waits_on_a_listing(
 ):
     real = listing.TreeLister.list_dir
 
-    def slow(self, path=""):
+    def slow(self, path="", cancelled=None):
         time.sleep(0.3)
-        return real(self, path)
+        return real(self, path, cancelled)
 
     monkeypatch.setattr(listing.TreeLister, "list_dir", slow)
     jobs = ThreadJobManager()
