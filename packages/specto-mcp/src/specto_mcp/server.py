@@ -61,7 +61,12 @@ own), ground (the sky's floor, off by default) and max_pixels. Set its camera th
 camera port (a follow link from a 3d view's camera) or params, never by running code.
 `snap` reports its stage path, renderer, frame size, camera, camera_mode, the environment
 that shows, the sky's controls in effect and the sky's fetch. Specto only views USD:
-never edit USD files."""
+never edit USD files.
+
+For a robot (.urdf) use one urdf view, a viewer fed like the usd view (screener ["@urdf"]).
+Pose it through params.joints ({joint name: value}, radians and metres); never edit the
+URDF. Meshes resolve through params.package_paths, then the nearest package.xml, then
+ROS_PACKAGE_PATH and AMENT_PREFIX_PATH; `snap` lists the missing ones with their causes."""
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, open_world_hint=False)
 ADDITIVE = ToolAnnotations(

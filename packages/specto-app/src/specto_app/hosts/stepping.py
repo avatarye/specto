@@ -30,7 +30,7 @@ its own; then the other pair steps (``STEP_KEYS``, named by the status bar's hin
 - pdf: Left / Right (PageUp / PageDown, Space and Backspace turn the document's pages,
   as in every pdf reader);
 - video: PageUp / PageDown (Left / Right step frames, the player's own axis);
-- usd: PageUp / PageDown (the keyboard flies the camera).
+- usd, urdf: PageUp / PageDown (the keyboard flies the camera).
 
 Home / End jump to the ends in the native viewers and players (``ENDS_TYPES``); the
 canvas's event filter hands them to the focused view before its own Home (#113).
@@ -58,6 +58,7 @@ STEP_KEYS: dict[str, tuple[str, ...]] = {
     "pdf": (ARROWS,),
     "video": (PAGES,),
     "usd": (PAGES,),
+    "urdf": (PAGES,),
 }
 #: view types whose own Home / End jump to the first / last item (or frame, page, time
 #: step); a focused one gets them before the canvas's Home (#113)

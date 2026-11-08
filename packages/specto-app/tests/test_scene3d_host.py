@@ -225,7 +225,7 @@ def test_robot_meshes_load_through_babylon_and_the_dae_through_its_glb(
     assert served(f"{obj}/@root/scans/robot.dae") is None
 
 
-def test_the_root_comes_from_the_resolver_that_answers_for_the_link():
+def test_the_root_comes_from_the_resolver_that_answers_for_the_item():
     from specto_app.web.items import CompositeItems, ItemTable
 
     class Rooted(ItemTable):
@@ -233,15 +233,21 @@ def test_the_root_comes_from_the_resolver_that_answers_for_the_link():
             super().__init__()
             self._root = root
 
-        def root(self, link_id: str) -> str | None:
-            return self._root if self.keys(link_id) else None
+        def root(self, link_id: str, key: str) -> str | None:
+            return self._root if self.parts(link_id, key) else None
 
     a, b = Rooted("C:/a"), Rooted("C:/b")
     a.set_items("la", [{"key": "x", "parts": {".obj": "C:/a/x.obj"}}])
     b.set_items("lb", [{"key": "y", "parts": {".obj": "C:/b/y.obj"}}])
     both = CompositeItems([a, b])
-    assert (both.root("la"), both.root("lb"), both.root("nope")) == ("C:/a", "C:/b", None)
-    assert ItemTable().root("la") is None
+    assert (both.root("la", "x"), both.root("lb", "y"), both.root("nope", "x")) == (
+        "C:/a",
+        "C:/b",
+        None,
+    )
+    # keyed on the item: another link's key on this link is no one's
+    assert both.root("la", "y") is None
+    assert ItemTable().root("la", "x") is None
 
 
 def served(path: str) -> Path | None:

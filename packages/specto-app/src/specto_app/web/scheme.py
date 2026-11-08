@@ -18,7 +18,7 @@ Hosts:
   path, ``/<link>/<key>/<role>/<rel/path.png>``, serves a file next to that part (a
   note's relative image): ``rel`` may not climb (no ``..``, no absolute path) and the
   result must stay under the part's directory. A trailing path that starts with
-  ``@root/`` is relative to the link's root (the project folder, ``ItemResolver.root``)
+  ``@root/`` is relative to the item's root (the project folder, ``ItemResolver.root``)
   instead, must stay under it and name what an OBJ or glTF names (``ROOT_SUFFIXES``: an
   MTL, a buffer, an image): a page that addresses an OBJ as
   ``.../obj/@root/robot/meshes/panel.obj`` gets its ``../textures/skin.png`` (the URL
@@ -55,6 +55,7 @@ from urllib.parse import quote, unquote
 
 from specto_core.containers import is_virtual, open_source, real_path
 from specto_core.pathguard import Refusal, below_root, output_refusal, path_refusal
+from specto_readers.mesh_assets import MESH_SIDE_EXTS
 
 from .capabilities import Capabilities, tile_host_allowed
 
@@ -278,11 +279,9 @@ def parse_item_rel_path(url_path: str) -> tuple[str, str, str, str | None] | Non
 #: the first segment of a trailing path that is relative to the link's root
 ROOT_ANCHOR = "@root"
 #: what an ``@root/`` path may name: what an OBJ or a glTF names next to it (its MTL, a
-#: glTF's buffers, texture images), nothing else under the project
-ROOT_SUFFIXES = frozenset(
-    {".mtl", ".bin", ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".gif", ".webp", ".tif",
-     ".tiff", ".dds", ".ktx", ".ktx2", ".basis", ".hdr", ".exr"}
-)  # fmt: skip
+#: glTF's buffers, texture images), nothing else under the project; the one list the urdf
+#: view serves too (``specto_readers.mesh_assets``)
+ROOT_SUFFIXES = MESH_SIDE_EXTS
 
 
 def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Path | None:
@@ -303,6 +302,8 @@ def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Pa
         base, rel = Path(root).resolve(), rest
     else:
         base = part.resolve().parent
+    if path_refusal(str(base / rel), unc_ok=True):
+        return None
     candidate = (base / rel).resolve()
     try:
         candidate.relative_to(base)
@@ -361,7 +362,8 @@ def locate_item(
     if caps is None or not caps.can_read(col):
         entry["status"] = "denied"
         return None
-    parts = items.parts(col, key) if items is not None else None
+    hit = items.lookup(col, key) if items is not None else None  # once per request
+    owner, parts = hit if hit is not None else (None, None)
     if not parts or role not in parts:
         entry["status"] = "not_found"
         return None
@@ -373,7 +375,9 @@ def locate_item(
         return p if Path(real_path(str(p))).is_file() else None
     if rel is not None:
         entry["rel"] = rel
-        p2 = resolve_relative(p, rel, items.root(col) if items is not None else None)
+        p2 = resolve_relative(p, rel, owner.root(col, key) if owner is not None else None)
+        if p2 is not None and owner is not None and not owner.side_allowed(col, key, role, p2):
+            p2 = None  # the item's resolver serves no such file (SPEC-43)
         if p2 is None:
             entry["status"] = "not_found"
         return p2

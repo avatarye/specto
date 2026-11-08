@@ -42,6 +42,7 @@ KIND_ICONS: dict[str, str] = {
     "table": "table",
     "message_stream": "log",
     "pose_track": "json",
+    "urdf": "3d",
 }
 #: extensions of the data Specto is for that neither the theme nor a built-in locator
 #: names: USD layers, lidar scans, OpenDRIVE / OpenSCENARIO files, robot logs

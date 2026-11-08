@@ -54,6 +54,7 @@ def _open(engine: Engine, path: str, mode: str = "dedicated") -> gestures.Opened
     [
         ("mp4", "video", "video_decoders", 4),
         ("ply", "3d", "viewports3d", 3),
+        ("urdf", "urdf", "viewports3d", 3),  # SPEC-43: the 3d view's cost
         ("usda", "usd", "rtx_views", 1),
         ("md", "markdown", "web_views", 8),
         ("html", "html", "web_views", 8),

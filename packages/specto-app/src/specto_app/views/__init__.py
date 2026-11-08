@@ -14,6 +14,7 @@
 | ``pdf``      | ``PdfHost``      | quick | ``Pdf/PdfView.qml`` (QtQuick.Pdf) |
 | ``preview``  | ``PreviewHost``  | quick | ``Preview/PreviewView.qml`` (one of the above by kind) |
 | ``scratch``  | ``ScratchHost``  | quick | ``Scratch/ScratchView.qml`` (the scratch pad) |
+| ``urdf``     | ``UrdfHost``     | web   | ``urdf/index.html`` (Babylon.js, one robot) |
 
 They reach the shell two ways: the ``specto.view_hosts`` entry points in
 ``specto-app``'s ``pyproject.toml`` (loaded by ``HostRegistry`` on construction), and
@@ -44,6 +45,8 @@ from .scene3d_view import factory as scene3d_factory
 from .scratch_view import ScratchFactory
 from .text_view import TextFactory
 from .text_view import factory as text_factory
+from .urdf_view import UrdfHost
+from .urdf_view import factory as urdf_factory
 from .usd_view import UsdFactory
 from .video_view import VideoFactory
 from .video_view import factory as video_factory
@@ -78,6 +81,7 @@ def factories() -> list[Factory]:
         UsdFactory(),
         ScratchFactory(),
         text_factory(),
+        urdf_factory(),
     ]
 
 
@@ -107,6 +111,7 @@ __all__ = [
     "PreviewFactory",
     "Scene3DHost",
     "ScratchFactory",
+    "UrdfHost",
     "UsdFactory",
     "VideoFactory",
     "factories",

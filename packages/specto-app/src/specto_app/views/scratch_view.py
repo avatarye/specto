@@ -159,12 +159,18 @@ class ScratchItems:
     def keys(self, link_id: str) -> list[str]:
         return self.store.page_ids() if link_id == self.link_id else []
 
-    def root(self, link_id: str) -> str | None:
+    def root(self, link_id: str, key: str) -> str | None:
         return None  # a note's pictures sit next to it; nothing under a root
 
     def guard_root(self, link_id: str) -> str | None:
         """The project the notes live in (a project on a share serves them, SPEC-91)."""
         return str(self.store.root) if link_id == self.link_id else None
+    def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
+        return True  # a note's own pictures, as resolve_relative allows
+
+    def lookup(self, link_id: str, key: str) -> tuple[Any, dict[str, str]] | None:
+        p = self.parts(link_id, key)
+        return (self, p) if p else None
 
 
 class ScratchBridge(QObject):

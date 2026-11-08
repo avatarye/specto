@@ -307,11 +307,18 @@ def test_the_session_prompt_carries_the_view_types_and_link_kinds_so_describe_is
     before a one-submit change. The standing reference (built from the engine: every view
     type's ports and params, every link kind's params and examples) rides in the system
     prompt, cached by the CLI; the prompt says the context's document is the state."""
+    from specto_app.hosts import HostContext, HostRegistry
     from specto_app.prompt.reference import reference_text
     from specto_app.prompt.session import SYSTEM_PROMPT
+    from specto_app.views import factories
 
+    # as the app builds it (app.py): core's view types plus the app's (3d, urdf, ...)
     engine = Engine(project=None)
+    reg = HostRegistry(HostContext(engine, None), load_entry_points=False)
+    for factory in factories():
+        reg.add_factory(factory)
     ref = reference_text(lambda n, a: engine.call(n, a, PROMPT_BAR))
+    reg.dispose_all()
 
     assert "gallery" in ref and "file_tree" in ref and "selected_files" in ref
     assert "intaker" in ref and '"scope":"selection"' in ref and '"scope":"pinned"' in ref

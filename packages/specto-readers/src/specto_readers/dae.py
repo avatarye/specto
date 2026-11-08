@@ -368,19 +368,28 @@ def convert(src: Path | str, dst: Path | str) -> dict[str, Any]:
     return rec
 
 
-def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
+#: the cache record of a conversion kept in the cache only (``prepare(beside=False)``),
+#: apart from the one beside the source, so the two never share a GLB
+CACHE_ONLY_TAG = ".cached"
+
+
+def prepare(
+    src: Path | str, cache_dir: Path | str, key: str, *, beside: bool = True
+) -> dict[str, Any]:
     """The 3D view's scene entry for a DAE: ``{kind: mesh, role: .dae, files: {glb},
     count, bounds, up: "y", version}``, converting when no matching GLB exists (module
-    docstring). ``key`` names the DAE's identity (path, size, mtime) in the cache."""
+    docstring). ``key`` names the DAE's identity (path, size, mtime) in the cache.
+    ``beside`` False (the urdf view's DAE outside the project, ADR 0029) never reads or
+    writes a GLB beside the source: the conversion lives in the cache only."""
     src = Path(src)
     stamp = source_stamp(src)
     cache = cache_folder(cache_dir)
 
     def make() -> dict[str, Any]:
-        side = converted_path(src)
         in_cache = cache / f"{key}{CONVERTED_TAIL}"
+        side = converted_path(src) if beside else in_cache
         glb, rec = side, _matches(side, stamp)
-        if rec is None and (cached_rec := _matches(in_cache, stamp)) is not None:
+        if beside and rec is None and (cached_rec := _matches(in_cache, stamp)) is not None:
             glb, rec = in_cache, cached_rec  # an earlier run fell back to the cache
         if rec is None:
             cache.mkdir(parents=True, exist_ok=True)
@@ -416,7 +425,8 @@ def prepare(src: Path | str, cache_dir: Path | str, key: str) -> dict[str, Any]:
     # one conversion of a DAE at a time in this process: a second thread waits and reads
     # what the first wrote (other processes meet it through the GLB's record)
     with _key_lock(key):
-        return cached(cache / f"{key}.dae.json", make, valid)
+        record = cache / f"{key}{'' if beside else CACHE_ONLY_TAG}.dae.json"
+        return cached(record, make, valid)
 
 
 _KEY_LOCKS: dict[str, threading.Lock] = {}
@@ -429,6 +439,7 @@ def _key_lock(key: str) -> threading.Lock:
 
 
 __all__ = [
+    "CACHE_ONLY_TAG",
     "CONVERTED_SUFFIX",
     "CONVERTED_TAIL",
     "CONVERTER_VERSION",
