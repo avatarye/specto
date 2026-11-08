@@ -264,7 +264,9 @@ def endpoint_refusal(kind: str, address: str, *, remote_ok: bool = False) -> str
         return UNIX_REFUSED if why is not None and why is not Refusal.ROOTED else None
     if kind == "tcp":
         host, sep, port = address.rpartition(":")
-        if not sep or not port.isdigit() or not 0 < int(port) < 65536:
+        # ASCII digits only: a superscript passes isdigit() and int() raises on it; a
+        # fullwidth or Arabic-Indic digit passes isdecimal() and int() takes it (SPEC-98)
+        if not sep or not (port.isascii() and port.isdecimal()) or not 0 < int(port) < 65536:
             return "a tcp endpoint is host:port, the port 1-65535"
         return None if remote_ok or _loopback(host) else TCP_REFUSED
     return f"an endpoint of kind {kind!r} cannot be connected to from a process"

@@ -68,3 +68,17 @@ def test_open_transport_refuses_a_remote_pipe_built_past_the_validator(opened, m
     with pytest.raises(TransportError, match="local pipe"):
         open_transport(info)
     assert opened == []
+
+
+def test_a_bracketed_ipv6_loopback_connects_without_its_brackets(monkeypatch):
+    """SPEC-98: ``[::1]:5000`` passes the loopback check; create_connection wants ``::1``."""
+    calls: list[tuple[str, int]] = []
+
+    def fake_connect(address, *a, **k):
+        calls.append(address)
+        raise ConnectionRefusedError("trapped")
+
+    monkeypatch.setattr(transport_mod.socket, "create_connection", fake_connect)
+    with pytest.raises(TransportError, match="cannot connect"):
+        open_transport(EndpointInfo(kind="tcp", address="[::1]:5000", pid=1))
+    assert calls == [("::1", 5000)]
