@@ -226,7 +226,7 @@ def test_package_paths_come_first_by_name_or_by_folder(tmp_path: Path):
     near = package(tmp_path / "near" / "arm_description", "arm_description")
     urdf = write(near / "urdf" / "arm.urdf", ARM)
     stl(near / "meshes" / "base.stl")
-    chosen = tmp_path / "chosen"
+    chosen = package(tmp_path / "chosen", "arm_description")  # mapped: its package.xml
     stl(chosen / "meshes" / "base.stl")
     uri = "package://arm_description/meshes/base.stl"
 
@@ -1099,3 +1099,66 @@ def test_every_folder_probe_is_charged_to_the_budget(
     res2 = PackageResolver(urdf, environ={"AMENT_PREFIX_PATH": str(tmp_path / "install")})
     res2.budget.left = 0
     assert res2.find_package("late") is None
+
+
+def test_a_reference_outside_the_scope_is_judged_before_anything_resolves_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """SPEC-43.1 review 3: ``resolve`` called ``target.resolve()`` (the disk; on a mapped
+    network drive, traffic) before the scope test. An absolute or relative reference
+    whose text already lies outside the scope is OUTSIDE without a filesystem call."""
+    import os
+    import pathlib
+
+    from specto_readers.urdf import OUTSIDE
+
+    proj = tmp_path / "proj"
+    urdf = write(proj / "r.urdf", '<robot name="r"><link name="a"/></robot>')
+    res = PackageResolver(urdf, environ={})
+    calls: list[str] = []
+
+    def trapped(real):
+        def call(*a, **k):
+            if any("elsewhere" in str(x) for x in a):
+                calls.append(str(a[0]))
+                raise AssertionError(f"a filesystem call on {a[0]}")
+            return real(*a, **k)
+
+        return call
+
+    for name in ("resolve", "is_file", "exists", "stat"):
+        monkeypatch.setattr(pathlib.Path, name, trapped(getattr(pathlib.Path, name)))
+    for name in ("realpath",):
+        monkeypatch.setattr(os.path, name, trapped(getattr(os.path, name)))
+    monkeypatch.setattr(os, "stat", trapped(os.stat))
+    scope = [str(proj.resolve())]
+    try:
+        hits = [
+            res.resolve(str(tmp_path / "elsewhere" / "x.stl"), scope),
+            res.resolve((tmp_path / "elsewhere" / "y.stl").as_uri(), scope),
+            res.resolve("../elsewhere/z.stl", scope),
+        ]
+    finally:
+        monkeypatch.undo()
+    assert calls == []
+    assert [h.cause for h in hits] == [OUTSIDE, OUTSIDE, OUTSIDE]
+
+
+def test_a_package_paths_mapping_needs_a_package_xml_naming_the_package(tmp_path: Path):
+    """SPEC-43.1 review 3: ``{pkg: folder}`` took any folder as the package, so someone
+    else's canvas could widen the scope to any folder (``{"x": "C:/Users/me"}``). The
+    mapping form now needs a package.xml naming the package there, as the folder form
+    does."""
+    plain = tmp_path / "home"
+    stl(plain / "secret.stl")
+    other = package(tmp_path / "other", "not_gripper")
+    good = package(tmp_path / "ws" / "gripper", "gripper")
+    urdf = write(tmp_path / "proj" / "r.urdf", '<robot name="r"><link name="a"/></robot>')
+    res = PackageResolver(
+        urdf,
+        package_paths={"x": str(plain), "gripper2": str(other), "gripper": str(good)},
+        environ={},
+    )
+    assert res.find_package("x") is None
+    assert res.find_package("gripper2") is None
+    assert res.find_package("gripper") == (good.resolve(), "package_paths")
