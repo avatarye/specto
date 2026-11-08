@@ -38,7 +38,7 @@ from specto_core.fswatch import NotifyUnavailable, Unavailable, case_insensitive
 from specto_core.links import ARRIVALS_CAP, FilesValue, TableChange, arrival_entry
 
 from .screener import glob_to_regex
-from .sources import hidden, posix, resolve_root, walk_dir, walk_source
+from .sources import WalkBudget, hidden, posix, resolve_root, walk_dir, walk_source
 from .spec import IntakeSpec, SourceSpec, intake_spec
 
 #: a writer's temporary while it writes (``.<name>.<pid>.tmp``, ``.<name>.part``): never
@@ -61,15 +61,33 @@ def _spec_and_base(link: dict[str, Any], value: Any, root: str) -> tuple[IntakeS
     return spec, base
 
 
-def watch_table(spec: IntakeSpec, base: Path, links: list[str] | None = None) -> dict[str, str]:
+#: the table entry of a source whose listing was cut short (``WalkBudget``, SPEC-94)
+TRUNCATED = "truncated"
+
+
+def watch_table(
+    spec: IntakeSpec,
+    base: Path,
+    links: list[str] | None = None,
+    budget: WalkBudget | None = None,
+) -> dict[str, str]:
     """One ``scandir`` pass over the sources: the watcher's table. ``links`` collects the
-    folders reached through a symbolic link or a junction."""
+    folders reached through a symbolic link or a junction. The pass runs under
+    ``budget`` (a fresh ``WalkBudget`` by default): a source it cuts short, and every
+    source after it, is the one entry ``"<index>:": "truncated"`` instead of its files,
+    so the next truncated pass gives the same table (a time budget stops at a different
+    file each time) and never reads as files arriving or leaving (SPEC-94)."""
+    budget = WalkBudget() if budget is None else budget
     base_posix = posix(base).rstrip("/") + "/"
     table: dict[str, str] = {}
     for i, src in enumerate(spec.sources):
+        if budget.reason:
+            table[arrival_entry(i, "")] = TRUNCATED
+            continue
+        entries: dict[str, str] = {}
         try:
             for f in walk_source(
-                i, src, base, expand_containers=False, links=links, skip=transient
+                i, src, base, expand_containers=False, links=links, skip=transient, budget=budget
             ):
                 full = f"{f.root}/{f.rel}"
                 rel_proj = (
@@ -77,9 +95,14 @@ def watch_table(spec: IntakeSpec, base: Path, links: list[str] | None = None) ->
                 )
                 if hidden(rel_proj):
                     continue
-                table[arrival_entry(i, f.rel)] = f"{f.size}:{f.mtime_ns}"
+                entries[arrival_entry(i, f.rel)] = f"{f.size}:{f.mtime_ns}"
         except SpectoError as e:  # a source that is not there (yet) is an entry too
             table[arrival_entry(i, "")] = f"missing:{e.message}"
+            continue
+        if budget.reason:
+            table[arrival_entry(i, "")] = TRUNCATED
+        else:
+            table.update(entries)
     return table
 
 
@@ -151,6 +174,9 @@ class IntakerListing:
         self._folded: dict[str, str] = {}
         #: one batch's folder listings (actual entry names by folded name)
         self._names: dict[str, dict[str, str]] = {}
+        #: the sources the last full listing cut short (their notices are ignored), and why
+        self.truncated: set[int] = set()
+        self._truncation = ""
 
     # -- WatchListing ------------------------------------------------------------------
     def roots(self) -> list[tuple[str, bool]]:
@@ -165,8 +191,13 @@ class IntakerListing:
 
     def full(self) -> dict[str, str]:
         links: list[str] = []
-        table = watch_table(self.spec, self.base, links)
+        budget = WalkBudget()
+        table = watch_table(self.spec, self.base, links, budget)
         self.link_dirs = links
+        self.truncated = {
+            s.index for s in self.sources if table.get(arrival_entry(s.index, "")) == TRUNCATED
+        }
+        self._truncation = budget.note
         return table
 
     def reset(self, table: dict[str, str]) -> None:
@@ -179,11 +210,12 @@ class IntakerListing:
         return any(v.startswith("missing:") for v in table.values())
 
     def note(self) -> str:
+        notes = [self._truncation] if self._truncation else []
         n = len(self.link_dirs)
-        if not n:
-            return ""
-        what = "folder" if n == 1 else "folders"
-        return f"{n} {what} reached through links covered by the periodic listing only"
+        if n:
+            what = "folder" if n == 1 else "folders"
+            notes.append(f"{n} {what} reached through links covered by the periodic listing only")
+        return "; ".join(notes)
 
     def apply(self, table: dict[str, str], paths: list[str]) -> TableChange | None:
         counts = _Counts()
@@ -196,6 +228,8 @@ class IntakerListing:
             if transient(p.rsplit("/", 1)[-1]):
                 continue
             for s in self.sources:
+                if s.index in self.truncated:
+                    continue  # its table is the one "truncated" entry (SPEC-94)
                 rel = s.rel(p)
                 if rel is None:
                     continue

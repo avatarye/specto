@@ -148,7 +148,8 @@ live.events: EventStream                 # doc.patched, canvas.submitted|squashe
 - Submit-time rules, all returned together with fix-its: `locks.lock_problems` (a
   non-user origin may not move, resize, delete, unlock or relink a `locked` view),
   `quotas.quota_problems` (section 9), `unknown_files.unknown_file_problems` (an intaker
-  source matching nothing in the project folder, a missing Python file).
+  source matching nothing in the project folder, an absolute local source whose file or
+  base folder does not exist, a missing Python file).
 - The window frame: its size follows the app window as a user submit
   (`gestures.set_window_frame`), its origin follows the user's pan as navigation
   (`navigate`: journal kind `navigate`, no undo step). A non-user submit keeps the live
@@ -307,7 +308,13 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   resolve nothing, and the intaker uses those stats instead of stat'ing the files.
 - `specto_intake` registers `intaker` (`resolve_intaker`: sources, screener, keys,
   grouping, sort over the files arriving on the input; `.specto/` never enters a
-  collection), its watcher (`watch_intaker`), `read_contents` and the 3D scene buffers
+  collection; a source string splits into its base and glob by
+  `specto_core.pathguard.split_glob`, as the submit's unknown-files check splits it.
+  The walk stops past `WALK_MAX_FILES` (100,000) files or `WALK_SECONDS` (10 s): the
+  collection's `truncated` says which source and how to narrow it, the link's status
+  carries it as its message with `truncated: true`, and the watcher's table holds the
+  one entry `"<index>:": "truncated"` for that source and ignores notices under it,
+  SPEC-94), its watcher (`watch_intaker`), `read_contents` and the 3D scene buffers
   (`scene3d.attach_scenes`, for intakers feeding a `3d` view). For a `.dae` that step
   writes the converted mesh `<name>.dae.glb` beside it, or in the cache when the folder
   cannot take it (`specto_readers.dae`, ADR 0028); a converted mesh whose DAE is in the

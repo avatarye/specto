@@ -113,6 +113,37 @@ def path_refusal(text: str, *, unc_ok: bool = False) -> Refusal | None:
     return None
 
 
+_GLOB_MAGIC = re.compile(r"[*?\[]")
+
+
+def _glob_anchor(text: str) -> str:
+    """The root an absolute source (POSIX separators, long prefix stripped) starts at:
+    ``C:/`` for a Windows drive path, ``/`` for a rooted one, nothing for a relative one."""
+    if _windows() and _DRIVE_ABS.match(text):
+        return text[:3]
+    return "/" if text.startswith("/") else ""
+
+
+def split_glob(text: str) -> tuple[str, str | None]:
+    """A source as ``(base, pattern)``: the literal folder or file it names and the glob
+    below it, or ``(path, None)`` without glob magic. Separators become ``/`` and a long
+    local prefix (``\\\\?\\C:\\``) is stripped first; magic is looked for only after the
+    anchor (the ``?`` of that prefix is none), and an absolute glob keeps its anchor as
+    the base: ``C:/**/*.x`` is ``("C:/", "**/*.x")``, never the drive-relative ``C:``. A
+    relative glob with no folder part is under ``.``. The one splitter of the submit's
+    unknown-files check and the intake spec (SPEC-94). Text only; judge the text with
+    ``path_refusal`` first."""
+    text = strip_local_long(text).replace("\\", "/")
+    anchor = _glob_anchor(text)
+    m = _GLOB_MAGIC.search(text, len(anchor))
+    if m is None:
+        return text, None
+    cut = text.rfind("/", len(anchor), m.start())
+    if cut > 0:
+        return text[:cut], text[cut + 1 :]
+    return anchor or ".", text[len(anchor) :]
+
+
 def reference_refusal(ref: str) -> Refusal | None:
     """Why a reference read out of a file (an OBJ's ``mtllib``, an MTL's ``map_Kd``, a DAE's
     ``<init_from>``) may not be looked for on disk: ``path_refusal`` of the text as the file
@@ -281,6 +312,7 @@ __all__ = [
     "output_refusal",
     "path_refusal",
     "reference_refusal",
+    "split_glob",
     "strip_local_long",
     "under",
 ]
