@@ -8,7 +8,11 @@ so resolve converts a DAE to a GLB that Babylon's glTF loader draws.
   hierarchy itself is flattened under the root), triangles and polylists, normals, UVs,
   vertex colours and the common profile's materials (diffuse colour or texture, emission,
   transparency, shininess as roughness). Cameras, lights, animation and skins are
-  dropped.
+  dropped. Texture files are found by a resolver of our own (``_GuardedResolver``):
+  an image name goes through ``specto_core.pathguard.reference_refusal`` before
+  trimesh may resolve or stat it, so a network or device path in an ``<init_from>``
+  (``\\\\host\\x``, ``//host/x``, ``\\??\\UNC\\host\\x``, ``%5C%5Chost%5Cx``) never
+  makes the child connect out (SPEC-69); the model converts without that texture.
 - **Units and up axis**: neither trimesh nor pycollada applies them, so the conversion
   does: ``<unit meter>`` scales to metres and ``<up_axis>`` turns the scene to glTF's Y up
   with a rotation (never a mirror): Z_UP maps (x, y, z) to (x, z, -y), X_UP to
@@ -45,6 +49,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from specto_core.pathguard import reference_refusal
 
 from .glb import GLTF_UP
 from .scenecache import (
@@ -208,10 +214,35 @@ def _convert_here(src: Path, stamp: dict[str, int]) -> bytes:
     """The conversion itself (in the child process): the GLB bytes, its record set."""
     import trimesh  # heavy import, paid only when a DAE is converted
 
+    class _GuardedResolver(trimesh.resolvers.FilePathResolver):
+        """trimesh's file resolver with the path guard in front: a texture name that is a
+        network or device path is refused by its text before ``absolute`` may resolve or
+        stat it (SPEC-69). trimesh drops a texture it cannot load and goes on."""
+
+        def absolute(self, name: str) -> Path:
+            why = reference_refusal(name)
+            if why is not None:
+                raise ValueError(f"{name!r} is {why}: not looked for")
+            return super().absolute(name)
+
+        def get(self, name: str) -> bytes:
+            why = reference_refusal(name)  # the whole name, before any candidate of it
+            if why is not None:
+                raise ValueError(f"{name!r} is {why}: not looked for")
+            return super().get(name)
+
+        def namespaced(self, namespace: str) -> _GuardedResolver:
+            return _GuardedResolver(
+                os.path.join(self.parent, namespace), allow_anywhere=self.allow_anywhere
+            )
+
     asset = read_asset(src)
     try:
-        # process=False: vertices stay as the file has them (no merging across UV seams)
-        scene = trimesh.load_scene(str(src), file_type="dae", process=False)
+        # process=False: vertices stay as the file has them (no merging across UV seams);
+        # textures through the guarded resolver (the file's folder is its root)
+        scene = trimesh.load_scene(
+            str(src), file_type="dae", process=False, resolver=_GuardedResolver(str(src))
+        )
     except Exception as e:  # pycollada and trimesh raise many kinds
         raise DaeError(f"{src.name}: {type(e).__name__}: {e}") from e
     if not scene.geometry:

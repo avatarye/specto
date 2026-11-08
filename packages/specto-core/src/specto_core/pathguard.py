@@ -3,8 +3,9 @@ sections 6 and 10).
 
 One guard for every place that turns text from a file into a path: the items host's
 relative paths (``specto_app.web.scheme.resolve_relative``: a note's image, an OBJ's
-material map), the 3d reader's OBJ and MTL references (``specto_readers.scene3d.ref_refusal``,
-SPEC-68) and xacro's includes (``specto_readers.xacro_expand``); a reader of robot
+material map), the 3d reader's references out of a file (``reference_refusal``: an OBJ's
+MTL and texture names, SPEC-68; a DAE's image names on their way to trimesh's resolver,
+SPEC-69) and xacro's includes (``specto_readers.xacro_expand``); a reader of robot
 descriptions joins it next. It never touches the disk or the network, and it is an
 allowlist: a path is accepted only when it is
 
@@ -96,6 +97,19 @@ def path_refusal(text: str, *, unc_ok: bool = False) -> Refusal | None:
     return None
 
 
+def reference_refusal(ref: str) -> Refusal | None:
+    """Why a reference read out of a file (an OBJ's ``mtllib``, an MTL's ``map_Kd``, a DAE's
+    ``<init_from>``) may not be looked for on disk: ``path_refusal`` of the text as the file
+    wrote it and as a page's URL would carry it, backslashes as slashes and percent-escapes
+    decoded, so every spelling of a network or device path is caught (``\\\\host\\x``,
+    ``//host/x``, ``\\??\\UNC\\host\\x``, ``%5C%5Chost%5Cx``). Text only."""
+    for text in {ref, unquote(ref)}:
+        why = path_refusal(text) or path_refusal(text.replace("\\", "/"))
+        if why is not None:
+            return why
+    return None
+
+
 def file_uri_path(uri: str) -> tuple[str | None, Refusal | None]:
     """A ``file://`` URI's local path, or ``(None, why)``: a URI naming a host other than
     ``localhost`` is a network path; its path goes through ``path_refusal``. Text only."""
@@ -121,6 +135,7 @@ __all__ = [
     "Refusal",
     "file_uri_path",
     "path_refusal",
+    "reference_refusal",
     "strip_local_long",
     "under",
 ]

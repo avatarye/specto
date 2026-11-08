@@ -43,11 +43,10 @@ import struct
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
 
 import numpy as np
 
-from specto_core.pathguard import Refusal, path_refusal
+from specto_core.pathguard import reference_refusal
 
 from . import dae
 from .glb import GLTF_UP, write_glb
@@ -285,7 +284,7 @@ def obj_references(obj: Path, mtllibs: list[str]) -> list[str]:
     refs: list[str] = []
     for lib in mtllibs:
         refs.append(lib)
-        if ref_refusal(lib):  # named, never looked for (SPEC-68)
+        if reference_refusal(lib):  # named, never looked for (SPEC-68)
             continue
         mtl = obj.parent / lib
         try:
@@ -322,29 +321,16 @@ def _is_number(word: str) -> bool:
     return True
 
 
-def ref_refusal(ref: str) -> Refusal | None:
-    """Why an OBJ or MTL reference may not be looked for on disk (``specto_core.pathguard``,
-    SPEC-68), judged as the file wrote it and as the page's URL would carry it: backslashes
-    as slashes, percent-escapes decoded. Text only: a network path (``\\\\host\\x``,
-    ``//host/x``, ``\\??\\UNC\\host\\x``, ``%5C%5Chost%5Cx``) or a device path never
-    reaches a filesystem call, which on Windows would connect to the host."""
-    for text in {ref, unquote(ref)}:
-        why = path_refusal(text) or path_refusal(text.replace("\\", "/"))
-        if why is not None:
-            return why
-    return None
-
-
 def unreachable(obj: Path, refs: list[str], root: Path | None) -> list[str]:
     """The references that do not resolve to a file, or that resolve outside ``root``
     (the project or source root; None: anywhere), or that may not be looked for at all
-    (``ref_refusal``)."""
+    (``specto_core.pathguard.reference_refusal``, SPEC-68)."""
     out: list[str] = []
     base = obj.parent
     top = root.resolve() if root is not None else None
     for ref in refs:
         rel = ref.replace("\\", "/")
-        if ref_refusal(ref) or Path(rel).is_absolute() or ":" in rel:
+        if reference_refusal(ref) or Path(rel).is_absolute() or ":" in rel:
             out.append(ref)
             continue
         try:

@@ -15,6 +15,11 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- A DAE's `<image><init_from>` goes through the same path allowlist before trimesh may
+  look for the texture (SPEC-69, `specto_core.pathguard`): a network or device path in
+  any spelling is refused by its text in the conversion's own resolver, so the isolated
+  child never connects out; the model converts without that texture. Before, trimesh
+  stat'ed the path (an SMB connect on Windows) before its own root check refused it.
 - Security fix (SPEC-67): a link in a scratch pad page can no longer make Specto connect
   to another machine. A network path as a link target (`\\host\share\x.png`, `//host/...`,
   the same percent-encoded, a `file://host/...` URL or the `\??\UNC\...` spelling) was

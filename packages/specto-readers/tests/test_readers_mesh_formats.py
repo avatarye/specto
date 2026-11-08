@@ -155,6 +155,65 @@ def test_convert_keeps_transforms_materials_and_textures_in_metres_y_up(tmp_path
     assert png.startswith(b"\x89PNG")
 
 
+def filesystem_calls_naming(monkeypatch: pytest.MonkeyPatch, marker: str) -> list[str]:
+    """Every ``Path``, ``os`` and ``os.path`` filesystem call on a path whose text holds
+    ``marker`` is recorded in the list returned (the call still runs): the test's proof
+    that a hostile reference never reaches the disk (or, for a network path on Windows,
+    the network). Recorded, not raised: a loader may swallow an exception, and then a
+    raising trap would prove nothing."""
+    reached: list[str] = []
+
+    def trap(owner: object, name: str) -> None:
+        orig = getattr(owner, name)
+
+        def guarded(path, *args, **kwargs):
+            if marker in str(path):
+                reached.append(f"{name}({path})")
+            return orig(path, *args, **kwargs)
+
+        monkeypatch.setattr(owner, name, guarded)
+
+    for name in ("stat", "lstat", "is_file", "is_dir", "exists", "resolve", "open", "iterdir"):
+        trap(Path, name)
+    for name in ("stat", "lstat", "open", "listdir", "scandir"):
+        trap(os, name)
+    for name in ("isdir", "isfile", "exists", "realpath", "abspath"):
+        trap(os.path, name)
+    return reached
+
+
+@pytest.mark.parametrize(
+    "init_from",
+    [
+        r"\\attacker\share\x.png",
+        "//attacker/share/x.png",
+        r"\??\UNC\attacker\share\x.png",
+        "%5C%5Cattacker%5Cshare%5Cx.png",
+    ],
+    ids=["unc-backslashes", "unc-slashes", "nt-object", "percent-encoded"],
+)
+def test_no_dae_image_form_reaches_the_filesystem_as_a_network_or_device_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, init_from: str
+):
+    """SPEC-69: a DAE's ``<image><init_from>`` goes through ``specto_core.pathguard``
+    before trimesh's resolver may stat it (on Windows that connects to the host, even in
+    the -I child). The conversion goes on without the texture: both boxes, one colour."""
+    src = write_dae(tmp_path / "robot.dae")
+    text = src.read_text(encoding="utf-8")
+    assert text.count("<init_from>textures/robot.png</init_from>") == 1
+    hostile = f"<init_from>{init_from}</init_from>"
+    src.write_text(
+        text.replace("<init_from>textures/robot.png</init_from>", hostile), encoding="utf-8"
+    )
+    reached = filesystem_calls_naming(monkeypatch, "attacker")
+    out = tmp_path / "robot.glb"
+    out.write_bytes(dae._convert_here(src, dae.source_stamp(src)))
+    assert reached == []
+    gltf, _blob = read_glb(out)
+    assert len(gltf["meshes"]) >= 1 and "images" not in gltf
+    assert dae.glb_record(out)["count"] == 48  # two instances of a 24-vertex box
+
+
 def test_a_y_up_metre_dae_is_left_as_it_is(tmp_path: Path):
     src = write_dae(tmp_path / "plain.dae", unit_meter=1.0, up_axis="Y_UP")
     info = dae.convert(src, tmp_path / "plain.glb")
@@ -631,8 +690,8 @@ def test_no_obj_reference_form_reaches_the_filesystem_as_a_network_or_device_pat
 ):
     """SPEC-68: the files an OBJ and its MTL name go through ``specto_core.pathguard``
     before any filesystem call (asking Windows whether ``\\\\host\\x`` exists connects to
-    the host). Every filesystem call on a path naming the attacker raises; the hostile
-    references come back as files that cannot be served, the honest ones resolve."""
+    the host). No filesystem call sees a path naming the attacker; the hostile references
+    come back as files that cannot be served, the honest ones resolve."""
     obj = write_obj(tmp_path / "panel.obj")
     hostile_maps = [ref.replace("m.mtl", "t.png") for ref in HOSTILE_REFS]
     obj.write_text(
@@ -645,21 +704,9 @@ def test_no_obj_reference_form_reaches_the_filesystem_as_a_network_or_device_pat
         encoding="ascii",
     )
 
-    def trap(owner: object, name: str) -> None:
-        orig = getattr(owner, name)
-
-        def guarded(path, *args, **kwargs):
-            assert "attacker" not in str(path), f"{name}() reached the filesystem with {path}"
-            return orig(path, *args, **kwargs)
-
-        monkeypatch.setattr(owner, name, guarded)
-
-    for name in ("stat", "lstat", "is_file", "is_dir", "exists", "resolve", "open", "iterdir"):
-        trap(Path, name)
-    for name in ("stat", "lstat", "open", "listdir", "scandir"):
-        trap(os, name)
-
+    reached = filesystem_calls_naming(monkeypatch, "attacker")
     scene = prepare_scene(obj, tmp_path / "cache", root=tmp_path)
+    assert reached == []
     assert scene["missing"] == HOSTILE_REFS + hostile_maps
     assert scene["count"] == 24  # the OBJ itself was read
 
