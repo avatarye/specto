@@ -33,6 +33,10 @@ the release and move on their own schedule.
   `C:`, which is refused, so the intaker failed when it ran; it now starts at `C:/`. A
   long-path source (`\\?\C:\data\x.png`) was read as a glob because of the `?` in its
   prefix, so an existing file reported missing and a long-path glob got the root `/`.
+- The type-to-search latency check moved from the test suite to `tools/bench_search.py`
+  (SPEC-89). Its 100 ms wall-clock bound failed in loaded full runs (217-1541 ms) while the
+  search itself did no measurable CPU work: the time is Everything's reply over IPC. The
+  bench reports min, median and max over 20 runs and fails when the median is over 100 ms.
 - A client connects only to a local pipe (SPEC-74). `.specto/endpoint.json` is
   agent-writable, and a pipe address such as `\\host\pipe\x` was opened as written, so
   any `specto` command, MCP call or SDK connect could reach out over SMB and hand that

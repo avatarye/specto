@@ -150,7 +150,10 @@ the header and the SDK's MIT permission notice under the destination, and copies
 `Everything64.dll` with the notice into `packages/specto-intake/src/specto_intake/vendor/`
 (git-ignored). `SPECTO_EVERYTHING_DLL` points the search at another DLL;
 `SPECTO_EVERYTHING_SDK_DIR` at another destination (`SPECTO_BUILD_ROOT` moves the root). Without the DLL or the service the
-search falls back silently; `tests/test_search.py`'s latency test skips.
+search falls back silently; `tests/test_search.py`'s DLL test skips. The latency
+(median under 100 ms) is checked by `uv run python tools/bench_search.py [<folder>]` on a
+quiet machine, not by the test suite: the time is Everything's reply over IPC, so a
+wall-clock bound in a loaded full run measured the load (SPEC-89).
 `SPECTO_SEARCH_BACKEND=scan` forces the walk even with Everything up (the search flow of
 the GUI suite runs under it, so it is the same on every machine).
 
