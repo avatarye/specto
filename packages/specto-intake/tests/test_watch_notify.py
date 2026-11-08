@@ -1034,3 +1034,40 @@ def test_a_notify_watch_that_gets_no_notices_still_lands_files_by_the_safety_net
     finally:
         engine.close()
         jobs.shutdown()
+
+
+@needs_testdata
+def test_the_mode_is_said_before_the_baseline_while_notifications_arm(
+    project: Project, monkeypatch
+):
+    """SPEC-83 review: the baseline now comes before arming, but the mode is decided
+    first, so a listed watcher never reports (or says through ``link.watching``) that it
+    polls while its notifications are only arming."""
+    monkeypatch.delenv("SPECTO_WATCH", raising=False)
+    real_start = fswatch.Notifier.start
+    armed = []
+
+    def slow_start(self):
+        time.sleep(0.5)
+        armed.append(1)
+        return real_start(self)
+
+    monkeypatch.setattr(fswatch.Notifier, "start", slow_start)
+    jobs = ThreadJobManager()
+    engine = Engine(project=project, jobs=jobs, watch_interval_s=0.05, watch_debounce_s=0.05)
+    links = engine.links
+    said: list = []
+    links.events.subscribe(
+        lambda ev: said.append(ev.payload) if ev.kind == "link.watching" else None
+    )
+    engine.live.submit(watched_gallery(engine.live.document()), origin="agent:s1", label="w")
+    try:
+        assert pump_until(
+            engine, jobs, lambda: (links.watch_status("l2") or {}).get("polls", 0) >= 1
+        )
+        assert not armed and links.watch_status("l2")["mode"] == "notify"
+        assert pump_until(engine, jobs, lambda: bool(armed) and bool(said))
+        assert [s["mode"] for s in said] == ["notify"], said
+    finally:
+        engine.close()
+        jobs.shutdown()

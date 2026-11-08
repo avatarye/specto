@@ -533,14 +533,16 @@ class LinkWatch:
 
     # -- the loop ------------------------------------------------------------------------
     def _run(self) -> None:
-        # the baseline at once, as close to the resolve's own listing as can be (SPEC-83:
-        # arming can take a while, the observer starts on first use, and a baseline taken
-        # after it would swallow what landed meanwhile); then notifications, and one more
-        # listing once they are armed for what changed while they armed; then notices
-        # (or one listing per interval) until stopped or orphaned
+        # how to follow the sources is decided first (quick), then the baseline at once,
+        # as close to the resolve's own listing as can be (SPEC-83: arming can take a
+        # while, the observer starts on first use, and a baseline taken after it would
+        # swallow what landed meanwhile); then notifications arm, and one more listing
+        # follows for what changed while they armed; then notices (or one listing per
+        # interval) until stopped or orphaned
         try:
+            planned = self._plan_notify()
             self._list()
-            if self._start_notify():
+            if planned is not None and self._arm_notify(*planned):
                 self._list()
             while not self._stop.is_set() and not self._orphaned():
                 if self._notifier is not None:
@@ -572,21 +574,53 @@ class LinkWatch:
     def _start_notify(self) -> bool:
         """Start notifications for the listing's folders; False (and ``reason``) when
         the watcher polls instead."""
+        planned = self._plan_notify()
+        return planned is not None and self._arm_notify(*planned)
+
+    def _plan_notify(self) -> tuple[WatchListing, list[tuple[str, bool]]] | None:
+        """The quick half of starting notifications: the kind's listing and the folders
+        to observe, with the mode said (notify) before anything is armed; None (and the
+        poll ``reason``) when the watcher polls instead."""
         self._retry_now = False
         if self._listing_factory is None:
             self._set_state(WatchMode.POLL, "")
             self._retry_at = None
-            return False
+            return None
         if os.environ.get(WATCH_ENV, "").strip().lower() == "poll":
             self._set_state(WatchMode.POLL, f"polling: {WATCH_ENV}=poll")
             self._retry_at = None
-            return False
+            return None
         try:
             listing = self._listing_factory(self.link, self.value, root=self.root, env=self.env)
             self._last_listing = listing
             roots = listing.roots()
+        except Exception as e:
+            self._refused(e)
+            return None
+        self._remote = any(fswatch.is_remote(folder) for folder, _ in roots)
+        self._set_state(WatchMode.NOTIFY, self._notify_note())
+        return listing, roots
+
+    def _arm_notify(self, listing: WatchListing, roots: list[tuple[str, bool]]) -> bool:
+        """The slow half: arm the observer on ``roots``; False (and the poll ``reason``)
+        when it cannot."""
+        try:
             notifier = fswatch.Notifier(roots, self._on_paths, self._on_lost).start()
-        except fswatch.NotifyUnavailable as e:
+        except Exception as e:
+            self._refused(e)
+            return False
+        self._listing, self._notifier = listing, notifier
+        if self.table is not None:
+            listing.reset(self.table)
+        self._retry_at = None
+        self._notify_since = time.monotonic()
+        self._silent_misses = 0
+        self._set_state(WatchMode.NOTIFY, self._notify_note())
+        return True
+
+    def _refused(self, e: Exception) -> None:
+        """Notifications could not start: poll, and say when to try them again."""
+        if isinstance(e, fswatch.NotifyUnavailable):
             self._set_state(WatchMode.POLL, f"polling: {e}")
             # a missing source is tried after each listing; refused (inotify's watch
             # limit, a share, a watch that did not stop) is worth another try later; no
@@ -596,20 +630,10 @@ class LinkWatch:
             self._retry_at = time.monotonic() + self._retry_gap if refused else None
             if refused:
                 self._retry_gap = min(RETRY_MAX_S, self._retry_gap * 2)
-            return False
-        except Exception as e:  # a listing that could not be made: poll as before
-            self._set_state(WatchMode.POLL, f"polling: {e}")
-            self._retry_at = None
-            return False
-        self._remote = any(fswatch.is_remote(folder) for folder, _ in roots)
-        self._listing, self._notifier = listing, notifier
-        if self.table is not None:
-            listing.reset(self.table)
+            return
+        # a listing that could not be made: poll as before
+        self._set_state(WatchMode.POLL, f"polling: {e}")
         self._retry_at = None
-        self._notify_since = time.monotonic()
-        self._silent_misses = 0
-        self._set_state(WatchMode.NOTIFY, self._notify_note())
-        return True
 
     def _notify_note(self) -> str:
         parts = []
