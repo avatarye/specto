@@ -145,17 +145,18 @@ def test_the_errors_the_agent_gets_back(engine: Engine):
         *(r"\\?\UNC\host\share\x.png", "x.png:host"),
     ],
 )
-def test_an_append_s_path_is_judged_before_any_filesystem_call(engine, monkeypatch, arg, text):
+def test_an_append_s_path_is_judged_before_any_filesystem_call(
+    engine, monkeypatch, arg, text, trap_paths
+):
     """SPEC-73: scratch_append's image and file args went to ``Path.is_file`` in
     ``ScratchTools._path``, so an agent naming ``\\\\host\\share\\x`` made Windows connect to
     the host. The text passes the path guard first and the agent gets the refusal."""
     from specto_core.errors import InvalidArgs
-    from specto_core.testing import trap_paths
 
     tools = ScratchTools(lambda: engine.scratch, to_png=to_png)
     assert tools.store is not None  # the store opens (reads its own files) before the trap
     calls: list[str] = []
-    trap_paths(monkeypatch, calls)
+    trap_paths(calls)
     try:
         with pytest.raises(InvalidArgs) as err:
             tools.run("scratch_append", {arg: text})

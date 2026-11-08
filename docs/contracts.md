@@ -778,7 +778,8 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   on every change, so no click is needed (SPEC-67, SPEC-71). The card store before
   markdown (`index.json`) migrates on open. A text or image card's `file` is taken only
   when its text passes the guard, it is one plain name (no separator, not `..`) and it
-  names a regular file, not a link, directly in the card folder; any other card is
+  names a regular file, not a link, directly in the card folder as the store places it
+  (a page folder that is a symlink or junction is never migrated); any other card is
   dropped, and nothing outside the folder is read, moved or deleted. `link_to` judges the
   text it is given before joining it onto the project root, so a project on a network
   share still links its own files. `ScratchHost` is a web host (`scratch/index.html`: the markdown renderer and

@@ -725,8 +725,11 @@ class ScratchStore:
         elif isinstance(data, dict):
             for p in data.get("pages") or []:
                 pid = str(p.get("id", "")) if isinstance(p, dict) else ""
-                if re.match(r"^p\d+$", pid) and (self.dir / pid / INDEX_FILE).is_file():
-                    cards[pid] = self.dir / pid
+                folder = self.dir / pid
+                if not re.match(r"^p\d+$", pid) or _linked(folder):
+                    continue  # a page folder that links out is never read (SPEC-71)
+                if (folder / INDEX_FILE).is_file():
+                    cards[pid] = folder
         else:
             return
         for pid, folder in cards.items():
@@ -751,24 +754,26 @@ class ScratchStore:
         self.dir.mkdir(parents=True, exist_ok=True)
         _write_json(self.dir / PAGES_FILE, data)
 
-    @staticmethod
-    def _card_file(folder: Path, name: str) -> Path | None:
+    def _card_file(self, pid: str, folder: Path, name: str) -> Path | None:
         """A text or image card's ``file`` from the agent-writable ``index.json`` as a
         file directly in the card folder, or None. The name is judged by its text first
         (a network, device or stream path is never asked about), then must be one plain
-        name, then a regular file (not a link) whose resolved parent is the folder:
-        nothing outside it is read, moved or deleted (SPEC-71)."""
+        name, then a regular file (not a link) whose resolved parent is the page's folder
+        as the store places it (the scratch folder, or ``<scratch>/<pid>``), never the
+        folder's own resolve, which a junction would send elsewhere: nothing outside it is
+        read, moved or deleted (SPEC-71)."""
         if path_refusal(name) or name in ("", ".", "..") or re.search(r"[\\/]", name):
             return None
         path = folder / name
         if path.is_symlink() or not path.is_file():
             return None
-        return path if path.resolve().parent == folder.resolve() else None
+        home = self.dir.resolve() if folder == self.dir else self.dir.resolve() / pid
+        return path if path.resolve().parent == home else None
 
     def _card_markdown(self, pid: str, folder: Path, it: dict[str, Any]) -> str:
         kind, label = it.get("kind"), str(it.get("label") or "")
         if kind == "text" and it.get("file"):
-            path = self._card_file(folder, str(it["file"]))
+            path = self._card_file(pid, folder, str(it["file"]))
             if path is None:
                 return ""
             text = path.read_text(encoding="utf-8", errors="replace")
@@ -777,7 +782,7 @@ class ScratchStore:
             return text.strip("\n")
         if kind == "image" and it.get("file"):
             name = str(it["file"])
-            src = self._card_file(folder, name)
+            src = self._card_file(pid, folder, name)
             if src is None:
                 return ""
             dst = self.assets_dir(pid) / name
@@ -794,6 +799,11 @@ class ScratchStore:
             name = Path(text).name
             return f"[{_link_label(label or name)}]({_target(self.link_to(text))})"
         return ""
+
+
+def _linked(folder: Path) -> bool:
+    """A symlink or (Windows) junction: ``lstat`` only, its target is never opened."""
+    return folder.is_symlink() or folder.is_junction()
 
 
 # -- drops and pastes ------------------------------------------------------------------------

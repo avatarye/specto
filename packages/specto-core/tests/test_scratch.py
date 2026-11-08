@@ -461,13 +461,6 @@ _NETWORK_LINK_FORMS = (
 )
 
 
-def _trap_network_paths(monkeypatch, calls: list[str]) -> None:
-    """The shared no-filesystem-call trap (``specto_core.testing.trap_paths``) on ``host``."""
-    from specto_core.testing import trap_paths
-
-    trap_paths(monkeypatch, calls)
-
-
 def _legacy_index(root: Path, items: list[dict]) -> Path:
     old = root / ".specto" / "scratch"
     old.mkdir(parents=True, exist_ok=True)
@@ -484,14 +477,16 @@ def _legacy_index(root: Path, items: list[dict]) -> Path:
         *(r"\\?\UNC\host\s\b.png", "b.png:host"),
     ],
 )
-def test_a_legacy_text_or_image_card_s_network_file_is_never_touched(root, monkeypatch, kind, name):
+def test_a_legacy_text_or_image_card_s_network_file_is_never_touched(
+    root, monkeypatch, kind, name, trap_paths
+):
     """SPEC-71 review 1: ``_card_markdown`` joined a text or image card's ``file`` from the
     agent-writable ``index.json`` onto the card folder unjudged; ``//host/share/b.png``
     reached ``is_file`` on the share at ``ScratchStore()`` (and an image match was
     ``os.replace``d in from it). The name is judged first; such a card is dropped."""
     _legacy_index(root, [{"id": "s1", "kind": kind, "file": name, "label": "x"}])
     calls: list[str] = []
-    _trap_network_paths(monkeypatch, calls)
+    trap_paths(calls)
     try:
         text = ScratchStore(root).text()
     finally:
@@ -540,6 +535,43 @@ def test_a_legacy_text_and_image_card_in_their_folder_still_migrate(root):
     assert not (old / "s1.md").exists() and not (old / "s2.png").exists()
 
 
+@pytest.mark.skipif(__import__("os").name != "nt", reason="mklink /J is Windows")
+def test_a_page_folder_that_is_a_junction_out_is_never_migrated(root, tmp_path):
+    """SPEC-71 review 3: with ``.specto/scratch/p2`` a junction to an outside folder,
+    ``_card_file`` compared against ``folder.resolve()`` (the outside folder), so a card's
+    file there was read and unlinked, and so was the outside ``index.json``. A page
+    folder that is a link or junction is left alone."""
+    import os
+    import subprocess
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "victim.txt").write_bytes(b"SECRET")
+    (outside / "pic.png").write_bytes(b"\x89PNGout")
+    index = {"items": [{"id": "s1", "kind": "text", "file": "victim.txt"}]}
+    index["items"].append({"id": "s2", "kind": "image", "file": "pic.png"})
+    (outside / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    scratch = root / ".specto" / "scratch"
+    scratch.mkdir(parents=True)
+    pages_doc = {"pages": [{"id": "p1", "name": "Page 1"}, {"id": "p2", "name": "two"}]}
+    (scratch / "pages.json").write_text(json.dumps({**pages_doc, "active": "p1"}), "utf-8")
+    subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(scratch / "p2"), str(outside)],
+        check=True,
+        capture_output=True,
+    )
+    try:
+        store = ScratchStore(root)
+        texts = "".join(store.text(p["id"]) for p in store.pages)
+        assert (outside / "victim.txt").read_bytes() == b"SECRET"
+        assert (outside / "pic.png").read_bytes() == b"\x89PNGout"
+        assert (outside / "index.json").is_file()
+        assert "SECRET" not in texts
+    finally:
+        if os.path.lexists(scratch / "p2"):
+            (scratch / "p2").rmdir()  # removes the junction only, never its target
+
+
 def test_a_legacy_file_card_outside_the_project_is_only_a_link(root, tmp_path):
     """A file card is a link, never read: a ``..`` form stays a link."""
     (tmp_path / "outside.txt").write_text("SECRET", encoding="utf-8")
@@ -568,7 +600,7 @@ def test_link_to_judges_the_text_it_was_given_not_the_joined_path(store, monkeyp
 
 
 @pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")
-def test_a_legacy_card_s_network_path_is_never_stat_ed_at_migration(root, monkeypatch):
+def test_a_legacy_card_s_network_path_is_never_stat_ed_at_migration(root, monkeypatch, trap_paths):
     """SPEC-71: ``ScratchStore()`` migrates legacy cards from the agent-writable
     ``index.json`` with no click; a file card's ``\\\\host\\share`` path reached
     ``Path.resolve`` (``os.stat`` on the share) in ``link_to``. The card's text is judged
@@ -584,7 +616,7 @@ def test_a_legacy_card_s_network_path_is_never_stat_ed_at_migration(root, monkey
     ]
     (old / "index.json").write_text(json.dumps({"next": 6, "items": items}), encoding="utf-8")
     calls: list[str] = []
-    _trap_network_paths(monkeypatch, calls)
+    trap_paths(calls)
     try:
         store = ScratchStore(root)
         text = store.text()
@@ -596,7 +628,9 @@ def test_a_legacy_card_s_network_path_is_never_stat_ed_at_migration(root, monkey
 
 
 @pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")
-def test_a_dropped_payload_s_network_path_never_reaches_the_filesystem(store, monkeypatch):
+def test_a_dropped_payload_s_network_path_never_reaches_the_filesystem(
+    store, monkeypatch, trap_paths
+):
     """SPEC-71: a dropped Specto payload (``application/x-specto-item+json``) with
     ``abs = \\\\host\\share\\x`` reached ``Path.exists`` in ``_from_payload``, and a file
     entry with such a path reached it in ``markdown_of``; both are judged by text first."""
@@ -609,7 +643,7 @@ def test_a_dropped_payload_s_network_path_never_reaches_the_filesystem(store, mo
         ]
     }
     calls: list[str] = []
-    _trap_network_paths(monkeypatch, calls)
+    trap_paths(calls)
     try:
         got = entries_from_mime({SPECTO_MIME: json.dumps(payload).encode()})
         with pytest.raises(InvalidArgs, match="network path"):

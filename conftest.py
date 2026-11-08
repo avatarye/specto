@@ -75,3 +75,43 @@ def no_reach(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     for name in ("exists", "lexists", "isdir", "isfile", "realpath"):
         monkeypatch.setattr(os.path, name, guard(getattr(os.path, name)))
     return seen
+
+
+#: the filesystem calls ``trap_paths`` covers, by owner
+_TRAP_PATH_CALLS = (
+    *("is_file", "exists", "stat", "lstat", "resolve", "is_dir", "is_symlink"),
+    *("read_bytes", "read_text", "unlink", "replace", "rename", "open"),
+)
+_TRAP_OS_CALLS = ("stat", "lstat", "listdir", "scandir", "replace", "rename", "unlink", "remove")
+_TRAP_OS_PATH_CALLS = ("realpath", "exists", "abspath", "isfile", "isdir")
+
+
+@pytest.fixture
+def trap_paths(monkeypatch):
+    """TEST ONLY: the path guard's no-filesystem-call trap (``specto_core.pathguard``).
+    ``trap_paths(calls)`` patches the calls above through the test's ``monkeypatch`` so
+    that one whose arguments name ``word`` (default ``host``) appends them to ``calls``
+    and raises ``AssertionError``; the rest run (a store's own files are read and written
+    meanwhile). ``monkeypatch.undo()`` lifts it."""
+    import pathlib
+
+    def _trap(calls: list[str], word: str = "host") -> None:
+        def trapped(real):
+            def call(*a, **k):
+                named = [str(x) for x in a if isinstance(x, (str, os.PathLike))]
+                if any(word in x.lower() for x in named):
+                    calls.append(" ".join(named))
+                    raise AssertionError(f"a filesystem call on {named}")
+                return real(*a, **k)
+
+            return call
+
+        for owner, names in (
+            (pathlib.Path, _TRAP_PATH_CALLS),
+            (os, _TRAP_OS_CALLS),
+            (os.path, _TRAP_OS_PATH_CALLS),
+        ):
+            for name in names:
+                monkeypatch.setattr(owner, name, trapped(getattr(owner, name)))
+
+    return _trap
