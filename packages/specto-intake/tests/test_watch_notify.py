@@ -1123,3 +1123,62 @@ def test_a_folder_renamed_in_case_from_real_notices_moves_its_files(tmp_path: Pa
     assert tuple(change) == (0, 0, 2, []), (change, seen)
     assert table == fresh(root, link)
     assert not [k for k in table if k.startswith("0:Sub/")]
+
+
+# -- SPEC-83: what lands while notifications arm is an arrival; the safety net catches up --
+
+
+@needs_testdata
+def test_files_landing_while_notifications_arm_are_arrivals(project: Project, monkeypatch):
+    """The baseline is taken at once, before notifications arm (which can take a while:
+    the observer starts on first use), and listed again once they are: two frames that
+    land in between are an arrival, never part of a baseline the resolve never saw."""
+    monkeypatch.delenv("SPECTO_WATCH", raising=False)
+    real_start = fswatch.Notifier.start
+    landed: list[str] = []
+
+    def slow_start(self):
+        if not landed:  # the first arming only: frames land meanwhile
+            landed.extend(drip(project.root / "drops", 3, 2))
+        return real_start(self)
+
+    monkeypatch.setattr(fswatch.Notifier, "start", slow_start)
+    jobs = ThreadJobManager()
+    engine = Engine(project=project, jobs=jobs, watch_interval_s=0.05, watch_debounce_s=0.05)
+    links = engine.links
+    arrivals: list = []
+    links.events.subscribe(
+        lambda ev: arrivals.append(ev.payload) if ev.kind == "link.arrivals" else None
+    )
+    engine.live.submit(watched_gallery(engine.live.document()), origin="agent:s1", label="w")
+    try:
+        assert pump_until(engine, jobs, lambda: items_of(engine) == 5, timeout=10), arrivals
+        assert landed and sum(a["added"] for a in arrivals) >= 1
+        assert links.watch_status("l2")["mode"] == "notify"
+    finally:
+        engine.close()
+        jobs.shutdown()
+
+
+@needs_testdata
+def test_a_notify_watch_that_gets_no_notices_still_lands_files_by_the_safety_net(
+    project: Project, monkeypatch
+):
+    """A drive that sends no notices for a while: the safety-net listing finds the new
+    files (here every half second instead of 30 s)."""
+    monkeypatch.delenv("SPECTO_WATCH", raising=False)
+    monkeypatch.setattr(links_mod, "RELIST_S", 0.5)
+    monkeypatch.setattr(links_mod.LinkWatch, "_on_paths", lambda self, paths: None)
+    engine, jobs = start_watching(project)
+    links = engine.links
+    try:
+        assert pump_until(
+            engine, jobs, lambda: (links.watch_status("l2") or {}).get("polls", 0) >= 1
+        )
+        assert links.watch_status("l2")["mode"] == "notify"
+        drip(project.root / "drops", 3, 2)
+        assert pump_until(engine, jobs, lambda: items_of(engine) == 5, timeout=10)
+        assert links.watch_status("l2")["notices"] == 0  # the listing found them, no notice
+    finally:
+        engine.close()
+        jobs.shutdown()
