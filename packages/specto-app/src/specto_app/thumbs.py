@@ -43,6 +43,7 @@ import html
 import json
 import os
 import re
+import secrets
 import shutil
 import sys
 import threading
@@ -58,6 +59,7 @@ from PIL import Image, ImageDraw, ImageFont
 from PIL.PngImagePlugin import PngInfo
 
 from specto_core.containers import is_virtual, open_source, split_virtual, stat_virtual
+from specto_core.jobs import Progress
 from specto_core.kinds import DataRef, DecodeRequest, TypedBuffer
 
 THUMB_VERSION = 2  # bump when the pictures change: old cache files are rendered again
@@ -116,8 +118,6 @@ BADGES: dict[str, tuple[str, str]] = {  # kind -> (label, theme colour token)
     "usd_stage_ref": ("USD", "added"),
 }
 
-ProgressFn = Callable[[float, str], None]
-
 
 def is_image(kind: str) -> bool:
     return kind in IMAGE_KINDS
@@ -169,7 +169,7 @@ def render_batch(
     px: int,
     cache_dir: str | None,
     look: dict[str, str],
-    progress: ProgressFn,
+    progress: Progress,
 ) -> list[TypedBuffer | dict[str, str]]:
     """Thumbnails for ``refs`` (``DataRef`` dumps) at ``px`` in the card ``look`` (the
     palette), from the disk cache when the file's stat still matches, else rendered (and
@@ -178,9 +178,11 @@ def render_batch(
     cancelled job stops an archived video's copy (``progress.cancelled``)."""
     from specto_readers import map_refs
 
-    cancelled = getattr(progress, "cancelled", None)
     return map_refs(
-        refs, lambda ref: _thumb(ref, int(px), cache_dir, look, cancelled), progress, every=8
+        refs,
+        lambda ref: _thumb(ref, int(px), cache_dir, look, progress.cancelled),
+        progress,
+        every=8,
     )
 
 
@@ -223,12 +225,16 @@ def _thumb(
     )
 
 
+def _text_of(im: Image.Image) -> dict[str, str]:
+    """An open PNG's text chunks (``specto-stat``, ``specto-source``, ...)."""
+    return {str(k): str(v) for k, v in dict(getattr(im, "text", {})).items()}
+
+
 def _png_text(path: Path) -> dict[str, str] | None:
-    """A cached PNG's text chunks (``specto-stat``, ``specto-source``, ...); None when
-    it cannot be read."""
+    """A cached PNG's text chunks; None when it cannot be read."""
     try:
         with Image.open(path) as im:
-            return {str(k): str(v) for k, v in dict(getattr(im, "text", {})).items()}
+            return _text_of(im)
     except (OSError, ValueError, SyntaxError):
         return None
 
@@ -237,7 +243,7 @@ def _png_cached(path: Path, sig: str) -> tuple[np.ndarray, dict[str, str]] | Non
     """A cached PNG's pixels and text when its ``specto-stat`` is ``sig``; else None."""
     try:
         with Image.open(path) as im:
-            text = {str(k): str(v) for k, v in dict(getattr(im, "text", {})).items()}
+            text = _text_of(im)
             if text.get("specto-stat") != sig:
                 return None
             return np.asarray(im.convert("RGBA"), dtype=np.uint8), text
@@ -266,7 +272,7 @@ def image_batch(
     refs: list[dict[str, Any]],
     request: dict[str, Any],
     cache_dir: str | None,
-    progress: ProgressFn,
+    progress: Progress,
 ) -> list[TypedBuffer | dict[str, str]]:
     """Image thumbnails (the ``image`` decoder's), through the disk cache: a PNG whose
     stat still matches is read back; otherwise the image is decoded and, when its source
@@ -445,6 +451,8 @@ def maybe_prune(jobs: Any, cache_dir: str | None, project_root: Path | str | Non
     process): the stamp file's modified time says when it last ran."""
     if not cache_dir or cache_dir in _pruned or not os.path.isdir(cache_dir):
         return None
+    if _linked_root(cache_dir, project_root):
+        return None  # never written through a link or junction, the stamp included
     stamp = Path(cache_dir) / PRUNE_STAMP
     try:
         recent = time.time() - stamp.stat().st_mtime < PRUNE_EVERY_S
@@ -458,7 +466,7 @@ def maybe_prune(jobs: Any, cache_dir: str | None, project_root: Path | str | Non
     return jobs.submit("thumbs.prune", _prune_job, cache_dir, str(project_root or ""))
 
 
-def _prune_job(cache_dir: str, project_root: str, progress: ProgressFn) -> tuple[int, int]:
+def _prune_job(cache_dir: str, project_root: str, progress: Progress) -> tuple[int, int]:
     return prune_cache(cache_dir, project_root or None)
 
 
@@ -684,7 +692,8 @@ def archived_poster(
 ) -> np.ndarray | None:
     """The poster frame of a video inside an archive: libmpv opens real paths only, so
     the member is copied out first, as ``<40 hex>.<pid>.tmp`` in the cache folder
-    ``tmp_dir`` (a leftover is pruned), and removed afterwards.
+    ``tmp_dir`` (a leftover is pruned), and removed afterwards. The hash takes a nonce
+    per attempt, so an abandoned copy still running and a retry never share a file.
 
     None (the kind card) when there is no cache folder, libmpv is missing, the member is
     over its cap (``ARCHIVE_VIDEO_MAX``; ``ARCHIVE_VIDEO_MAX_INMEMORY`` for a compressed
@@ -706,7 +715,7 @@ def archived_poster(
     )
     if member is None or member.size > cap:
         return None
-    h = hashlib.sha1(f"poster|{uri}".encode()).hexdigest()
+    h = hashlib.sha1(f"poster|{uri}|{secrets.token_hex(8)}".encode()).hexdigest()
     folder = Path(tmp_dir) / h[:2]
     try:
         folder.mkdir(parents=True, exist_ok=True)

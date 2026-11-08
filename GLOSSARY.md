@@ -548,6 +548,14 @@ _Avoid_: schema, API docs, catalogue
 Work that may take longer than a moment (scan, decode, thumbnails, recipe apply), started by a command and tracked until done, failed or cancelled.
 _Avoid_: task, process, background operation
 
+**Thumbnail cache**:
+The PNGs under a project's `.specto/cache/thumbs/`, one per thumbnail (`<xx>/<hash>.png`, the hash of the file, the size and the look), each recording its source and the source's stat in text chunks, so a reopened project reads its thumbnails instead of rendering them (big images included). Pruned of deleted and changed files at most once a day when a gallery opens, touching only its own files and never going through a link or junction (SPEC-17).
+_Avoid_: thumb cache, preview cache
+
+**Look**:
+The colours a thumbnail card is drawn in (surface, border, text and the kind tokens), taken from the theme and folded into the thumbnail's cache key, so a theme change gets new cards.
+_Avoid_: palette (for a card's colours), pal
+
 **Health**:
 A view's current condition (`ok`, `loading`, `paused`, `error`) with a message, visible to the user and the agent, and an optional **hint**: a line that says what to do or why, such as the empty-state "Pick files in the file tree" or a usd view's missing renderer (SPEC-26). A view's standing hint rides on every health written for it.
 _Avoid_: status, state

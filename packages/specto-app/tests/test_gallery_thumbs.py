@@ -687,6 +687,84 @@ def test_a_junctioned_cache_root_is_not_followed(project: Project, tmp_path: Pat
         pytest.skip("no junction")
 
     assert thumbs.prune_cache(str(cache), project.root) == (0, 0)
+    assert thumbs.maybe_prune(InlineJobManager(), str(cache), project.root) is None
 
     assert victim.exists()
+    assert not (elsewhere / thumbs.PRUNE_STAMP).exists()  # the stamp was not written through it
     os.rmdir(cache)  # the junction alone
+
+
+class _BlockingSource:
+    """A member read that blocks until ``release`` is set; ``reading`` says it is in it."""
+
+    def __init__(self) -> None:
+        import threading
+
+        self.reading = threading.Event()
+        self.release = threading.Event()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, n: int = -1) -> bytes:
+        self.reading.set()
+        self.release.wait(10)
+        return b"x" * 1024
+
+
+def test_an_abandoned_copy_and_a_retry_never_share_a_file(project: Project, mpv, monkeypatch):
+    """A cancelled copy's thread may still be in a blocking read when the same worker
+    tries the same member again. Its name takes a nonce per attempt, so when the first
+    thread finally ends and removes its file, the retry's file (open in libmpv just
+    then) is not the one removed. The first's read is released while the retry is in
+    ``video_poster``, and the retry's file is checked once the first has cleaned up."""
+    import re
+    import time as _time
+
+    import numpy as np
+
+    uri = _zip_member(project)
+    cache = mpv.cache_dir_for(project.root)
+    copies: list = []
+    real_copy = mpv._ArchiveCopy
+
+    class Recording(real_copy):
+        def __init__(self, uri: str, tmp: Path) -> None:
+            super().__init__(uri, tmp)
+            copies.append(self)
+
+    monkeypatch.setattr(mpv, "_ArchiveCopy", Recording)
+    blocked = _BlockingSource()
+    real_open = mpv.open_source
+    monkeypatch.setattr(mpv, "open_source", lambda u: blocked)
+    first = mpv.archived_poster(uri, 176, tmp_dir=cache, cancelled=blocked.reading.is_set)
+    assert first is None and blocked.reading.is_set()  # abandoned while its read blocks
+    monkeypatch.setattr(mpv, "open_source", real_open)  # the retry reads the member for real
+    seen: dict[str, object] = {}
+
+    def poster_while_the_first_ends(path: str, px: int):
+        blocked.release.set()  # the first thread wakes, sees it was abandoned, cleans up
+        assert copies[0].done.wait(5)
+        seen["exists"] = os.path.exists(path)
+        seen["size"] = os.path.getsize(path) if seen["exists"] else None
+        return np.zeros((64, px, 4), dtype=np.uint8)
+
+    monkeypatch.setattr(mpv, "video_poster", poster_while_the_first_ends)
+
+    got = mpv.archived_poster(uri, 176, tmp_dir=cache)
+
+    assert got is not None
+    assert seen == {"exists": True, "size": 4096}, (
+        seen
+    )  # the retry's file survived the first's cleanup
+    assert len(copies) == 2 and copies[0].tmp != copies[1].tmp
+    for copy in copies:
+        assert re.fullmatch(rf"[0-9a-f]{{40}}\.{os.getpid()}\.tmp", copy.tmp.name), copy.tmp.name
+        assert copy.tmp.parent.name == copy.tmp.name[:2]
+    deadline = _time.monotonic() + 5
+    while list(Path(cache).rglob("*.tmp")) and _time.monotonic() < deadline:
+        _time.sleep(0.05)
+    assert not list(Path(cache).rglob("*.tmp"))
