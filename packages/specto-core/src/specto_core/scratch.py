@@ -376,7 +376,8 @@ class ScratchStore:
         """A link target for a file, from the scratch folder: relative inside the
         project, a ``file:///`` URL outside it. ``InvalidArgs`` for a path the shared guard
         refuses (a network, NT object or device path), before anything resolves it
-        (SPEC-71)."""
+        (SPEC-71). Callers pass the text they were given, not a path joined onto the
+        project root, so a project on a network share still links its own files."""
         why = path_refusal(str(path))
         if why:
             raise InvalidArgs(f"{path} is {why}", fix="link a file on this machine")
@@ -443,7 +444,7 @@ class ScratchStore:
                 if not p.exists():
                     raise NotFound(f"no file {e.path}", fix="link a file that exists")
                 label = _link_label(e.label or p.name)
-                link = f"[{label}]({_target(self.link_to(p))})"
+                link = f"[{label}]({_target(self.link_to(e.path))})"
                 blocks.append(f"> {link}\n>\n> — {origin}" if origin else link)
             else:
                 raise InvalidArgs(f"unknown kind {e.kind!r}", fix="text, image or file")
@@ -750,18 +751,34 @@ class ScratchStore:
         self.dir.mkdir(parents=True, exist_ok=True)
         _write_json(self.dir / PAGES_FILE, data)
 
+    @staticmethod
+    def _card_file(folder: Path, name: str) -> Path | None:
+        """A text or image card's ``file`` from the agent-writable ``index.json`` as a
+        file directly in the card folder, or None. The name is judged by its text first
+        (a network, device or stream path is never asked about), then must be one plain
+        name, then a regular file (not a link) whose resolved parent is the folder:
+        nothing outside it is read, moved or deleted (SPEC-71)."""
+        if path_refusal(name) or name in ("", ".", "..") or re.search(r"[\\/]", name):
+            return None
+        path = folder / name
+        if path.is_symlink() or not path.is_file():
+            return None
+        return path if path.resolve().parent == folder.resolve() else None
+
     def _card_markdown(self, pid: str, folder: Path, it: dict[str, Any]) -> str:
         kind, label = it.get("kind"), str(it.get("label") or "")
         if kind == "text" and it.get("file"):
-            path = folder / str(it["file"])
-            text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+            path = self._card_file(folder, str(it["file"]))
+            if path is None:
+                return ""
+            text = path.read_text(encoding="utf-8", errors="replace")
             with contextlib.suppress(OSError):
                 path.unlink()
             return text.strip("\n")
         if kind == "image" and it.get("file"):
             name = str(it["file"])
-            src = folder / name
-            if not src.is_file():
+            src = self._card_file(folder, name)
+            if src is None:
                 return ""
             dst = self.assets_dir(pid) / name
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -774,9 +791,8 @@ class ScratchStore:
                 # a network or device path from the agent-writable index.json: named as
                 # plain text, never resolved or linked (SPEC-71)
                 return _clip(label or text).replace("[", "(").replace("]", ")")
-            p = Path(text)
-            p = p if p.is_absolute() else self.root / p
-            return f"[{_link_label(label or p.name)}]({_target(self.link_to(p))})"
+            name = Path(text).name
+            return f"[{_link_label(label or name)}]({_target(self.link_to(text))})"
         return ""
 
 

@@ -18,6 +18,11 @@ the release and move on their own schedule.
 - Security fix (SPEC-73): the prompt bar agent's `scratch_append` no longer asks Windows
   whether a network path in its `image` or `file` argument exists; such a path (or a
   device or stream path) is refused by its text first.
+- Security fix (SPEC-71): a legacy scratch text or image card can no longer name a file
+  outside its own folder. A text card with `file: ../../../x.txt` read that file into the
+  pad and then deleted it, an image card moved such a file in, and either asked a
+  network share whether its file existed. Only a plain file directly in the card's folder
+  is taken now.
 - Launchers judge a network or device path by its text before any filesystem call
   (SPEC-76): a command in `launchers.toml` that is (or expands to) `\\host\share\x.exe`
   never runs, a cwd like it is refused, and a path to open like it is refused with a

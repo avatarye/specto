@@ -772,7 +772,12 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   `markdown_of` file entry raises `InvalidArgs`, and a legacy card keeps its label as
   plain text. Agents write pad text and `index.json`, and the pad rebuilds its collection
   on every change, so no click is needed (SPEC-67, SPEC-71). The card store before
-  markdown (`index.json`) migrates on open. `ScratchHost` is a web host (`scratch/index.html`: the markdown renderer and
+  markdown (`index.json`) migrates on open. A text or image card's `file` is taken only
+  when its text passes the guard, it is one plain name (no separator, not `..`) and it
+  names a regular file, not a link, directly in the card folder; any other card is
+  dropped, and nothing outside the folder is read, moved or deleted. `link_to` judges the
+  text it is given before joining it onto the project root, so a project on a network
+  share still links its own files. `ScratchHost` is a web host (`scratch/index.html`: the markdown renderer and
   outline, Monaco for the source; page events `save`, `caret`, `open`, `paste`) inside
   `Specto/Scratch/ScratchView.qml` (the tab strip, the drop area over the page); it
   serves its pages under the link id `scratch-<view>` (`ScratchItems`, `read:link`

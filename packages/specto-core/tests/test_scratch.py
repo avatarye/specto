@@ -468,20 +468,116 @@ def _trap_network_paths(monkeypatch, calls: list[str]) -> None:
     import pathlib
 
     def trapped(real):
-        def call(path, *a, **k):
-            if "host" in str(path).lower():
-                calls.append(str(path))
-                raise AssertionError(f"a filesystem call on {path}")
-            return real(path, *a, **k)
+        def call(*a, **k):
+            named = [str(x) for x in a if isinstance(x, (str, os.PathLike))]
+            if any("host" in x.lower() for x in named):
+                calls.append(" ".join(named))
+                raise AssertionError(f"a filesystem call on {named}")
+            return real(*a, **k)
 
         return call
 
-    for name in ("is_file", "exists", "stat", "resolve", "is_dir", "read_bytes", "read_text"):
+    for name in (
+        *("is_file", "exists", "stat", "lstat", "resolve", "is_dir", "is_symlink"),
+        *("read_bytes", "read_text", "unlink", "replace", "rename", "open"),
+    ):
         monkeypatch.setattr(pathlib.Path, name, trapped(getattr(pathlib.Path, name)))
-    for name in ("stat", "lstat", "listdir", "scandir"):
+    for name in ("stat", "lstat", "listdir", "scandir", "replace", "rename", "unlink", "remove"):
         monkeypatch.setattr(os, name, trapped(getattr(os, name)))
-    for name in ("realpath", "exists", "abspath"):
+    for name in ("realpath", "exists", "abspath", "isfile", "isdir"):
         monkeypatch.setattr(os.path, name, trapped(getattr(os.path, name)))
+
+
+def _legacy_index(root: Path, items: list[dict]) -> Path:
+    old = root / ".specto" / "scratch"
+    old.mkdir(parents=True, exist_ok=True)
+    (old / "index.json").write_text(json.dumps({"next": 9, "items": items}), encoding="utf-8")
+    return old
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")
+@pytest.mark.parametrize("kind", ["text", "image"])
+@pytest.mark.parametrize(
+    "name", [r"\\host\share\b.png", "//host/share/b.png", r"\\?\UNC\host\s\b.png", "b.png:host"]
+)
+def test_a_legacy_text_or_image_card_s_network_file_is_never_touched(root, monkeypatch, kind, name):
+    """SPEC-71 review 1: ``_card_markdown`` joined a text or image card's ``file`` from the
+    agent-writable ``index.json`` onto the card folder unjudged; ``//host/share/b.png``
+    reached ``is_file`` on the share at ``ScratchStore()`` (and an image match was
+    ``os.replace``d in from it). The name is judged first; such a card is dropped."""
+    _legacy_index(root, [{"id": "s1", "kind": kind, "file": name, "label": "x"}])
+    calls: list[str] = []
+    _trap_network_paths(monkeypatch, calls)
+    try:
+        text = ScratchStore(root).text()
+    finally:
+        monkeypatch.undo()
+    assert calls == []
+    assert "host" not in text
+
+
+@pytest.mark.parametrize("kind", ["text", "image"])
+@pytest.mark.parametrize("up", ["../../../victim", "../victim", "sub/../../victim"])
+def test_a_legacy_card_s_file_outside_its_folder_is_never_read_moved_or_deleted(root, kind, up):
+    """SPEC-71 review 1 (on main before): a text card with ``file: ../../../victim.txt``
+    read a file outside the project into the pad and then unlinked it; an image card moved
+    one in. Only a direct child of the card folder is taken."""
+    ext = ".txt" if kind == "text" else ".png"
+    old = _legacy_index(root, [])
+    victim = (old / (up + ext)).resolve()
+    victim.parent.mkdir(parents=True, exist_ok=True)
+    victim.write_bytes(b"SECRET")
+    _legacy_index(root, [{"id": "s1", "kind": kind, "file": up + ext, "label": "v"}])
+    store = ScratchStore(root)
+    text = store.text()
+    assert victim.read_bytes() == b"SECRET"  # neither deleted nor moved
+    assert "SECRET" not in text and "victim" not in text
+    assert not (store.assets_dir("p1") / (up + ext)).resolve().exists()
+
+
+def test_a_legacy_text_and_image_card_in_their_folder_still_migrate(root):
+    old = _legacy_index(root, [])
+    (old / "s1.md").write_text("kept words", encoding="utf-8")
+    (old / "s2.png").write_bytes(b"\x89PNGpic")
+    _legacy_index(
+        root,
+        [
+            {"id": "s1", "kind": "text", "file": "s1.md"},
+            {"id": "s2", "kind": "image", "file": "s2.png", "label": "pic"},
+        ],
+    )
+    store = ScratchStore(root)
+    text = store.text()
+    assert "kept words" in text and "![pic](p1.assets/s2.png)" in text
+    assert (store.assets_dir("p1") / "s2.png").read_bytes() == b"\x89PNGpic"
+    assert not (old / "s1.md").exists() and not (old / "s2.png").exists()
+
+
+def test_a_legacy_file_card_outside_the_project_is_only_a_link(root, tmp_path):
+    """A file card is a link, never read: a ``..`` form stays a link."""
+    (tmp_path / "outside.txt").write_text("SECRET", encoding="utf-8")
+    _legacy_index(root, [{"id": "s1", "kind": "file", "path": "../outside.txt", "label": "o"}])
+    text = ScratchStore(root).text()
+    assert "SECRET" not in text and "[o](" in text
+    assert (tmp_path / "outside.txt").read_text(encoding="utf-8") == "SECRET"
+
+
+def test_link_to_judges_the_text_it_was_given_not_the_joined_path(store, monkeypatch):
+    """SPEC-71 review 1: link_to judged ``root / path``, so a project on a network share
+    refused every relative card and file drop. The text is judged before the join."""
+    import specto_core.scratch as scratch_mod
+
+    judged: list[str] = []
+    real = scratch_mod.path_refusal
+
+    def spy(text, **k):
+        judged.append(str(text))
+        return real(text, **k)
+
+    monkeypatch.setattr(scratch_mod, "path_refusal", spy)
+    store.link_to("runs/00042.jpg")
+    store.markdown_of([NewItem(kind="file", path="runs/00042.jpg")])
+    assert judged and all(not Path(t).is_absolute() for t in judged), judged
 
 
 @pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")
