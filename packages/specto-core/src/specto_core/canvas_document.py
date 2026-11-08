@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -41,6 +42,7 @@ from pydantic import (
 
 from .errors import SchemaError
 from .names import FILE_TREE_SALT, VIEW_ID_PATTERN, fresh_name, fresh_names
+from .pathguard import path_refusal
 from .ports import (
     BUILTIN_KINDS,
     PLAYER_TYPES,
@@ -180,17 +182,35 @@ class LinkBase(BaseModel):
     summary: LinkSummary
 
 
+def _project_source(text: str) -> str:
+    """A source is judged by its text before anything asks the disk about it (SPEC-72,
+    ``pathguard``): a network, device or rooted path is refused here, so a submit never
+    stats it (on Windows a stat of ``\\\\host\\share`` connects out over SMB)."""
+    why = path_refusal(text)
+    if why is not None:
+        raise ValueError(f"source {text!r} is {why}")
+    return text
+
+
+#: one intaker source: a path or glob under the project folder (a local drive path too)
+SourceText = Annotated[str, AfterValidator(_project_source)]
+SOURCE_FIX = (
+    "name a path or glob under the project folder ('.' is the whole folder); a network, "
+    "device or rooted path is never looked up"
+)
+
+
 class IntakerParams(BaseModel):
     """The intake spec: which of the files arriving on the input enter the collection and
     how they are keyed, grouped and sorted."""
 
     model_config = ConfigDict(extra="forbid")
-    sources: list[str] = Field(
+    sources: list[SourceText] = Field(
         default_factory=lambda: ["."],
         min_length=1,
         description="Paths or globs, relative to the project folder ('.' is all, the "
-        "default). Scope pinned: the data the view shows. Scope selection: an optional "
-        "narrowing of what the user picks.",
+        "default; never a network path). Scope pinned: the data the view shows. Scope "
+        "selection: an optional narrowing of what the user picks.",
     )
     screener: list[str] = Field(
         default_factory=list,
@@ -808,6 +828,8 @@ def _field_problem(err: Any) -> Problem:
         else:
             fix = f"match {ctx.get('pattern', 'the pattern')}"
         return Problem(path=path, message=msg, fix=fix)
+    if kind == "value_error" and len(loc) >= 2 and loc[-2] == "sources":
+        return Problem(path=path, message=msg.removeprefix("Value error, "), fix=SOURCE_FIX)
     if kind == "string_too_short":
         return Problem(path=path, message=msg, fix="write one plain sentence")
     if kind == "too_short":

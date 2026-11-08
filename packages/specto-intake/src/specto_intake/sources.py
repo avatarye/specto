@@ -21,9 +21,10 @@ from pathlib import Path
 
 from specto_core.containers import is_container, join_virtual, list_members, split_virtual
 from specto_core.errors import NotFound
+from specto_core.pathguard import path_refusal
 
 from .screener import glob_to_regex
-from .spec import SourceSpec
+from .spec import SourceSpec, root_refused
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,12 @@ class FoundFile:
 
 
 def resolve_root(src: SourceSpec, base: Path) -> Path:
+    """Where a source is on disk. The root's text is judged first (SPEC-72): a network,
+    device or rooted path is refused before ``resolve`` or any caller's ``exists`` can
+    reach it, whatever made the spec."""
+    why = path_refusal(src.root)
+    if why is not None:
+        raise root_refused(src.root, why)
     root = Path(src.root).expanduser()
     if not root.is_absolute():
         root = Path(base) / root

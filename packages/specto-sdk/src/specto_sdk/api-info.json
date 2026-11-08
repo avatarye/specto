@@ -187,7 +187,7 @@
     "description": "The intake spec: which of the files arriving on the input enter the collection and\nhow they are keyed, grouped and sorted.",
     "properties": {
      "sources": {
-      "description": "Paths or globs, relative to the project folder ('.' is all, the default). Scope pinned: the data the view shows. Scope selection: an optional narrowing of what the user picks.",
+      "description": "Paths or globs, relative to the project folder ('.' is all, the default; never a network path). Scope pinned: the data the view shows. Scope selection: an optional narrowing of what the user picks.",
       "items": {
        "type": "string"
       },
@@ -2895,7 +2895,7 @@
       "description": "The intake spec: which of the files arriving on the input enter the collection and\nhow they are keyed, grouped and sorted.",
       "properties": {
        "sources": {
-        "description": "Paths or globs, relative to the project folder ('.' is all, the default). Scope pinned: the data the view shows. Scope selection: an optional narrowing of what the user picks.",
+        "description": "Paths or globs, relative to the project folder ('.' is all, the default; never a network path). Scope pinned: the data the view shows. Scope selection: an optional narrowing of what the user picks.",
         "items": {
          "type": "string"
         },

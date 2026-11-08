@@ -20,6 +20,15 @@ the release and move on their own schedule.
   any spelling is refused by its text in the conversion's own resolver, so the isolated
   child never connects out; the model converts without that texture. Before, trimesh
   stat'ed the path (an SMB connect on Windows) before its own root check refused it.
+- Security fix (SPEC-72): an intaker's `sources` can no longer make Specto connect to
+  another machine. A network path as a source (`\\host\share`, `//host/...`, the
+  `\??\UNC\...` spelling), a device path or a rooted path that is no drive path was
+  stat'ed at submit, before the document's problems were reported, and by
+  `intake.preview`, which takes a spec from its caller; on Windows that stat connects out
+  over SMB and can hand the host the user's sign-in hash, and agents write sources. Both
+  now judge the text first (`specto_core.pathguard`): the submit refuses the source with
+  a problem and a fix-it, `intake.preview` answers with an error, and every intake root
+  passes the same guard before it is resolved.
 - Security fix (SPEC-67): a link in a scratch pad page can no longer make Specto connect
   to another machine. A network path as a link target (`\\host\share\x.png`, `//host/...`,
   the same percent-encoded, a `file://host/...` URL or the `\??\UNC\...` spelling) was

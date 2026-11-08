@@ -323,7 +323,11 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   accepts only a relative path, a Windows drive path or a POSIX single-slash path, so a
   network path (`\\host\share`, `\??\UNC\host`), an NT object or device path, a reserved
   device name or a stream name is refused by its text and never makes the machine connect
-  out or open a device.
+  out or open a device. An intaker's `params.sources` and an intake spec's roots pass the
+  same guard (SPEC-72): the canvas document's validation refuses such a source with a
+  problem before the submit asks whether it exists, `intake.preview` answers with an
+  error, and `specto_intake.sources.resolve_root` refuses it as the backstop before any
+  walker, listing or resolver resolves it.
 - Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread runs the
   kind's watcher every `watch_interval_s`; a changed listing posts to the runtime,
   `poll()` emits the event `link.arrivals {link, target, added, removed, changed,

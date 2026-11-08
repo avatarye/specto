@@ -13,13 +13,18 @@ from pathlib import Path
 from typing import Any
 
 from .canvas_document import Problem
+from .pathguard import path_refusal
 
 GLOB_CHARS = frozenset("*?[")
 
 
 def source_exists(root: Path, source: str) -> bool:
     """A source names a file or folder under ``root`` (``.`` is the folder itself), or
-    a glob that matches at least one entry."""
+    a glob that matches at least one entry. A source the path guard refuses (a network
+    or device path; the document's validation reports it first, SPEC-72) is never looked
+    up: it does not exist here."""
+    if path_refusal(source) is not None:
+        return False
     if any(c in source for c in GLOB_CHARS):
         try:
             return next(root.glob(source), None) is not None

@@ -13,11 +13,24 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from specto_core.errors import InvalidArgs
+from specto_core.pathguard import Refusal, path_refusal
 
 SortMode = Literal["natural", "key", "mtime"]
 RuleAction = Literal["include", "exclude"]
 
 _GLOB_MAGIC = re.compile(r"[*?\[]")
+
+
+def root_refused(root: str, why: Refusal) -> InvalidArgs:
+    """The error for a source root the path guard refuses (``specto_core.pathguard``,
+    SPEC-72): a network path (on Windows a stat of it connects out over SMB), a device
+    path or a rooted path that is no drive path. Raised by the spec's validation and,
+    as the backstop, by ``sources.resolve_root`` before any filesystem call."""
+    return InvalidArgs(
+        f"source root {root!r} is {why}",
+        fix="name a path or glob under the project folder ('.' is the whole folder) or a "
+        "local drive path; a network, device or rooted path is never looked up",
+    )
 
 
 class SourceSpec(BaseModel):
@@ -34,6 +47,15 @@ class SourceSpec(BaseModel):
         description="Recursion depth below root; None = unlimited, 0 = root only.",
     )
     follow_links: bool = False
+
+    @field_validator("root")
+    @classmethod
+    def _local_root(cls, v: str) -> str:
+        """A root is judged by its text before anything resolves or stats it (SPEC-72)."""
+        why = path_refusal(v)
+        if why is not None:
+            raise root_refused(v, why)
+        return v
 
     @classmethod
     def coerce(cls, value: Any) -> SourceSpec:
