@@ -19,8 +19,7 @@ from specto_core.ports import VIEW_PORTS
 
 CallFn = Callable[[str, dict[str, Any]], dict[str, Any]]
 #: manifest and describe fields the agent does not compose with: ``guide``, ``uses`` and
-#: ``machine`` are describe's (``renderer_auto`` says what the usd view runs here);
-#: ``defaults`` ride on the param lines
+#: ``machine`` are describe's (``renderer_auto`` says what the usd view runs here)
 _VIEW_SKIP = (
     "host",
     "cost",
@@ -32,7 +31,6 @@ _VIEW_SKIP = (
     "guide",
     "uses",
     "machine",
-    "defaults",
 )
 
 
@@ -52,8 +50,9 @@ def _choices(prop: dict[str, Any]) -> str:
 
 
 def _default(value: Any) -> str:
-    """A default as the line says it: ``default auto``, ``default null``, ``default 1.0``."""
-    return "default " + (value if isinstance(value, str) else json.dumps(value))
+    """A default as the line says it: ``default auto``, ``default null``, ``default 1.0``,
+    ``default ""`` (an empty string is quoted, so the line never ends in a bare word)."""
+    return "default " + (value if isinstance(value, str) and value else json.dumps(value))
 
 
 def _param_lines(schema: dict[str, Any], defaults: dict[str, Any]) -> dict[str, str]:
@@ -97,8 +96,9 @@ def _view_card(info: dict[str, Any]) -> dict[str, Any]:
     rest = {k: v for k, v in defaults.items() if k not in params}
     if rest:
         card["defaults"] = rest
+    handled = {*card, "defaults", "ports"}
     for key, value in info.items():
-        if key not in card and key not in _VIEW_SKIP and value not in (None, {}, []):
+        if key not in handled and key not in _VIEW_SKIP and value not in (None, {}, []):
             card[key] = value
     return card
 

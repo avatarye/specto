@@ -497,6 +497,20 @@ step, nothing journaled). */
     [key: string]: unknown;
   }
   interface VideoState {
+    /** Playback speed. default: 1.0 */
+    speed?: number;
+    /** [a, b] seconds to loop between; null: play through. default: null */
+    loop?: unknown[] | null;
+    /** Hardware decoding (mpv's auto-safe copy modes). default: false */
+    hwdec?: boolean;
+    /** The item key of the video shown; unset: the pick, else the first. default: null */
+    selected?: string | null;
+    /** The timeline its time values are on; unset: the sidecar's, else video (seconds from the start). default: null */
+    timeline?: string | null;
+    /** No sound. default: true */
+    muted?: boolean;
+    /** Volume when not muted. default: 1.0 */
+    volume?: number;
     [key: string]: unknown;
   }
 

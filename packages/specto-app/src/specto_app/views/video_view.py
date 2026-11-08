@@ -99,14 +99,64 @@ VIDEO_MANIFEST = ViewManifest(
     type="video",
     label="Video",
     host="quick",
-    doc="mpv video: emits time on its timeline (sidecar <name>.timeline.json maps frames "
-    "to stamps) and itself as a selection; follows a received time. params: speed, loop "
-    "[a, b] seconds or null, hwdec, selected (item key), timeline, muted (bool), volume "
-    "(0..1).",
-    guide="libmpv render API: play/pause, frame step, scrub, 0.25x-4x speed, sound (muted "
-    "by default; one view with sound per window).",
+    doc="mpv video, sound muted by default (one view with sound per window): emits time "
+    "on its timeline (sidecar <name>.timeline.json maps frames to stamps) and itself as a "
+    "selection; follows a received time.",
+    guide="libmpv render API: play/pause, frame step, scrub, 0.25x-4x speed; the footer's "
+    "mute and volume write muted and volume.",
     accepts=["video_ref"],
     cost=ViewCost(video_decoders=1),
+    defaults={
+        "speed": 1.0,
+        "loop": None,
+        "hwdec": False,
+        "selected": None,
+        "timeline": None,
+        "muted": True,
+        "volume": 1.0,
+    },
+    state_schema={
+        "type": "object",
+        "properties": {
+            "speed": {
+                "type": "number",
+                "minimum": 0.25,
+                "maximum": 4,
+                "default": 1.0,
+                "description": "Playback speed.",
+            },
+            "loop": {
+                "type": ["array", "null"],
+                "default": None,
+                "description": "[a, b] seconds to loop between; null: play through.",
+            },
+            "hwdec": {
+                "type": "boolean",
+                "default": False,
+                "description": "Hardware decoding (mpv's auto-safe copy modes).",
+            },
+            "selected": {
+                "type": ["string", "null"],
+                "default": None,
+                "description": "The item key of the video shown; unset: the pick, else the first.",
+            },
+            "timeline": {
+                "type": ["string", "null"],
+                "default": None,
+                "description": "The timeline its time values are on; unset: the sidecar's, "
+                "else video (seconds from the start).",
+            },
+            "muted": {"type": "boolean", "default": True, "description": "No sound."},
+            "volume": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "default": 1.0,
+                "description": "Volume when not muted.",
+            },
+        },
+        "additionalProperties": True,
+    },
     example={"type": "video", "label": "Cam-a video", "params": {"speed": 1.0, "loop": None}},
 )
 VIDEO_PLUGIN = PluginManifest(name="app-video", version="0.3.0", views=[VIDEO_MANIFEST])

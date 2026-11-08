@@ -325,8 +325,10 @@ def test_the_session_prompt_carries_the_view_types_and_link_kinds_so_describe_is
 
 
 def app_reference() -> tuple[str, Engine]:
-    """The reference as the app builds it: core's manifests plus the app's view plugins,
-    registered the way the shell registers them (``HostRegistry.add_factory``)."""
+    """The reference as the app builds it: core's manifests plus each built-in factory's
+    view plugin, registered straight into the engine's registry (what
+    ``HostRegistry.add_factory`` does for them, without a registry or Qt; entry-point
+    plugins of other packages are not loaded here)."""
     from specto_app.views import factories
 
     engine = Engine(project=None)
@@ -383,6 +385,13 @@ def test_the_real_reference_with_the_app_s_views_fits_its_budget():
     assert "UCX_" in engine.call("describe", {"target": "view:3d"}, PROMPT_BAR)["info"]["guide"]
     # a view without a state schema keeps its defaults block
     assert cards["gallery"]["defaults"] == {"tile": 192, "zoom": 1.0}
+    # an empty default is quoted, never a bare "default "
+    assert cards["text"]["params"]["text"].startswith('default "". ')
+    assert cards["image"]["params"]["channels"].startswith('default "". ')
+    assert "default . " not in ref and "default ." not in ref
+    # the video's params and defaults are lines of their own; muted by default is said
+    assert cards["video"]["params"]["muted"].startswith("default true. ")
+    assert "muted by default" in cards["video"]["doc"] and "defaults" not in cards["video"]
 
 
 def test_the_session_prompt_explains_view_roles_and_the_reference_gives_each_type_its_role():
