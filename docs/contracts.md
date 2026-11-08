@@ -329,16 +329,50 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   problem before the submit asks whether it exists, `intake.preview` answers with an
   error, and `specto_intake.sources.resolve_root` refuses it as the backstop before any
   walker, listing or resolver resolves it.
-- Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread runs the
-  kind's watcher every `watch_interval_s`; a changed listing posts to the runtime,
-  `poll()` emits the event `link.arrivals {link, target, added, removed, changed,
-  arrived}` and re-resolves the link once the folder has been quiet for
-  `watch_debounce_s`; the new collection generation swaps in. `arrived` names the
-  added entries as the watcher does (the intaker's: `<source index>:<rel path>`,
-  what an item's `meta.source` and `meta.rel` hold; an archive is one entry,
-  `0:drive.zip`, and its members' items go by it: `links.arrival_entry`), at most
-  `ARRIVALS_CAP` (1000) of them; `added` counts them all (SPEC-59). The resolve re-runs the whole intaker (ADR 0016 note). `engine.close()`
-  stops and joins the watchers.
+- Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread follows the
+  kind's sources; a change posts to the runtime, `poll()` emits the event
+  `link.arrivals {link, target, added, removed, changed, arrived}` and re-resolves the
+  link once the folder has been quiet for `watch_debounce_s`; the new collection
+  generation swaps in. `arrived` names the added entries as the watcher does (the
+  intaker's: `<source index>:<rel path>`, what an item's `meta.source` and `meta.rel`
+  hold; an archive is one entry, `0:drive.zip`, and its members' items go by it:
+  `links.arrival_entry`), at most `ARRIVALS_CAP` (1000) of them; `added` counts them
+  all (SPEC-59), whether a listing or a change notice found them (`WatchListing.apply`
+  returns them beside its counts). The resolve re-runs the whole intaker (ADR 0016
+  note). `engine.close()` stops and joins
+  the watchers. ADR 0027 (SPEC-8): a kind that registers a `WatchListing` beside its
+  watcher (`register_watcher(kind, fn, listing=...)`; the intaker's is
+  `specto_intake.watch_listing.IntakerListing`) is followed through change notifications
+  (`specto_core.fswatch`, watchdog; one watch per folder per process): the watcher
+  lists everything once, then applies only the paths the notices name, and lists
+  everything again every `RELIST_S` (30 s, at least 50 listing durations apart; 10 to
+  30 s on a network drive), once a storm of notices settled, after a lost-notice report,
+  when a source root itself changed, and when a watched folder was renamed or replaced
+  (armed again first). Where notifications cannot start, stop, or never come (two
+  safety-net listings in a row finding unreported changes), it lists every
+  `watch_interval_s` as before, trying notifications again at a doubling gap up to
+  5 minutes. `links.watch_status(id)` reports
+  `{running, polls, interval_s, mode: notify|poll, reason, notices}`; the event
+  `link.watching {link, target, mode, reason}` fires when a watcher settles on its mode
+  and when it changes, and `links.watch_note(view)` is the status bar's note after
+  "auto-update on". `SPECTO_WATCH=poll` makes every watcher poll. The notices come from
+  one watchdog observer per process (`fswatch._Hub`), one watch per folder fanned out to
+  its `Notifier`s. The hub's lock is never held across a watchdog call: a folder's
+  watch is `arming` while scheduled, `armed`, or `reaping` while unscheduled, outside
+  the lock, and a subscriber for a folder arming or reaping waits `ARM_TIMEOUT_S` (10 s)
+  for that to end, then is refused. A folder nobody follows keeps its watch `LINGER_S`
+  (5 s) before the reaper unschedules it. Every schedule and unschedule runs on a
+  helper thread waited for `WATCHDOG_CALL_TIMEOUT_S` (2 s); one that never returns costs
+  its observer (given up, its watches no longer alive, the subscriber refused; the next
+  subscriber starts a fresh one; its emitter threads run on until the exit). `fswatch.NotifyUnavailable` carries `reason`
+  (`Unavailable.MISSING`: tried again after each listing; `REFUSED`: tried again on the
+  backoff; `UNSUPPORTED`: polled for good). `fswatch.shutdown(final=False)` stops the
+  observer and drops every watch, bounded at about `STOP_TIMEOUT_S` (1 s) in all (lock
+  acquire plus the join of the thread stopping the observer); while it runs the hub is
+  closed (an arm in flight is undone, a woken waiter refused, no new observer starts),
+  and `final` (the `atexit` registration made when the observer starts) leaves it
+  closed. `links.stop_all_watches()` (the test sweep) calls it after stopping the
+  watchers.
 - Auto-update and refresh (#102): `params.watch` is off by default; the file tree's intaker
   is on unless it says false (#115: new canvases write it, a submit or load that leaves it
   out means on, and a canvas saved before #115 turns it on once on open, recorded as

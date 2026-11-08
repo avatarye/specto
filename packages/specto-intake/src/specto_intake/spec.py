@@ -198,3 +198,15 @@ class IntakeSpec(BaseModel):
             raise
         except Exception as e:  # pydantic ValidationError
             raise InvalidArgs(f"invalid intake spec: {e}", fix="describe link:intaker") from e
+
+
+def intake_spec(params: dict[str, Any]) -> IntakeSpec:
+    """The canvas document's ``IntakerParams`` as an ``IntakeSpec``."""
+    return IntakeSpec(
+        sources=list(params.get("sources") or ["."]),
+        screener=list(params.get("screener") or []),
+        keys=params.get("keys"),
+        group_by=list(params.get("group_by") or []),
+        sort=params.get("sort", "natural"),
+        watch=bool(params.get("watch", False)),
+    )

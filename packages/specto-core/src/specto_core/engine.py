@@ -132,6 +132,11 @@ class Engine:
         return view_cost_of(view, m.cost, lambda: self.capabilities) if m is not None else None
 
     @property
+    def built_links(self) -> LinkRuntime | None:
+        """The link runtime if it is built, else None (never builds it)."""
+        return self._links
+
+    @property
     def links(self) -> LinkRuntime:
         """The link runtime over ``live`` (ADR 0016): port values, resolves on ``jobs``,
         delivery to view hosts. Built on first use, after the canvas is open."""

@@ -216,7 +216,11 @@ def status_hint(info: dict[str, Any], *, hovered: bool) -> str:
         parts.append(str(info["hint"]))
     auto = info.get("autoUpdate")
     if auto is not None:
-        parts.append(AUTO_UPDATE_ON if auto else AUTO_UPDATE_OFF)
+        # a watcher that polls says why (SPEC-8: no change notifications there)
+        note = info.get("autoUpdateNote") if auto else ""
+        parts.append(
+            f"{AUTO_UPDATE_ON} ({note})" if note else AUTO_UPDATE_ON if auto else AUTO_UPDATE_OFF
+        )
     if hovered and info.get("floating"):
         parts.append(FLOATING_HINT)
     if hovered and health == "ok" and not info.get("hint") and not info.get("approval"):
@@ -366,6 +370,12 @@ class CanvasController(QObject):
         self._nav_timer.setSingleShot(True)
         self._nav_timer.setInterval(NAV_SETTLE_MS)
         self._nav_timer.timeout.connect(self.flush_navigation)
+        # watchers settling on how they follow their folders (SPEC-8): one rebuild for a
+        # burst of ``link.watching`` events, as many watchers start together on load
+        self._watch_timer = QTimer(self)
+        self._watch_timer.setSingleShot(True)
+        self._watch_timer.setInterval(0)
+        self._watch_timer.timeout.connect(self._on_watching)
         self._off_patch = self.live.on_patch(self._on_patch)
         # the scratch pad's steps share Ctrl+Z with the canvas's (#184); ``_redo_order``
         # remembers which stack each undo took, so redo walks back the same way
@@ -384,6 +394,7 @@ class CanvasController(QObject):
 
     def close(self) -> None:
         self._nav_timer.stop()
+        self._watch_timer.stop()
         self._off_patch()
         self._off_events()
         self._off_scratch()
@@ -394,6 +405,9 @@ class CanvasController(QObject):
         self.statusChanged.emit()
 
     def _on_event(self, ev: Any) -> None:
+        if ev.kind == "link.watching":
+            self._watch_timer.start()  # the status bar says when a view is polled (SPEC-8)
+            return
         if ev.kind != "link.resolved":
             return
         target = (ev.payload or {}).get("target") or {}
@@ -585,6 +599,10 @@ class CanvasController(QObject):
             self._redo_order = [s for s in self._redo_order if s != "canvas"]
         self.rebuild()
         self.patched.emit(str(meta.get("kind")))
+
+    @Slot()
+    def _on_watching(self) -> None:
+        self._rebuild_views()
 
     @Slot(str)
     def _on_health(self, view_id: str) -> None:
@@ -1033,6 +1051,11 @@ class CanvasController(QObject):
             self._capsule_ids = ids
             self.capsuleIdsChanged.emit()
 
+    def _watch_note(self, view_id: str) -> str:
+        # never builds the runtime: no runtime yet means no watcher to speak of
+        links = self.engine.built_links
+        return links.watch_note(view_id) if links is not None else ""
+
     def _rebuild_views(self) -> None:
         out: dict[str, dict[str, Any]] = {}
         # views the user left unreachable from the project source say so (#83): that
@@ -1080,6 +1103,8 @@ class CanvasController(QObject):
                 "autoUpdate": None
                 if v.get("type") in NO_AUTO_UPDATE
                 else auto_update_of(self.data, vid),
+                # why its watchers poll, or how they follow a network drive (SPEC-8)
+                "autoUpdateNote": self._watch_note(vid),
                 "health": health.get("status", "ok"),
                 "healthMessage": health.get("message", ""),
                 # the empty-state line shown in the view's area (nothing picked yet)

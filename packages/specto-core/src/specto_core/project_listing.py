@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any
 
 from .errors import InvalidArgs, NotFound
+from .project import SPECTO_DIR
 
-SPECTO_DIR = ".specto"
 #: folders in the prompt context's summary before deeper levels fold into their parent
 MAX_FOLDERS = 60
 #: what ``list_files`` returns by default and at most

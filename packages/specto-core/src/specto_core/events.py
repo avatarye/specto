@@ -3,7 +3,7 @@ canvas (``engine.live.events``) and one for the process (``engine.app_events``: 
 
 ``watch(since_seq)`` yields ``{seq, kind, payload}``. Kinds: ``doc.patched``,
 ``canvas.submitted|squashed|saved|save_failed``, ``history.restored``, ``job.progress|done|failed``,
-``link.resolving|resolved|failed|arrivals``, ``view.health``. A ``since_seq`` older than
+``link.resolving|resolved|failed|arrivals|watching``, ``view.health``. A ``since_seq`` older than
 the buffer yields a ``gap`` event first; the client re-reads ``state``.
 """
 
@@ -33,6 +33,7 @@ EVENT_KINDS: tuple[str, ...] = (
     "link.resolved",
     "link.failed",
     "link.arrivals",
+    "link.watching",
     "view.health",
 )
 

@@ -8,10 +8,12 @@ project folder, or the paths a file tree emitted), keeps the ones under the inta
 M2 scan pipeline, over an explicit file list as well as a folder walk). The project's
 own ``.specto/`` folder never enters a collection.
 
-``watch_intaker`` is the watcher the runtime polls for an intaker with ``watch: true``:
+``watch_intaker`` is the watcher the runtime runs for an intaker with ``watch: true``:
 one ``scandir`` pass over the intaker's sources (archives as single files, nothing
 decoded) giving ``{source index:relative path: size:mtime}``; a changed table means
-files arrived, left or were rewritten, and the runtime resolves the link again.
+files arrived, left or were rewritten, and the runtime resolves the link again. Where
+the system sends change notifications, the table is kept between listings by
+``watch_listing.IntakerListing`` from the paths they name (SPEC-8).
 
 ``resolve_read_contents`` does the same source matching for a ``read_contents`` link and
 parses each file (``specto_core.contents``): GeoJSON features for a map, JSON sidecars,
@@ -27,11 +29,9 @@ from pathlib import Path
 from typing import Any
 
 from specto_core.contents import ContentValue, format_for, read_entry
-from specto_core.errors import SpectoError
 from specto_core.links import (
     Collection,
     FilesValue,
-    arrival_entry,
     register_preparer,
     register_resolver,
     register_watcher,
@@ -40,29 +40,13 @@ from specto_core.links import (
 from .keys import group_items
 from .scene3d import attach_scenes
 from .screener import Screener, glob_to_regex
-from .sources import FoundFile, relative_to_source, resolve_root, walk_source
-from .spec import IntakeSpec
+from .sources import FoundFile, hidden, posix, relative_to_source, resolve_root, walk_source
+from .spec import IntakeSpec, intake_spec
+from .watch_listing import intaker_listing, watch_intaker
 
-SPECTO_DIR = ".specto"
 #: the view types whose intakers prepare 3D parts at resolve (the 3D view, and the
 #: preview, which renders a 3D item in the 3D view's host)
 SCENE_VIEWS = ("3d", "preview")
-
-
-def intake_spec(params: dict[str, Any]) -> IntakeSpec:
-    """The canvas document's ``IntakerParams`` as an ``IntakeSpec``."""
-    return IntakeSpec(
-        sources=list(params.get("sources") or ["."]),
-        screener=list(params.get("screener") or []),
-        keys=params.get("keys"),
-        group_by=list(params.get("group_by") or []),
-        sort=params.get("sort", "natural"),
-        watch=bool(params.get("watch", False)),
-    )
-
-
-def _hidden(rel_to_project: str) -> bool:
-    return rel_to_project == SPECTO_DIR or rel_to_project.startswith(SPECTO_DIR + "/")
 
 
 class _SourceRoot:
@@ -73,9 +57,9 @@ class _SourceRoot:
         self.index = index
         root = resolve_root(src, base)
         self.is_file = root.is_file()
-        self.root = _posix(root)
+        self.root = posix(root)
         root_dir = root.parent if self.is_file else root
-        self.dir = _posix(root_dir)
+        self.dir = posix(root_dir)
         self._dir_key = self.dir.lower().rstrip("/") + "/"
         self._file_key = self.root.lower()
         self.pattern = (
@@ -98,10 +82,6 @@ class _SourceRoot:
         return None if self.pattern is not None and self.pattern.fullmatch(rel) is None else rel
 
 
-def _posix(p: Path | str) -> str:
-    return str(p).replace("\\", "/")
-
-
 def _found_from_paths(
     spec: IntakeSpec, base: Path, paths: list[str], stats: dict[str, list[int]] | None = None
 ) -> list[FoundFile]:
@@ -115,10 +95,10 @@ def _found_from_paths(
     (``stats``, a file tree's picks: #76)."""
     out: list[FoundFile] = []
     roots = [_SourceRoot(i, s, base) for i, s in enumerate(spec.sources)]
-    base_posix = _posix(base.resolve()).rstrip("/")
+    base_posix = posix(base.resolve()).rstrip("/")
     for raw in paths:
         rel_proj = raw.replace("\\", "/")
-        if _hidden(rel_proj):
+        if hidden(rel_proj):
             continue
         abs_path = base / rel_proj
         if os.path.isabs(rel_proj) or ".." in rel_proj.split("/"):
@@ -166,7 +146,7 @@ def _found_from_walk(spec: IntakeSpec, base: Path) -> list[FoundFile]:
             rel_proj = (
                 full[len(base_posix) :] if full.lower().startswith(base_posix.lower()) else ""
             )
-            if _hidden(rel_proj):
+            if hidden(rel_proj):
                 continue
             out.append(f)
     return out
@@ -199,33 +179,9 @@ def resolve_intaker(
     return Collection(items=items, root=str(base))
 
 
-def watch_intaker(
-    link: dict[str, Any], value: Any, *, root: str, env: dict[str, Any]
-) -> dict[str, str]:
-    spec = intake_spec(link.get("params") or {})
-    base = Path(root) if root else Path.cwd()
-    files = value if isinstance(value, FilesValue) else FilesValue.model_validate(value)
-    if files.root:
-        base = Path(files.root)
-    base_posix = str(base).replace("\\", "/").rstrip("/") + "/"
-    table: dict[str, str] = {}
-    for i, src in enumerate(spec.sources):
-        try:
-            for f in walk_source(i, src, base, expand_containers=False):
-                full = f"{f.root}/{f.rel}"
-                rel_proj = (
-                    full[len(base_posix) :] if full.lower().startswith(base_posix.lower()) else ""
-                )
-                if _hidden(rel_proj):
-                    continue
-                table[arrival_entry(i, f.rel)] = f"{f.size}:{f.mtime_ns}"
-        except SpectoError as e:  # a source that is not there (yet) is an entry too
-            table[f"{i}:"] = f"missing:{e.message}"
-    return table
-
-
 register_resolver("intaker", resolve_intaker)
-register_watcher("intaker", watch_intaker)
+# between listings, change notifications keep its table (SPEC-8)
+register_watcher("intaker", watch_intaker, listing=intaker_listing)
 # a Python link's collection for these views is prepared the same way (#176)
 register_preparer(SCENE_VIEWS, attach_scenes)
 

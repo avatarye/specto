@@ -164,6 +164,23 @@ the release and move on their own schedule.
   serialise lock, which every endpoint takes) now warns in the app and fails the tests.
   `specto_sdk.testing.TcpEndpoint` now takes the `InProcessEndpoint` it serves
   (`TcpEndpoint(ep)`), not a handler.
+- Auto-update no longer lists a watched folder every second (SPEC-8, ADR 0027). Watched
+  links follow the system's change notifications (ReadDirectoryChangesW, inotify,
+  FSEvents) and apply only the paths they name. On a 100,000-file folder the watcher's
+  idle cost fell from about a fifth of a core to 0.2 %, and an arrival's collection lands
+  in about 2.6 s instead of 7 s. A full listing still runs every 30 s (10 s on a network
+  drive, at most 30 s apart) as a safety net, once a write storm settles and when
+  Windows reports lost notices. A watched folder renamed or replaced is watched again on
+  its path; a case-only rename is a change, not an arrival; writers' `.*.tmp` and
+  `.*.part` temporaries are ignored; links watching one folder share one watch. Where
+  notifications cannot be trusted (a network file system on Linux or macOS, a source not
+  there yet, a drive that sends no notices) the watcher polls as before, tries
+  notifications again at a doubling gap up to 5 minutes, and the status bar says
+  "auto-update on (polling: ...)". `SPECTO_WATCH=poll` forces polling. New event
+  `link.watching`. On Windows a watched folder holds a handle, so the folders above it
+  cannot be renamed while it is watched, nor for 5 s after (a folder nobody follows
+  keeps its watch that long, so switching auto-update off and on reuses it).
+  **New runtime dependency:** watchdog.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the

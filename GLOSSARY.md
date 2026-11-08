@@ -75,12 +75,28 @@ An intaker with scope `pinned`: fed from the project source's all files, so its 
 _Avoid_: fixed intaker, static intaker, locked (that is a lock)
 
 **Auto-update**:
-Whether a view fed by an intaker follows its files on its own: the switch in the view's header sets the intaker's `watch`, so files arriving, leaving or changing in its sources resolve in the background. Off by default except the file tree, which follows the project folder unless its intaker says `watch: false` (#115); the agent turns it on for folders an agent writes into. While it is off the status bar says "auto-update off · refresh" (#102).
+Whether a view fed by an intaker follows its files on its own: the switch in the view's header sets the intaker's `watch`, so files arriving, leaving or changing in its sources resolve in the background. Off by default except the file tree, which follows the project folder unless its intaker says `watch: false` (#115); the agent turns it on for folders an agent writes into. While it is off the status bar says "auto-update off · refresh" (#102). It follows the system's change notifications; where there are none to trust it lists the sources every second and the status bar says "auto-update on (polling: ...)" (ADR 0027).
 _Avoid_: live mode, sync, watch mode (in user-facing text)
 
 **Arrival**:
 A file that an intaker with auto-update on saw appear in one of its sources since its last listing. The event `link.arrivals` names the arrivals (`<source index>:<rel>`, an archive by its own name) and the collection that holds them resolves. A gallery counts an arrival as new once it shows the item that holds it: its "+N new" pill; a click scrolls to the first of them, and the pill retires once they are in view (SPEC-59).
 _Avoid_: new file notification, change event, added file
+
+**Safety-net listing**:
+The full listing a watcher following change notifications still runs now and then (every 30 s; 10 to 30 s on a network drive; never closer than 50 listing durations), after a storm, after a lost-notice report and when a source root itself changed, so whatever a notice missed lands within that interval (ADR 0027).
+_Avoid_: relist (in user-facing text), poll (that is the mode without notifications)
+
+**Storm**:
+A batch of a thousand or more change notices at once (an agent writing a folder full): applied as it comes, then one safety-net listing once it has been quiet for 2 s, since an overflow inside it loses notices; a storm that goes on is listed at doubling gaps (ADR 0027).
+_Avoid_: burst (for the thousand-notice case), flood
+
+**Linger**:
+The 5 s a folder's watch is kept after its last subscriber left, so a watch toggled off and on reuses it and no watch is stopped just after it started (ADR 0027).
+_Avoid_: grace period, keep-alive
+
+**Reaper**:
+The timer in the notification hub that unschedules the watches whose linger has run out, outside the hub's lock and bounded; a subscriber for a folder being reaped waits for it, then arms anew (ADR 0027).
+_Avoid_: garbage collector, sweeper
 
 **Refresh**:
 One manual rescan, for views whose auto-update is off: the view header's refresh rescans the intakers feeding that view, the project node's rescans every link off the project source. Not an undo step; only what changed is delivered, so nothing downstream of an unchanged result re-runs (#102).

@@ -51,8 +51,8 @@ from pathlib import Path
 from typing import Protocol
 
 from .everything import Everything, below_term, path_term, under
+from .sources import hidden
 
-SPECTO_DIR = ".specto"
 #: how many results the index is asked for per hit wanted (the screener drops some)
 OVERASK = 4
 MIN_ASK = 300
@@ -159,10 +159,6 @@ def finish(
     return result
 
 
-def _hidden(tree_path: str) -> bool:
-    return tree_path == SPECTO_DIR or tree_path.startswith(SPECTO_DIR + "/")
-
-
 def index_terms(root: str, words: list[str]) -> list[str]:
     """The index's term for each word: a ``path:`` term, or, for a word that occurs in
     the root's own path (where that term would match every file under the root), a
@@ -244,7 +240,7 @@ class EverythingSearch:
             if path[:blen].lower() != base:
                 return False  # a substring match elsewhere: the term is not a prefix filter
             rel = path[blen:].replace("\\", "/")
-            if not rel or _hidden(rel) or not matches(rel, words):
+            if not rel or hidden(rel) or not matches(rel, words):
                 return False
             return keeps(rel, is_dir, words)
 
@@ -322,7 +318,7 @@ class ScanSearch:
                 child = f"{rel}/{e.name}" if rel else e.name
                 try:
                     if e.is_dir(follow_symlinks=False):
-                        if _hidden(child):
+                        if hidden(child):
                             continue
                         stack.append((e.path, child))
                         if not keeps(child, True, words):

@@ -33,10 +33,9 @@ from specto_core.containers import is_container, join_virtual, list_members, spl
 
 from .screener import Screener, glob_to_regex
 from .search import HitFilter
-from .sources import resolve_root
+from .sources import hidden, posix, resolve_root
 from .spec import IntakeSpec, SourceSpec
 
-SPECTO_DIR = ".specto"
 #: (size in bytes, mtime in ns)
 Stat = tuple[int, int]
 
@@ -54,14 +53,6 @@ class Entry:
     size: int = 0
     mtime_ns: int = 0
     archive: bool = False
-
-
-def _posix(p: Path | str) -> str:
-    return str(p).replace("\\", "/")
-
-
-def _hidden(tree_path: str) -> bool:
-    return tree_path == SPECTO_DIR or tree_path.startswith(SPECTO_DIR + "/")
 
 
 _DRIVE = re.compile(r"^[A-Za-z]:(/|$)")
@@ -89,8 +80,8 @@ class _Root:
         self.is_file = root.is_file()
         self.dir = root.parent if self.is_file else root
         self.file_name = root.name if self.is_file else ""
-        base_posix = _posix(base.resolve()).rstrip("/")
-        dir_posix = _posix(self.dir)
+        base_posix = posix(base.resolve()).rstrip("/")
+        dir_posix = posix(self.dir)
         if dir_posix.lower() == base_posix.lower():
             self.prefix = ""
         elif dir_posix.lower().startswith(base_posix.lower() + "/"):
@@ -132,7 +123,7 @@ class _Root:
     def accepts(self, path: str, screener: Screener) -> bool:
         """A file at tree path ``path`` passes this source's pattern, the screener, and
         is not the project's own ``.specto/``."""
-        if self.inside and _hidden(path):
+        if self.inside and hidden(path):
             return False
         rel = self.rel(path)
         if self.is_file and rel != self.file_name:
@@ -192,7 +183,7 @@ class TreeLister:
         pass, SPEC-38). The screener and a source's pattern are for files: a folder
         passes them as the listing's folders do."""
         r = self._root_of(path)
-        if r is None or r.is_file or not path or (r.inside and _hidden(path)):
+        if r is None or r.is_file or not path or (r.inside and hidden(path)):
             return False
         if path == r.prefix:
             return True  # the source's own root folder
@@ -257,7 +248,7 @@ class TreeLister:
             child = f"{path}/{e.name}" if path else e.name
             try:
                 if e.is_dir(follow_symlinks=r.src.follow_links):
-                    if dirs_ok and not (r.inside and _hidden(child)):
+                    if dirs_ok and not (r.inside and hidden(child)):
                         mtime_ns = _dir_mtime_ns(e.path, r.src.follow_links)
                         out.append(Entry(child, e.name, True, mtime_ns=mtime_ns))
                     continue
@@ -277,7 +268,7 @@ class TreeLister:
         for name, size, mtime_ns in files:
             child = f"{folder}/{name}" if folder else name
             if is_container(name):
-                if not (r.inside and _hidden(child)):
+                if not (r.inside and hidden(child)):
                     # a member may pass the pattern the archive itself does not
                     out.append(Entry(child, name, True, size, mtime_ns, archive=True))
             elif r.accepts(child, self.screener):
@@ -374,7 +365,7 @@ class TreeLister:
             child = f"{path}/{e.name}" if path else e.name
             try:
                 if e.is_dir(follow_symlinks=r.src.follow_links):
-                    if dirs_ok and not (r.inside and _hidden(child)):
+                    if dirs_ok and not (r.inside and hidden(child)):
                         subdirs.append((child, Path(e.path)))
                     continue
                 if not e.is_file(follow_symlinks=True):
@@ -391,7 +382,7 @@ class TreeLister:
     def _file(self, r: _Root, path: str, size: int, mtime_ns: int, stats: dict[str, Stat]) -> None:
         name = path.rpartition("/")[2]
         if is_container(name):
-            if not (r.inside and _hidden(path)):
+            if not (r.inside and hidden(path)):
                 self._members_under(r, path, "", stats, size, mtime_ns)
         elif r.accepts(path, self.screener):
             stats[path] = (size, mtime_ns)

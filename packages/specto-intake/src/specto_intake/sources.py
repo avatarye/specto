@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 from specto_core.containers import is_container, join_virtual, list_members, split_virtual
 from specto_core.errors import NotFound
 from specto_core.pathguard import path_refusal
+from specto_core.project import SPECTO_DIR
 
 from .screener import glob_to_regex
 from .spec import SourceSpec, root_refused
@@ -50,17 +51,30 @@ def resolve_root(src: SourceSpec, base: Path) -> Path:
     return root.resolve()
 
 
-def _posix(p: Path | str) -> str:
+def posix(p: Path | str) -> str:
+    """``p`` with forward slashes (the intake's path text)."""
     return str(p).replace("\\", "/")
 
 
+def hidden(rel_to_project: str) -> bool:
+    """A project-relative POSIX path that is, or lies under, ``.specto/``: never listed,
+    never an arrival."""
+    return rel_to_project == SPECTO_DIR or rel_to_project.startswith(SPECTO_DIR + "/")
+
+
 def walk_source(
-    index: int, src: SourceSpec, base: Path, *, expand_containers: bool = True
+    index: int,
+    src: SourceSpec,
+    base: Path,
+    *,
+    expand_containers: bool = True,
+    links: list[str] | None = None,
+    skip: Callable[[str], bool] | None = None,
 ) -> Iterator[FoundFile]:
     root = resolve_root(src, base)
     if not root.exists():
         raise NotFound(
-            f"source {index} root {_posix(root)} does not exist",
+            f"source {index} root {posix(root)} does not exist",
             fix="check the path; relative roots resolve against the project folder",
         )
     pattern = (
@@ -71,15 +85,26 @@ def walk_source(
     if root.is_file():
         st = root.stat()
         found = FoundFile(
-            index, _posix(root.parent), root.name, str(root), st.st_size, st.st_mtime_ns
+            index, posix(root.parent), root.name, str(root), st.st_size, st.st_mtime_ns
         )
         if expand_containers and is_container(root.name):
             yield from _expand(found, pattern)
         else:
             yield found
         return
-    root_posix = _posix(root)
-    yield from _walk_dir(index, root, root_posix, "", 0, src, pattern, expand_containers)
+    root_posix = posix(root)
+    yield from walk_dir(
+        index,
+        root,
+        root_posix,
+        "",
+        0,
+        src,
+        pattern,
+        expand_containers=expand_containers,
+        links=links,
+        skip=skip,
+    )
 
 
 def _expand(archive: FoundFile, pattern: re.Pattern[str] | None) -> Iterator[FoundFile]:
@@ -104,7 +129,7 @@ def _expand(archive: FoundFile, pattern: re.Pattern[str] | None) -> Iterator[Fou
         )
 
 
-def _walk_dir(
+def walk_dir(
     index: int,
     directory: Path,
     root_posix: str,
@@ -112,8 +137,15 @@ def _walk_dir(
     depth: int,
     src: SourceSpec,
     pattern: re.Pattern[str] | None,
+    *,
     expand_containers: bool = True,
+    links: list[str] | None = None,
+    skip: Callable[[str], bool] | None = None,
 ) -> Iterator[FoundFile]:
+    """The files under ``directory`` (``prefix`` its path below the source root,
+    ``depth`` its depth), as ``walk_source`` finds them. ``links`` collects the folders
+    descended into through a symbolic link or a junction (no change notices come from
+    inside them); ``skip(name)`` leaves files out by name."""
     try:
         with os.scandir(directory) as it:
             entries = sorted(it, key=lambda e: e.name)
@@ -126,6 +158,10 @@ def _walk_dir(
             if e.is_dir(follow_symlinks=src.follow_links):
                 if src.depth is None or depth < src.depth:
                     subdirs.append((rel + "/", Path(e.path)))
+                    if links is not None and (e.is_symlink() or e.is_junction()):
+                        links.append(rel)
+                continue
+            if skip is not None and skip(e.name):
                 continue
             if not e.is_file(follow_symlinks=True):
                 continue
@@ -141,8 +177,17 @@ def _walk_dir(
         else:
             yield found
     for sub_prefix, sub in subdirs:
-        yield from _walk_dir(
-            index, sub, root_posix, sub_prefix, depth + 1, src, pattern, expand_containers
+        yield from walk_dir(
+            index,
+            sub,
+            root_posix,
+            sub_prefix,
+            depth + 1,
+            src,
+            pattern,
+            expand_containers=expand_containers,
+            links=links,
+            skip=skip,
         )
 
 
@@ -156,15 +201,15 @@ def relative_to_source(path: Path, sources: list[SourceSpec], base: Path) -> tup
     if hit is not None:
         text, inner = hit
     p = Path(text).expanduser()
-    target = _posix(Path(_posix(p if p.is_absolute() else Path(base) / p)).resolve())
+    target = posix(Path(posix(p if p.is_absolute() else Path(base) / p)).resolve())
     best: tuple[int, str] | None = None
     best_len = -1
     for i, src in enumerate(sources):
         root = resolve_root(src, base)
         root_dir = root.parent if root.is_file() else root
-        rp = _posix(root_dir)
+        rp = posix(root_dir)
         if target.lower() == rp.lower() or target.lower().startswith(rp.lower().rstrip("/") + "/"):
-            if root.is_file() and target.lower() != _posix(root).lower():
+            if root.is_file() and target.lower() != posix(root).lower():
                 continue
             if len(rp) > best_len:
                 rel = target[len(rp) :].lstrip("/")
