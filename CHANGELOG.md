@@ -77,9 +77,10 @@ the release and move on their own schedule.
   map and html views fetch through) judges each item part's recorded path the same way
   before it looks for the file, whatever produced the item.
 - A file or folder renamed only in case (`a.txt` to `A.txt`) on a watched folder is a
-  change again, never an arrival, as long as its contents did not change (SPEC-81). The watcher handled the rename's two notices in one order
-  only, and a full listing (polling, or the 30 s safety net) always read it as one file
-  gone and a new one arrived, so a gallery could mark it "new".
+  change again, never an arrival, as long as its contents did not change (SPEC-81). The
+  watcher handled the rename's two notices in one order only, and a full listing
+  (polling, or the 30 s safety net) always read it as one file gone and a new one
+  arrived, so a gallery could mark it "new".
 - The 3d reader opens an OBJ's `mtllib` only when it resolves inside the root (SPEC-70),
   the rule it already applied afterwards to decide what is servable: an absolute path, a
   `\\?\C:\` path or a `..` path that leaves the root is named under `missing` without
