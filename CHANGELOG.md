@@ -33,7 +33,8 @@ the release and move on their own schedule.
   instead of refusing every network part it had no collection root for. A part on
   another share stays refused, and so does a part with a bare leading slash (the
   current drive's root on Windows). The leading-slash rule is one helper,
-  `pathguard.below_root`.
+  `pathguard.below_root`. Launchers on such a project open its files and start in its
+  folders again; a launcher's command on a share still never runs.
 - Security fix (SPEC-73): the prompt bar agent's `scratch_append` no longer asks Windows
   whether a network path in its `image` or `file` argument exists; such a path (or a
   device or stream path) is refused by its text first.
