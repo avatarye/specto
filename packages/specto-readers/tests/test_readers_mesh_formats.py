@@ -214,6 +214,41 @@ def test_no_dae_image_form_reaches_the_filesystem_as_a_network_or_device_path(
     assert dae.glb_record(out)["count"] == 48  # two instances of a 24-vertex box
 
 
+@pytest.mark.parametrize(
+    "name",
+    [
+        "  \\\\attacker\\share\\x.png  ",
+        "\n\t//attacker/share/x.png\n",
+        " %5C%5Cattacker%5Cshare%5Cx.png ",
+    ],
+    ids=["unc-backslashes", "unc-slashes", "percent-encoded"],
+)
+def test_the_resolver_absolute_refuses_a_whitespace_wrapped_network_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+):
+    """SPEC-69: pycollada hands an ``<init_from>`` over unstripped and trimesh's
+    ``FilePathResolver.absolute`` strips it before it resolves, so the guard in our
+    resolver's ``absolute()`` must judge the name the same way (``path_refusal`` strips)
+    and refuse it before ``super().absolute`` may stat the host."""
+    import trimesh
+
+    src = write_dae(tmp_path / "robot.dae")
+    captured: dict[str, object] = {}
+
+    def capture(*_args, resolver, **_kwargs):
+        captured["resolver"] = resolver
+        raise RuntimeError("captured")
+
+    monkeypatch.setattr(trimesh, "load_scene", capture)
+    with pytest.raises(dae.DaeError):
+        dae._convert_here(src, dae.source_stamp(src))
+    resolver = captured["resolver"]
+    reached = filesystem_calls_naming(monkeypatch, "attacker")
+    with pytest.raises(ValueError, match="not looked for"):
+        resolver.absolute(name)
+    assert reached == []
+
+
 def test_a_y_up_metre_dae_is_left_as_it_is(tmp_path: Path):
     src = write_dae(tmp_path / "plain.dae", unit_meter=1.0, up_axis="Y_UP")
     info = dae.convert(src, tmp_path / "plain.glb")
