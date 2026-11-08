@@ -41,7 +41,15 @@ def start_watching(project: Project, monkeypatch=None) -> tuple[Engine, ThreadJo
     engine = Engine(project=project, jobs=jobs, watch_interval_s=0.05, watch_debounce_s=0.05)
     engine.live.submit(watched_gallery(engine.live.document()), origin="agent:s1", label="w")
     assert pump_until(engine, jobs, lambda: items_of(engine) == 3)
+    assert pump_until(engine, jobs, lambda: settled(engine.links))
     return engine, jobs
+
+
+def settled(links, link_id: str = "l2") -> bool:
+    """The watcher's start is behind it: the baseline, and in notify mode the listing
+    after notifications armed (SPEC-83), so a count of listings taken now stays put."""
+    status = links.watch_status(link_id) or {}
+    return status.get("polls", 0) >= (2 if status.get("mode") == "notify" else 1)
 
 
 @needs_testdata
