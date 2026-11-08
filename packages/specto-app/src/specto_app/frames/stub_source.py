@@ -136,6 +136,7 @@ class StubSource:
             else:  # unthrottled: still let the wake thread take the GIL
                 time.sleep(0.01 if self.paused else 0)
         self.frames.close()
+        self.control.wait_eof()
         return 0
 
 

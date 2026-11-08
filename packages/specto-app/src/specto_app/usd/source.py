@@ -470,6 +470,7 @@ class UsdSource:
             self._end_overlay()
             self._close_renderer()
             self.frames.close()
+        self.control.wait_eof()
         return 0
 
     def _end_overlay(self) -> None:

@@ -201,3 +201,36 @@ def test_an_answer_that_cannot_be_sent_is_an_error_and_the_server_reads_on():
         assert pipes.ask(3, "ping") == {"id": 3, "result": {"pong": True}}
     finally:
         pipes.close()
+
+
+def test_closing_in_the_background_returns_at_once_and_still_kills_a_deaf_source():
+    """SPEC-87: ``close_in_background`` hands the close (ask, wait, kill) to a thread the
+    interpreter waits for at exit (not a daemon), so the caller never blocks and a source
+    that never stops is still killed after the timeout."""
+    src = spawn("import time\nwhile True: time.sleep(1)\n")  # reads nothing, never stops
+    started = time.perf_counter()
+    reaper = src.close_in_background(timeout=1.0)
+    assert time.perf_counter() - started < 0.1
+    assert not reaper.daemon
+    reaper.join(15)
+    assert not reaper.is_alive() and src.proc.poll() is not None
+
+
+def test_a_stub_source_that_is_told_to_stop_waits_for_stdin_to_close_before_it_exits():
+    """SPEC-87: a host that closes in the background may close stdin a moment after
+    ``shutdown``. The source must not finalize with its reader still blocked on stdin:
+    Python aborts then ("Fatal Python error: _enter_buffered_busy")."""
+    import subprocess
+
+    argv = [sys.executable, "-m", "specto_app.frames.stub_source", "--width", "32"]
+    proc = subprocess.Popen(
+        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    assert proc.stdout.readline()  # ready
+    proc.stdin.write(json.dumps({"id": 1, "method": "shutdown", "params": {}}).encode() + b"\n")
+    proc.stdin.flush()
+    time.sleep(0.5)  # the source stops before its stdin closes
+    proc.stdin.close()
+    err = proc.stderr.read().decode("utf-8", "replace")
+    assert proc.wait(15) == 0, err
+    assert "Fatal Python error" not in err

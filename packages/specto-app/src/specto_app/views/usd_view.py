@@ -1725,7 +1725,7 @@ class UsdHost(Stepping, QuickViewHost):
         if src is None:
             return
         self._closing.add(src.proc.pid)
-        threading.Thread(target=src.close, name="usd-source-close", daemon=True).start()
+        src.close_in_background()
 
     @property
     def renderer_label(self) -> str:
@@ -2490,7 +2490,7 @@ class UsdHost(Stepping, QuickViewHost):
         src, self.source = self.source, None
         if src is not None:
             self._closing.add(src.proc.pid)
-            src.close()
+            src.close_in_background()  # never on the GUI thread (SPEC-87)
         self.frame_item = None
         super().dispose()
 

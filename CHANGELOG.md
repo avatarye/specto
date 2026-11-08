@@ -15,6 +15,9 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Closing a usd view while its stage is still drawing its first frame no longer freezes
+  the window (SPEC-87): the view hands its frame source a stop and returns; the source
+  ends on its own once the frame is done, or is killed after 5 s, also when the app quits.
 - A view retyped before its host is built gets inputs resolved for its new type
   (SPEC-84). Only a host's rebuild re-resolved a retyped view's links, so a view retyped
   in the moment before its slot attached (a gallery turned 3d view) was handed the

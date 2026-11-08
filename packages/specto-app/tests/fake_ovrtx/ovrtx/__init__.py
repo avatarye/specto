@@ -3,7 +3,9 @@ product renders a solid ``FAKE_COLOR`` ``LdrColor`` at the product's current res
 calls are recorded as JSON lines in ``$FAKE_OVRTX_LOG`` (see the fake ``ovstage``).
 
 ``$FAKE_OVRTX_FAIL_STEPS``: comma-separated step numbers (from 1, counted per process)
-that raise the way ovrtx 0.6 did once in the spike (#134).
+that raise the way ovrtx 0.6 did once in the spike (#134). ``$FAKE_OVRTX_HOLD_STEP_S``:
+every step's ``wait`` sleeps that long first, a first frame the GPU takes long over
+(SPEC-87).
 
 Picks (#140): a step after ``enqueue_pick_query`` also renders ``PICK_HIT``, the hit
 ``$FAKE_OVRTX_PICK`` names as ``<prim path>@<x,y,z metres>@<normal>`` (unset or empty:
@@ -13,6 +15,7 @@ nothing hit). Selection outlines are only recorded.
 from __future__ import annotations
 
 import os
+import time
 from enum import Enum, IntEnum
 
 import numpy as np
@@ -137,6 +140,10 @@ class _Op:
         self._error = error
 
     def wait(self, *args, **kwargs) -> _Fetch:
+        hold = float(os.environ.get("FAKE_OVRTX_HOLD_STEP_S") or 0)
+        if hold:
+            log("hold_step", seconds=hold)
+            time.sleep(hold)  # a step the GPU takes long over (SPEC-87)
         if self._error is not None:
             raise self._error
         return _Fetch(self._outputs)
