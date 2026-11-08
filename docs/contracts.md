@@ -590,18 +590,21 @@ One connection = one client. Newline-delimited JSON-RPC 2.0 over `QLocalServer` 
 writes `.specto/endpoint.json` (`EndpointInfo {kind,
 address, pid, project_id, server, api_level, api_compatible}`); `SPECTO_ENDPOINT` and
 `SPECTO_PROJECT` override discovery. A `pipe` endpoint's `address` names a local pipe only:
-a bare name (`[A-Za-z0-9_.-]`, not only dots) or `\\.\pipe\<name>`. Anything else (a
-remote `\\host\pipe\x`, a device or NT path) is refused by its text before any open
-(`specto_core.rpc.local_pipe_path`, in `EndpointInfo`'s validator and in `PipeTransport`;
-SPEC-74): `endpoint.json` is agent-writable, and opening a remote pipe connects out over SMB.
-A `unix` address is a local socket path, never one starting with a backslash or `//`. A
-`tcp` address is `host:port`; read from `endpoint.json` or an instance file its host is
-loopback only (`127.0.0.0/8`, `::1`, `localhost`), since a remote host there would hand
-every call to a server an agent controls. A remote host is the user's choice only through
-`--endpoint` / `SPECTO_ENDPOINT` (SPEC-88). One rule, `specto_core.pathguard.endpoint_refusal`,
-judges them in `EndpointInfo`'s validator, `read_endpoint_file`, `Instance`'s validator
-(a refused entry is not listed), `open_transport` and the GUI drivers
-(`tools/endpoint_connect.py`, which loads `pathguard` by its file).
+a bare name (`[A-Za-z0-9_.-]`, not only dots) or `\\.\pipe\<name>`. Anything else (a remote
+`\\host\pipe\x`, a device or NT path) is refused by its text before any open
+(`specto_core.pathguard.local_pipe_path`, in `EndpointInfo`'s validator and in
+`PipeTransport`; SPEC-74): `endpoint.json` is agent-writable, and opening a remote pipe
+connects out over SMB. A `unix` address is a local socket path, never one starting with a
+backslash or `//`. A `tcp` address is `host:port`, the port ASCII digits 1-65535 (an IPv6
+host in brackets, `[::1]:5000`); read from `endpoint.json` or an instance file its host is
+loopback only (`127.0.0.0/8`, `::1`, `localhost`, or empty: `:5000` means `127.0.0.1`),
+since a remote host there would hand every call to a server an agent controls. A remote host
+is the user's choice only through `--endpoint` / `SPECTO_ENDPOINT` (SPEC-88). One rule,
+`specto_core.pathguard.endpoint_refusal`, judges them in `EndpointInfo`'s validator,
+`read_endpoint_file`, `Instance`'s validator (a refused entry is not listed),
+`open_transport` and the GUI drivers (`tools/endpoint_connect.py`, which loads `pathguard`
+by its file, so `pathguard` imports only the standard library; a test loads it under
+`python -I -S`, SPEC-98).
 
 | Method | Params | Result |
 |---|---|---|
