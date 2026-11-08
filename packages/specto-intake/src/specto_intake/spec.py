@@ -13,12 +13,21 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from specto_core.errors import InvalidArgs
-from specto_core.pathguard import Refusal, path_refusal
+from specto_core.pathguard import Refusal, path_refusal, strip_local_long
 
 SortMode = Literal["natural", "key", "mtime"]
 RuleAction = Literal["include", "exclude"]
 
 _GLOB_MAGIC = re.compile(r"[*?\[]")
+_DRIVE_ROOT = re.compile(r"^[A-Za-z]:/")
+
+
+def _anchor(text: str) -> str:
+    """The root an absolute source (POSIX separators, long prefix stripped) starts at:
+    ``C:/`` for a drive path, ``/`` for a POSIX one, nothing for a relative one."""
+    if _DRIVE_ROOT.match(text):
+        return text[:3]
+    return "/" if text.startswith("/") else ""
 
 
 def root_refused(root: str, why: Refusal) -> InvalidArgs:
@@ -69,13 +78,18 @@ class SourceSpec(BaseModel):
             why = path_refusal(value)
             if why is not None:
                 raise root_refused(value, why)
-            text = value.replace("\\", "/")
-            m = _GLOB_MAGIC.search(text)
+            # a long path's prefix is no glob (its ``?``), and an absolute source keeps its
+            # anchor as the root: ``C:/**/*.x`` starts at ``C:/``, never at the
+            # drive-relative ``C:`` the guard refuses (SPEC-90)
+            text = strip_local_long(value).replace("\\", "/")
+            anchor = _anchor(text)
+            m = _GLOB_MAGIC.search(text, len(anchor))
             if m is None:
                 return cls(root=text)
-            cut = text.rfind("/", 0, m.start())
-            root = text[:cut] if cut > 0 else "."
-            return cls(root=root, pattern=text[cut + 1 :])
+            cut = text.rfind("/", len(anchor), m.start())
+            if cut > 0:
+                return cls(root=text[:cut], pattern=text[cut + 1 :])
+            return cls(root=anchor or ".", pattern=text[len(anchor) :])
         if isinstance(value, dict):
             return cls.model_validate(value)
         raise InvalidArgs(f"source must be a path string or an object, got {type(value).__name__}")

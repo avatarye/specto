@@ -15,6 +15,11 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- An absolute local source means the same at submit and at run time (SPEC-90). A
+  drive-root glob (`C:/**/*.x`) passed the submit but the intake spec cut its root to
+  `C:`, which is refused, so the intaker failed when it ran; it now starts at `C:/`. A
+  long-path source (`\\?\C:\data\x.png`) was read as a glob because of the `?` in its
+  prefix, so an existing file reported missing and a long-path glob got the root `/`.
 - A client connects only to a local pipe (SPEC-74). `.specto/endpoint.json` is
   agent-writable, and a pipe address such as `\\host\pipe\x` was opened as written, so
   any `specto` command, MCP call or SDK connect could reach out over SMB and hand that

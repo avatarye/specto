@@ -1,7 +1,8 @@
 """Unknown files in a submitted canvas document (spec #35 story 24).
 
 A document may name files that are not there: an intaker source that matches nothing
-under the project folder, or a Python link whose code file is missing. Both are
+(under the project folder, or on this machine for an absolute local path), or a Python
+link whose code file is missing. Both are
 reported at submit with the schema and port-graph problems, each with a fix-it, so the
 agent fixes everything in one retry. Only a project (a real folder) can be checked; a
 headless canvas skips this.
@@ -13,7 +14,7 @@ from pathlib import Path, PurePath
 from typing import Any
 
 from .canvas_document import Problem
-from .pathguard import path_refusal
+from .pathguard import path_refusal, strip_local_long
 
 GLOB_CHARS = frozenset("*?[")
 
@@ -30,7 +31,8 @@ def source_exists(root: Path, source: str) -> bool:
     first one with glob magic) is a folder (SPEC-79)."""
     if path_refusal(source) is not None:
         return False
-    if any(c in source for c in GLOB_CHARS):
+    source = strip_local_long(source)
+    if _is_glob(source):
         if PurePath(source).anchor:
             return _glob_base(source).is_dir()
         try:
@@ -38,6 +40,13 @@ def source_exists(root: Path, source: str) -> bool:
         except (ValueError, OSError, NotImplementedError):
             return False
     return (root / source).exists()
+
+
+def _is_glob(source: str) -> bool:
+    """Glob magic after the anchor: the ``?`` of a long-path prefix (``\\\\?\\C:\\x``) is
+    no glob (SPEC-90). Text only."""
+    rest = source[len(PurePath(source).anchor) :]
+    return any(c in rest for c in GLOB_CHARS)
 
 
 def _glob_base(source: str) -> Path:
@@ -82,9 +91,10 @@ def file_problems(doc: dict[str, Any], root: Path | None) -> list[Problem]:
 def _missing_source(path: str, src: str) -> Problem:
     """The problem for a source that names nothing: a relative one under the project
     folder, an absolute one on this machine."""
-    if PurePath(src).anchor:
-        is_glob = any(c in src for c in GLOB_CHARS)
-        what = f"its folder {_glob_base(src).as_posix()!r}" if is_glob else "it"
+    plain = strip_local_long(src)
+    if PurePath(plain).anchor:
+        is_glob = _is_glob(plain)
+        what = f"its folder {_glob_base(plain).as_posix()!r}" if is_glob else "it"
         return Problem(
             path=path,
             message=f"source {src!r} names an absolute local path; {what} does not exist",

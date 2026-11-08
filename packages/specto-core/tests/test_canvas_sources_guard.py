@@ -107,7 +107,8 @@ def test_an_absolute_glob_source_submits(tmp_path, no_reach: list[str]):
     assert "kobi" in engine.live.data["views"]
     assert source_exists(tmp_path, found) is True
     assert source_exists(tmp_path, str(tmp_path / "data" / "**" / "*.jpg")) is True
-    assert any("data" in p for p in no_reach)
+    data_dir = os.path.normcase(str(tmp_path / "data"))
+    assert data_dir in {os.path.normcase(p) for p in no_reach}
     assert not any("host" in p for p in no_reach)
 
 
