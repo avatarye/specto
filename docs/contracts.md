@@ -374,9 +374,11 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   safety-net listings in a row finding unreported changes), it lists every
   `watch_interval_s` as before, trying notifications again at a doubling gap up to
   5 minutes. `links.watch_status(id)` reports
-  `{running, polls, interval_s, mode: notify|poll, reason, notices}`; the event
-  `link.watching {link, target, mode, reason}` fires when a watcher settles on its mode
-  and when it changes, and `links.watch_note(view)` is the status bar's note after
+  `{running, polls, interval_s, mode: notify|poll, reason, notices, decided}`
+  (`decided` false only while the first arming is under way, after the baseline,
+  SPEC-83); the event `link.watching {link, target, mode, reason}` fires when a watcher
+  settles on its mode (notify only once armed) and when it changes (a watcher that polls
+  keeps its mode and reason while a retry arms), and `links.watch_note(view)` is the status bar's note after
   "auto-update on". `SPECTO_WATCH=poll` makes every watcher poll. The notices come from
   one watchdog observer per process (`fswatch._Hub`), one watch per folder fanned out to
   its `Notifier`s. The hub's lock is never held across a watchdog call: a folder's

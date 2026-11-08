@@ -56,6 +56,12 @@ the release and move on their own schedule.
   (SPEC-89). Its 100 ms wall-clock bound failed in loaded full runs (217-1541 ms) while the
   search itself did no measurable CPU work: the time is Everything's reply over IPC. The
   bench reports min, median and max over 20 runs and fails when the median is over 100 ms.
+- Files that land while auto-update starts are shown again (SPEC-83). Since change
+  notifications came in, the watcher took its first listing only once they were armed,
+  so a file that arrived in that moment (a few to a hundred milliseconds, longer the
+  first time) counted as already known: the view never showed it until something else
+  changed. The first listing now comes at once, and one more follows when notifications
+  are armed.
 - A client connects only to a local pipe (SPEC-74). `.specto/endpoint.json` is
   agent-writable, and a pipe address such as `\\host\pipe\x` was opened as written, so
   any `specto` command, MCP call or SDK connect could reach out over SMB and hand that
