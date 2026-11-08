@@ -1004,7 +1004,7 @@ def test_files_landing_while_notifications_arm_are_arrivals(project: Project, mo
     )
     engine.live.submit(watched_gallery(engine.live.document()), origin="agent:s1", label="w")
     try:
-        assert pump_until(engine, jobs, lambda: items_of(engine) == 5, timeout=10), arrivals
+        assert pump_until(engine, jobs, lambda: items_of(engine) == 5), arrivals
         assert landed and sum(a["added"] for a in arrivals) >= 1
         assert links.watch_status("l2")["mode"] == "notify"
     finally:
@@ -1029,7 +1029,7 @@ def test_a_notify_watch_that_gets_no_notices_still_lands_files_by_the_safety_net
         )
         assert links.watch_status("l2")["mode"] == "notify"
         drip(project.root / "drops", 3, 2)
-        assert pump_until(engine, jobs, lambda: items_of(engine) == 5, timeout=10)
+        assert pump_until(engine, jobs, lambda: items_of(engine) == 5)
         assert links.watch_status("l2")["notices"] == 0  # the listing found them, no notice
     finally:
         engine.close()
