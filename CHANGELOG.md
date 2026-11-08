@@ -39,12 +39,10 @@ the release and move on their own schedule.
   to `describe view:<type>` (a manifest's new `guide` field). The test now measures the
   reference the app builds (core plus the app's views): 24.3k characters before, under
   19.5k now.
-- The usd view keeps its RTX renderer across stage switches (SPEC-64, ADR 0031). Since
-  #155 every stage after the first got a fresh renderer, 1.0-1.4 s of each switch and a
-  "starting" phase on every pick, because a second stage attached to a running renderer
-  had crashed it. The renderer now clears its runtime stage between two stages instead;
-  a soak of 60 loads of four public stages (the warehouse, its 1x1-texture copy, a forklift prop, a one-cube stage) in one process, 59 switches, ran clean under `tools/gpu_guard.py`: every load reached its first complete frame, no fault or error in the source or the ovrtx log, 395 s of wall time; warehouse reloads took 5.5-9.0 s, drifting upward across rounds the way a fresh renderer did in SPEC-27, and the small stages held steady (forklift 1.2-1.4 s, cube 0.8-1.0 s). `--fresh-renderer` on the source and on `tools/bench_usd_load.py` brings
-  the old behaviour back.
+- The usd view keeps its RTX renderer across stage switches (SPEC-64, ADR 0031): it
+  clears the runtime stage between two stages instead of starting a fresh renderer, which
+  saves 1.0-1.4 s and the "starting" phase on every pick. A 59-switch soak of mixed
+  public stages ran clean. `SPECTO_USD_FRESH_RENDERER=1` brings back a renderer per stage.
 - Security fix (SPEC-61): a path in a note's image (relative, or a page asset's), an
   OBJ's material map or a xacro include can no longer make Specto connect to another
   machine. On Windows a network path there (`\\host\share\x.png`, or the `\??\UNC\...`

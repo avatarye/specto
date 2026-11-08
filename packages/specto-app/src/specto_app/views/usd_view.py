@@ -284,6 +284,11 @@ def stub_launcher(width: int, height: int) -> list[str]:
     return [*argv, "--phase-ms", phase] if phase else argv
 
 
+#: the fallback to a renderer per stage (ADR 0031), set by a user whose GPU faults on the
+#: cleared renderer; read when a usd view starts its source
+FRESH_RENDERER_ENV = "SPECTO_USD_FRESH_RENDERER"
+
+
 def rtx_launcher(width: int, height: int) -> list[str]:
     """``specto-usd-source`` with the RTX renderer (#137). One renderer takes the stages
     in turn and clears its runtime stage between two of them (SPEC-64, ADR 0031): both
@@ -291,9 +296,11 @@ def rtx_launcher(width: int, height: int) -> list[str]:
     a renderer that had not been cleared, which is why each stage got a fresh renderer
     until SPEC-64, 1.0-1.4 s a switch (SPEC-27, tools/bench_usd_load.py).
     ``--fresh-renderer`` still does that, for a machine where the cleared renderer
-    fails."""
+    fails: ``SPECTO_USD_FRESH_RENDERER=1`` passes it, no code edit needed."""
     argv = [sys.executable, "-m", "specto_app.usd.source", "--renderer", "rtx"]
-    return [*argv, "--width", str(width), "--height", str(height)]
+    argv += ["--width", str(width), "--height", str(height)]
+    fresh = os.environ.get(FRESH_RENDERER_ENV, "").strip() not in ("", "0")
+    return [*argv, "--fresh-renderer"] if fresh else argv
 
 
 def storm_launcher(width: int, height: int) -> list[str]:

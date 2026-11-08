@@ -5,6 +5,9 @@ The stage keeps the values written to it (``attrs[(prim, attr)]``), so the fake 
 renders at the product's current ``resolution``. Tokens are interned to ids as in the real
 one; the log names them. A token write logs its values as names, a string write as text.
 Inline references (``add_usd_reference_from_string``) are logged with their text.
+
+``$FAKE_OVRTX_FAIL_OPENS``: comma-separated open numbers (from 1, counted per process)
+whose ``open_usd_from_string`` raises before it logs, a load failing after the attach.
 """
 
 from __future__ import annotations
@@ -118,9 +121,17 @@ class PathDictionary:
         return _intern(name)
 
 
+_opens = 0
+
+
 class _Population:
     @staticmethod
     def open_usd_from_string(stage: Stage, text: str, ordinal: int = 0) -> None:
+        global _opens
+        _opens += 1
+        fail = os.environ.get("FAKE_OVRTX_FAIL_OPENS", "")
+        if str(_opens) in fail.split(","):
+            raise RuntimeError(f"fake open {_opens} failed")
         m = re.search(r"int2 resolution = \((\d+), (\d+)\)", text)
         if m:
             stage.attrs[("/Render/__specto", "resolution")] = [[int(m[1]), int(m[2])]]

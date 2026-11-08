@@ -30,10 +30,11 @@ def calls(log: Path, name: str) -> list[dict]:
     return [r for r in rows if r["call"] == name]
 
 
-def spawn(log: Path, *args: str) -> control.FrameSourceProcess:
+def spawn(log: Path, *args: str, **extra_env: str) -> control.FrameSourceProcess:
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join([str(FAKE), env.get("PYTHONPATH", "")])
     env["FAKE_OVRTX_LOG"] = str(log)
+    env.update(extra_env)
     argv = [sys.executable, "-m", "specto_app.usd.source", "--renderer", "rtx"]
     return control.FrameSourceProcess.spawn(
         [*argv, "--width", "64", "--height", "36", *args], env=env
@@ -110,3 +111,33 @@ def test_the_texture_streaming_mode_is_set_at_renderer_creation(
         src.close()
     (renderer,) = calls(log, "Renderer")
     assert renderer["config"].get("texture_streaming_mode") == mode
+
+
+def test_a_load_that_fails_after_attach_leaves_a_stage_the_next_load_clears(
+    tmp_path: Path, worlds: list[Path]
+):
+    """SPEC-64: ``open_usd_from_string`` raising after the ovstage is attached reports an
+    error and leaves that ovstage on the renderer, so the next load detaches it, clears
+    the runtime stage and attaches the new one, in that order, on the same renderer."""
+    log = tmp_path / "ovrtx.log"
+    src = spawn(log, FAKE_OVRTX_FAIL_OPENS="1")
+    try:
+        src.wait_event("ready", timeout=20)
+        with pytest.raises(AssertionError, match="error"):
+            load_ok(src, worlds[0])
+        load_ok(src, worlds[1])
+        assert src.call("state")["loaded"] == str(worlds[1])
+    finally:
+        src.close()
+    assert len(calls(log, "Renderer")) == 1
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    stage_calls = ("attach_ovstage", "detach_ovstage", "reset_stage", "open_usd_from_string")
+    order = [r["call"] for r in rows if r["call"] in stage_calls]
+    assert order == [
+        "attach_ovstage",  # the failed load: attached, then the open raised (not logged)
+        "detach_ovstage",
+        "reset_stage",
+        "attach_ovstage",
+        "open_usd_from_string",
+        "detach_ovstage",  # the close
+    ]

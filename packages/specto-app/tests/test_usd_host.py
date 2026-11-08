@@ -365,6 +365,23 @@ def test_the_source_command_picks_the_renderer_process_for_a_view(monkeypatch):
         assert module(argv) == "specto_app.frames.stub_usd_source"
 
 
+def test_the_fresh_renderer_fallback_is_an_environment_switch(monkeypatch):
+    """SPEC-64, ADR 0031: ``SPECTO_USD_FRESH_RENDERER=1`` brings back a renderer per stage
+    (``--fresh-renderer``) without a code edit, for a machine where the cleared renderer
+    fails; unset, empty or ``0`` keeps the one renderer."""
+    from specto_app.views.usd_view import rtx_launcher
+
+    for value in (None, "", "0"):
+        if value is None:
+            monkeypatch.delenv("SPECTO_USD_FRESH_RENDERER", raising=False)
+        else:
+            monkeypatch.setenv("SPECTO_USD_FRESH_RENDERER", value)
+        assert "--fresh-renderer" not in rtx_launcher(64, 48)
+    monkeypatch.setenv("SPECTO_USD_FRESH_RENDERER", "1")
+    argv = rtx_launcher(64, 48)
+    assert argv[-1] == "--fresh-renderer" and argv[argv.index("--width") + 1] == "64"
+
+
 def test_a_faked_capability_runs_the_stub_source_not_its_renderer(monkeypatch):
     """SPECTO_FAKE_CAPABILITIES makes the choice RTX or Storm (the quotas, the notes),
     but the process is the stub USD source: a scripted flow never starts a renderer."""

@@ -523,7 +523,9 @@ frame, with no fault or error in the source or the ovrtx log, in 395 s of wall t
 warehouse reloads took 5.5-9.0 s, drifting upward across rounds the way a fresh renderer
 did, and the small stages held steady (forklift 1.2-1.4 s, cube 0.8-1.0 s). The view
 reuses its renderer since; `--fresh-renderer` on the bench and on the source brings the
-swap back.
+swap back, and `SPECTO_USD_FRESH_RENDERER=1` in the app's environment makes every usd view
+start its source that way (the fallback for a GPU that faults on the cleared renderer; `0`
+or unset keeps the one renderer).
 
 ## Common failures
 
