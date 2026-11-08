@@ -162,6 +162,10 @@ class ScratchItems:
     def root(self, link_id: str) -> str | None:
         return None  # a note's pictures sit next to it; nothing under a root
 
+    def guard_root(self, link_id: str) -> str | None:
+        """The project the notes live in (a project on a share serves them, SPEC-91)."""
+        return str(self.store.root) if link_id == self.link_id else None
+
 
 class ScratchBridge(QObject):
     """Handed to ``ScratchView.qml`` as ``bridge``: the tab strip and the drop area."""

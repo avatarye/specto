@@ -315,10 +315,15 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   `@root/` from the root of the resolver that answers for the link (`ItemResolver.root`,
   None by default), never outside it, and only an MTL, a buffer or an image
   (`scheme.ROOT_SUFFIXES`). A part's own recorded path passes
-  `specto_core.pathguard.output_refusal` against the collection's root before it is
-  stat'ed (`scheme.part_refused`, status `refused`; SPEC-75), the backstop for every host
-  that serves through items whatever produced the item; a container member is judged by
-  its archive. A trailing path's text (and the text after
+  `specto_core.pathguard.output_refusal` against the resolver's `guard_root` before it
+  is stat'ed (`scheme.part_refused`, status `refused`; SPEC-75), the backstop for every
+  host that serves through items whatever produced the item; a container member is
+  judged by its archive. `guard_root` is the root of what delivered the item (a
+  collection's or a content value's, else the project's; an intaker table's; the
+  scratch store's project), so a project on a share serves its own parts and nothing
+  on another share (SPEC-91). A part with a bare leading slash is refused where it is
+  no absolute path (Windows: the current drive's root). The one leading-slash rule is
+  `pathguard.below_root`. A trailing path's text (and the text after
   `@root/`) passes `specto_core.pathguard` before any filesystem call (SPEC-61, ADR 0006
   amended): an
   allowlist, shared with the page host's asset paths (`scheme.resolve_asset`, whose
@@ -436,7 +441,7 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   is stat'ed. A single leading slash means a path below the root: files and content
   paths drop it; a collection part drops it where it is no absolute path (Windows; on
   POSIX `/x` is absolute). A network path is accepted only when the project root is
-  itself a plain network path (`\host\share\...`) and the path, normalised (`..`
+  itself a plain network path (`\\host\share\...`) and the path, normalised (`..`
   resolved), is that root or lies under it; under such a root a relative path is
   normalised against it too, so `..` never leaves it.
   The code runs as `python -I -X utf8` (no script folder, working folder or PYTHONPATH on

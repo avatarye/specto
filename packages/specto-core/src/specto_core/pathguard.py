@@ -148,14 +148,25 @@ def output_refusal(text: str, root: str | None = None) -> Refusal | None:
     share = _share_root(root)
     for t in {text, text.replace("\\", "/")}:
         why = path_refusal(t, unc_ok=share is not None)
-        below = why is Refusal.ROOTED and t[:1] in "\\/" and t[1:2] not in "\\/"
-        if below:
-            why = path_refusal(t[1:], unc_ok=share is not None)
+        below = below_root(t) if why is Refusal.ROOTED else None
+        if below is not None:
+            why = path_refusal(below, unc_ok=share is not None)
         if why is None and share is not None and not _in_share(t, share):
             why = Refusal.NETWORK
         if why is not None:
             return why
     return None
+
+
+def below_root(text: str) -> str | None:
+    """The path below a root that ``text`` names with a single leading slash or backslash
+    (``/a/b`` and ``\\a\\b`` are ``a/b``, POSIX slashes), or None when it has none (a
+    relative path, ``//host``, a drive path). The one leading-slash rule (SPEC-91): an
+    output's files and content paths always mean a path below the root; a collection part
+    and ``output_refusal`` only where it is no absolute path (Windows, where ``/x`` is the
+    current drive's root); the items host refuses such a part. Text only."""
+    t = text.replace("\\", "/")
+    return t[1:] if t[:1] == "/" and t[1:2] != "/" else None
 
 
 def _share_root(root: str | None) -> str | None:
@@ -191,6 +202,7 @@ def under(path: str | Path, roots: Iterable[str | Path]) -> bool:
 __all__ = [
     "DEVICE_NAMES",
     "Refusal",
+    "below_root",
     "file_uri_path",
     "output_refusal",
     "path_refusal",

@@ -15,6 +15,13 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- A project that lives on a share (or on a mapped drive, which resolves to one) serves
+  its content-link items, intaker items and scratch notes again (SPEC-91): the items
+  host judges a part's path against the root of what delivered it, else the project's,
+  instead of refusing every network part it had no collection root for. A part on
+  another share stays refused, and so does a part with a bare leading slash (the
+  current drive's root on Windows). The leading-slash rule is one helper,
+  `pathguard.below_root`.
 - Security fix (SPEC-73): the prompt bar agent's `scratch_append` no longer asks Windows
   whether a network path in its `image` or `file` argument exists; such a path (or a
   device or stream path) is refused by its text first.

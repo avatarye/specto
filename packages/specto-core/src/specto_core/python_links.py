@@ -44,7 +44,7 @@ from .clock import now_iso
 from .contents import ContentEntry, ContentValue, format_for, read_entry
 from .kinds import Item
 from .links import CameraValue, Collection, FilesValue, Selection
-from .pathguard import output_refusal
+from .pathguard import below_root, output_refusal
 from .timebase import OWN_TIMELINE, TimeValue
 
 TRUST_FILE = "trusted-links.json"
@@ -352,9 +352,10 @@ def _output_path(text: str, root: str, what: str = "path") -> str:
 
 def _below_root(path: str) -> str:
     """A files or content output's path as a relative POSIX path: backslashes as slashes,
-    and a single leading slash, which means a path below the root, dropped."""
-    p = path.replace("\\", "/")
-    return p[1:] if p[:1] == "/" and p[1:2] != "/" else p
+    and a single leading slash, which means a path below the root, dropped
+    (``pathguard.below_root``)."""
+    below = below_root(path)
+    return below if below is not None else path.replace("\\", "/")
 
 
 def _root_of(given: Any, root: str) -> str:
@@ -385,7 +386,7 @@ def read_contents(root: str, paths: list[str], formats: set[str] | None = None) 
     base = Path(_output_path(root, root, "root"))
     entries: list[ContentEntry] = []
     for p in paths:
-        rel = _output_path(p, root).strip("/")
+        rel = _below_root(_output_path(p, root)).rstrip("/")
         full = base / rel
         if full.is_dir():
             for f in sorted(full.rglob("*"), key=lambda f: f.as_posix().lower()):
@@ -566,8 +567,9 @@ def collection_of(value: Any, root: str) -> Collection:
         stat: dict[str, list[int]] = {}
         for role, path in listed:
             _output_path(path, root, "part")
-            if path[:1] in "\\/" and path[1:2] not in "\\/" and not Path(path).is_absolute():
-                path = path[1:]  # below the root, not the drive's root
+            below = below_root(path)
+            if below is not None and not Path(path).is_absolute():
+                path = below  # below the root, not the drive's root
             full = Path(path) if Path(path).is_absolute() else Path(base) / path
             try:
                 st = full.stat()

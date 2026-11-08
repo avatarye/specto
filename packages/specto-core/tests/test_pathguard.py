@@ -10,7 +10,15 @@ import os
 
 import pytest
 
-from specto_core.pathguard import Refusal, file_uri_path, path_refusal, strip_local_long, under
+from specto_core.pathguard import (
+    Refusal,
+    below_root,
+    file_uri_path,
+    output_refusal,
+    path_refusal,
+    strip_local_long,
+    under,
+)
 
 WINDOWS = os.name == "nt"
 
@@ -107,8 +115,6 @@ def test_the_guard_makes_no_filesystem_call(monkeypatch: pytest.MonkeyPatch):
 
 # -- SPEC-75: output_refusal, the guard for an output's roots and paths --------------------
 
-from specto_core.pathguard import output_refusal  # noqa: E402
-
 ON_WINDOWS = pytest.mark.skipif(os.name != "nt", reason="UNC paths are Windows'")
 
 
@@ -158,3 +164,20 @@ def test_a_project_on_a_share_names_its_own_files_and_nothing_else():
 )
 def test_only_a_plain_share_root_trusts_network_paths(root):
     assert output_refusal("//evil/s/a.png", root) is not None
+
+
+@pytest.mark.parametrize(
+    ("text", "below"),
+    [
+        ("/a/b.png", "a/b.png"),
+        ("\\a\\b.png", "a/b.png"),
+        ("/", ""),
+        ("a/b.png", None),
+        ("//host/share/x", None),
+        ("\\\\host\\share\\x", None),
+        ("C:/x", None),
+    ],
+)
+def test_below_root_is_the_one_leading_slash_rule(text, below):
+    """SPEC-91: one helper says what a single leading slash names below a root."""
+    assert below_root(text) == below

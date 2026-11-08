@@ -33,6 +33,13 @@ class ItemResolver(Protocol):
         root); None: this resolver serves none."""
         return None
 
+    def guard_root(self, link_id: str) -> str | None:
+        """The folder a part's own path is judged against before anything is stat'ed
+        (``specto_core.pathguard.output_refusal``): a network part is served only when this
+        is a plain network path and the part lies under it (a project on a share, SPEC-91);
+        None: no network part is."""
+        return None
+
 
 def _table_of(items: Iterable[Item | dict[str, Any]]) -> dict[str, dict[str, str]]:
     table: dict[str, dict[str, str]] = {}
@@ -45,10 +52,13 @@ def _table_of(items: Iterable[Item | dict[str, Any]]) -> dict[str, dict[str, str
 
 
 class ItemTable:
-    """Items per link, as an intaker produces them (``Item.key`` -> ``Item.parts``)."""
+    """Items per link, as an intaker produces them (``Item.key`` -> ``Item.parts``);
+    ``root`` is the folder they were found under (``guard_root``: a table on a share
+    serves the share's parts)."""
 
-    def __init__(self) -> None:
+    def __init__(self, root: str | None = None) -> None:
         self._cols: dict[str, dict[str, dict[str, str]]] = {}
+        self._guard_root = root
 
     def set_items(self, link_id: str, items: Iterable[Item | dict[str, Any]]) -> None:
         self._cols[link_id] = _table_of(items)
@@ -61,6 +71,9 @@ class ItemTable:
 
     def root(self, link_id: str) -> str | None:
         return None
+
+    def guard_root(self, link_id: str) -> str | None:
+        return self._guard_root if link_id in self._cols else None
 
     def cols(self) -> list[str]:
         return list(self._cols)
@@ -105,6 +118,14 @@ class LinkItems:
         v = self.value_of(link_id)
         return (v.root or None) if isinstance(v, Collection) else None
 
+    def guard_root(self, link_id: str) -> str | None:
+        """The root of the value the link delivered (a collection's or a content value's,
+        already judged against the project when it was built), else the project's."""
+        v = self.value_of(link_id)
+        if v is None:
+            return None
+        return v.root or getattr(self.links, "root", "") or None
+
     def keys(self, link_id: str) -> list[str]:
         v = self.value_of(link_id)
         if isinstance(v, Collection):
@@ -148,6 +169,13 @@ class CompositeItems:
         for r in self.resolvers:
             if r.keys(link_id):
                 return r.root(link_id)
+        return None
+
+    def guard_root(self, link_id: str) -> str | None:
+        """The guard root of the resolver that answers for the link, never another's."""
+        for r in self.resolvers:
+            if r.keys(link_id):
+                return r.guard_root(link_id)
         return None
 
 

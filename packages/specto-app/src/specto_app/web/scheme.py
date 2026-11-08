@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
 from specto_core.containers import is_virtual, open_source, real_path
-from specto_core.pathguard import Refusal, output_refusal, path_refusal
+from specto_core.pathguard import Refusal, below_root, output_refusal, path_refusal
 
 from .capabilities import Capabilities, tile_host_allowed
 
@@ -315,9 +315,14 @@ def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Pa
 
 def part_refused(part: str, root: str | None) -> Refusal | None:
     """Why an item's part may not be looked for on disk: ``pathguard.output_refusal`` of
-    the text as recorded against the collection's ``root`` (a network path only inside a
-    collection on that share), a container member judged by its archive."""
-    return output_refusal(real_path(part) if is_virtual(part) else part, root)
+    the text as recorded against ``root`` (the resolver's ``guard_root``: a network path
+    only inside a root on that share), a container member judged by its archive. A part
+    with a bare leading slash is refused where it is no absolute path (Windows: the
+    current drive's root, never a recorded part's path; SPEC-91)."""
+    text = real_path(part) if is_virtual(part) else part
+    if below_root(text) is not None and not Path(text).is_absolute():
+        return Refusal.ROOTED
+    return output_refusal(text, root)
 
 
 def locate_item(
@@ -338,7 +343,8 @@ def locate_item(
     ``specto_core.pathguard`` before anything is stat'ed (``refused``; SPEC-75): the
     backstop for every host that serves through items, whatever produced the item (a
     Python link's collection, a resolve step's derived files). A network path is served
-    only when the collection's root is on that share and the part lies under it."""
+    only when the resolver's ``guard_root`` for the link (the collection's or content's
+    root, else the project's; SPEC-91) is on that share and the part lies under it."""
     parsed = parse_item_rel_path(url_path)
     if parsed is None:
         entry["status"] = "bad_item_path"
@@ -360,7 +366,7 @@ def locate_item(
         entry["status"] = "not_found"
         return None
     p = Path(parts[role])
-    if part_refused(str(p), items.root(col) if items is not None else None):
+    if part_refused(str(p), items.guard_root(col) if items is not None else None):
         entry["status"] = "refused"
         return None
     if is_virtual(str(p)):  # a container member: the archive must exist
