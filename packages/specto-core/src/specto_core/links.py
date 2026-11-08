@@ -1033,16 +1033,19 @@ class LinkRuntime:
 
         Runs once per type change: the runtime calls it from its own patch listener
         (a view retyped before its host exists, SPEC-84) and the host registry before it
-        builds the new host, whichever hears the patch first; the second call finds the
-        links already resolving for the new type and does nothing. Returns the link ids
-        resolved."""
+        builds the new host, whichever hears the patch first. It returns at once when the
+        view's type is the one its links last resolved for (``_types``), so the second
+        call does nothing. Returns the link ids resolved."""
         view = self.live.data["views"].get(view_id)
         now = str((view or {}).get("type") or "")
         if view is None or self._types.get(view_id) == now:
             return []
         self._types[view_id] = now
         for key in [k for k in self.inputs if k[0] == view_id]:
-            self._clear_input(key)  # the old host is detached: nothing hears the None
+            # the host still attached hears the None: the old one when the runtime's
+            # listener runs first (the app's order), none when the registry's rebuild
+            # detached it already
+            self._clear_input(key)
         for key in [k for k in self.outputs if k[0] == view_id]:
             del self.outputs[key]
         lids = [
@@ -1691,7 +1694,7 @@ class LinkRuntime:
                 self._forget_view(oid)
             elif section == "views" and oid not in self._types:
                 self._types[oid] = str(views[oid].get("type") or "")  # a new view
-            elif section == "views" and self._types[oid] != views[oid].get("type"):
+            elif section == "views" and self._types[oid] != str(views[oid].get("type") or ""):
                 retyped[oid] = None
         # a view's type changed (SPEC-84): its links resolve again for the new type, host
         # or no host yet (a no-op when the registry's rebuild got there first)

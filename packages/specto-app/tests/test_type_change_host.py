@@ -63,7 +63,9 @@ class ScenesHost(QuickViewHost):
         return [v for p, v in self.received if p == "data" and isinstance(v, Collection)]
 
 
-def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jobs):
+def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jobs, *, runtime_first=False):
+    """The world; ``runtime_first`` starts the link runtime before the registry (the
+    app's order, app.py: its patch listener then hears a submit first)."""
     monkeypatch.setenv("SPECTO_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setenv("SPECTO_USER_DIR", str(tmp_path / "user"))  # the trust store
     proj = Project.init(tmp_path / "proj", "scans")
@@ -79,6 +81,8 @@ def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jobs):
             return GalleryHost(ctx, view_id, manifest, gallery=fakes[-1])
 
     ctx = HostContext(engine, None)
+    if runtime_first:
+        ctx.links  # noqa: B018
     reg = HostRegistry(ctx, load_entry_points=False)  # no host for "3d" unless a test adds one
     reg.add_factory(Factory())
     ctx.links  # noqa: B018  (the runtime starts now, not at the first host)
@@ -248,20 +252,34 @@ def test_a_view_retyped_before_its_host_is_built_gets_the_new_types_input(setup)
     assert len(cols) == 1 and cols[0].items[0].meta["scene"]["kind"] == "pointcloud"
 
 
-def test_a_type_change_resolves_once_whoever_hears_it_first(held):
+@pytest.mark.parametrize("runtime_first", [False, True], ids=["registry", "runtime"])
+def test_a_type_change_resolves_once_whoever_hears_it_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runtime_first: bool
+):
     """The registry (rebuilding a host) and the link runtime (its own patch listener)
-    both see the type change; the links resolve again once."""
-    engine, ctx, reg, jobs = held
+    both see the type change, in either order (the app starts the runtime first, the
+    other tests the registry); the links resolve again once."""
+    jobs = HeldJobs()
+    engine, ctx, reg = _world(tmp_path, monkeypatch, jobs, runtime_first=runtime_first)
     reg.add_factory(SimpleFactory("3d", ScenesHost))
     _submit(engine, "gallery")
     while jobs.count(LINK_JOB_KIND):
         jobs.run_next(LINK_JOB_KIND)
     reg.host("kobi")
 
-    _submit(engine, "3d")
-    assert jobs.count(LINK_JOB_KIND) == 1
-    assert ctx.links.retarget("kobi") == []  # already resolving for the new type
-    assert jobs.count(LINK_JOB_KIND) == 1
+    try:
+        _submit(engine, "3d")
+        assert jobs.count(LINK_JOB_KIND) == 1
+        assert ctx.links.retarget("kobi") == []  # already retargeted for this type
+        assert jobs.count(LINK_JOB_KIND) == 1
+        scenes = reg.host("kobi")
+        assert isinstance(scenes, ScenesHost) and scenes.collections() == []
+        jobs.run_next(LINK_JOB_KIND)
+        cols = scenes.collections()
+        assert len(cols) == 1 and cols[0].items[0].meta["scene"]["kind"] == "pointcloud"
+    finally:
+        reg.dispose_all()
+        engine.close()
 
 
 def test_a_python_resolve_in_flight_across_the_type_change_never_lands(held):
