@@ -878,6 +878,9 @@ class LinkRuntime:
         self._inflight: dict[str, str] = {}  # link id -> job id
         #: link id -> the target view's type the running resolve was given (SPEC-48)
         self._inflight_type: dict[str, str] = {}
+        #: view id -> the type its links last resolved for: a type op re-resolves them
+        #: (``retarget``) whether or not a host exists yet (SPEC-84)
+        self._types: dict[str, str] = _view_types(live.data)
         self._pending: set[str] = set()  # links whose input changed while resolving
         self._fresh: set[str] = set()  # links refreshed: their next resolve stats afresh
         #: two-way links whose target end spoke last (resolve them target -> source)
@@ -1023,8 +1026,21 @@ class LinkRuntime:
         type (an intaker feeding a 3d view prepares scene buffers; one feeding a
         gallery does not). The links are marked fresh, so a Python link's cached table
         (keyed without the target type) is rebuilt; a resolve already running for the
-        old type never lands (``_on_done``). What the old host emitted goes too, so
-        links fed from the view drop their old-type values. Returns the link ids resolved."""
+        old type never lands (``_on_done``). What the old host emitted is forgotten, so
+        a link from the view that resolves again does not read an old-type value; what
+        downstream views already received stays until the new host emits (as when a
+        view is removed).
+
+        Runs once per type change: the runtime calls it from its own patch listener
+        (a view retyped before its host exists, SPEC-84) and the host registry before it
+        builds the new host, whichever hears the patch first; the second call finds the
+        links already resolving for the new type and does nothing. Returns the link ids
+        resolved."""
+        view = self.live.data["views"].get(view_id)
+        now = str((view or {}).get("type") or "")
+        if view is None or self._types.get(view_id) == now:
+            return []
+        self._types[view_id] = now
         for key in [k for k in self.inputs if k[0] == view_id]:
             self._clear_input(key)  # the old host is detached: nothing hears the None
         for key in [k for k in self.outputs if k[0] == view_id]:
@@ -1037,11 +1053,10 @@ class LinkRuntime:
             self.resolve(lid)
         return lids
 
-    def _type_moved(self, link_id: str, link: dict[str, Any]) -> bool:
-        """True when the resolve that just ended was given a target type the view no
-        longer has (its type changed meanwhile, SPEC-48): the result was prepared for
-        the old type and must not land."""
-        ran_for = self._inflight_type.pop(link_id, "")
+    def _type_moved(self, ran_for: str, link: dict[str, Any]) -> bool:
+        """True when the resolve that just ended was given a target type (``ran_for``)
+        the view no longer has (its type changed meanwhile, SPEC-48): the result was
+        prepared for the old type and must not land."""
         view = self.live.data["views"].get(link["target"]["view"]) or {}
         now = str(view.get("type") or "")
         return bool(ran_for) and bool(now) and ran_for != now
@@ -1154,13 +1169,13 @@ class LinkRuntime:
 
     def _on_done(self, link_id: str, job: JobInfo) -> None:
         self._inflight.pop(link_id, None)
+        ran_for = self._inflight_type.pop(link_id, "")
         link = self.live.data["links"].get(link_id)
         if link is None:  # removed while resolving
-            self._inflight_type.pop(link_id, None)
             self._pending.discard(link_id)
             return
         link = self._oriented(link_id, link)
-        if self._type_moved(link_id, link):
+        if self._type_moved(ran_for, link):
             # the view changed type while this ran (SPEC-48): a result prepared for the
             # old type never lands; the link resolves again below
             self._pending.add(link_id)
@@ -1415,14 +1430,14 @@ class LinkRuntime:
         from .python_links import ScriptFailed
 
         self._inflight.pop(link_id, None)
+        ran_for = self._inflight_type.pop(link_id, "")
         link = self.live.data["links"].get(link_id)
         if link is None:
-            self._inflight_type.pop(link_id, None)
             self._pending.discard(link_id)
             return
         py = link["python"]
         stale = py["resolves_to"] == "value" and key != self._python_value_key(link, key[0])
-        if self._type_moved(link_id, link) or stale:
+        if self._type_moved(ran_for, link) or stale:
             # the target's type changed (SPEC-48: the table was built and prepared for
             # the old one) or the source moved on while this ran: the result never
             # lands; the link runs again next (now, or when its debounce window closes)
@@ -1656,11 +1671,13 @@ class LinkRuntime:
             self._stop_watches()
             self.outputs = {PROJECT_OUT: FilesValue(root=self.root)}
             self.project_files = None
+            self._types = _view_types(self.live.data)
             self.resolve_all()
             return
         links = self.live.data["links"]
         views = self.live.data["views"]
         touched: dict[str, None] = {}
+        retyped: dict[str, None] = {}
         for op in patch:
             parts = op.get("path", "").split("/")
             if parts[1:] == ["root_view"]:
@@ -1672,7 +1689,18 @@ class LinkRuntime:
                 touched[oid] = None
             elif section == "views" and oid not in views:
                 self._forget_view(oid)
+            elif section == "views" and oid not in self._types:
+                self._types[oid] = str(views[oid].get("type") or "")  # a new view
+            elif section == "views" and self._types[oid] != views[oid].get("type"):
+                retyped[oid] = None
+        # a view's type changed (SPEC-84): its links resolve again for the new type, host
+        # or no host yet (a no-op when the registry's rebuild got there first)
+        resolved: set[str] = set()
+        for vid in retyped:
+            resolved.update(self.retarget(vid))
         for lid in touched:
+            if lid in resolved:
+                continue  # retarget resolved it with the patched link already
             if lid in links:
                 self.resolve(lid)
             else:
@@ -1705,12 +1733,18 @@ class LinkRuntime:
             receive(key[1], None)
 
     def _forget_view(self, view_id: str) -> None:
+        self._types.pop(view_id, None)
         self.receivers.pop(view_id, None)
         self.global_clock.forget(view_id)
         for key in [k for k in self.outputs if k[0] == view_id]:
             del self.outputs[key]
         for key in [k for k in self.inputs if k[0] == view_id]:
             del self.inputs[key]
+
+
+def _view_types(data: dict[str, Any]) -> dict[str, str]:
+    """Each view's type in a canvas document."""
+    return {vid: str(v.get("type") or "") for vid, v in data["views"].items()}
 
 
 def _parts_signature(col: Collection) -> list[tuple[str, dict[str, Any], Any, Any]]:

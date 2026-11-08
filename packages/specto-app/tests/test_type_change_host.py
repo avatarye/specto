@@ -14,8 +14,8 @@ import pytest
 import test_shell
 from app_doc_helpers import pin
 from gallery_helpers import FakeGallery, needs_testdata
+from jobs_helpers import HeldJobs
 from scene3d_helpers import write_cloud_ply
-from test_ports_hosts import HeldJobs
 from test_shell import submit
 
 import specto_intake  # noqa: F401  (registers the intaker resolver)
@@ -120,18 +120,25 @@ def _submit(
     engine.live.submit(doc, origin=origin, label=f"kobi as {vtype}")
 
 
-def _run_link_job(jobs: HeldJobs) -> None:
-    """Run the oldest held link resolve (a gallery's thumbnail batch may be held too)."""
-    i = next(i for i, (job, *_r) in enumerate(jobs.held) if job.kind == LINK_JOB_KIND)
-    job, fn, args, kwargs, on_done = jobs.held.pop(i)
-    result = fn(*args, progress=lambda p, m="": None, **kwargs)
-    jobs._finish(job, result=result)
-    if on_done is not None:
-        on_done(job)
-
-
-def _link_jobs(jobs: HeldJobs) -> int:
-    return sum(1 for job, *_r in jobs.held if job.kind == LINK_JOB_KIND)
+def _python_link(engine: Engine) -> None:
+    """kobi (a gallery) fed by an approved per-pick Python link from lami (a gallery of
+    the scans): a pick hands kobi the cloud."""
+    root = engine.project.root
+    (root / LINK_FILE).parent.mkdir(parents=True, exist_ok=True)
+    (root / LINK_FILE).write_text(SCENE_LINK, encoding="utf-8")
+    TrustStore().approve(sha256_of((root / LINK_FILE).read_bytes()), path=LINK_FILE)
+    doc = engine.live.document()
+    doc["views"]["kobi"] = {"type": "gallery", "label": "kobi", "layout": {"size": [600, 400]}}
+    doc["views"]["lami"] = {"type": "gallery", "label": "lami", "layout": {"size": [600, 400]}}
+    pin(doc, "lami", sources=["scans"])
+    doc["links"]["l9"] = {
+        "kind": "python",
+        "source": {"view": "lami", "port": "selection"},
+        "target": {"view": "kobi", "port": "data"},
+        "python": {"path": LINK_FILE, "resolves_to": "value", "output": "collection"},
+        "summary": {"sentence": "A pick in lami hands kobi the cloud."},
+    }
+    engine.live.submit(doc, origin="agent:s1", label="python")
 
 
 def test_a_type_change_builds_the_new_types_host(setup):
@@ -183,21 +190,7 @@ def test_a_python_links_table_is_rebuilt_for_the_new_type(setup):
     type."""
     engine, ctx, reg = setup
     reg.add_factory(SimpleFactory("3d", ScenesHost))
-    (engine.project.root / LINK_FILE).parent.mkdir(parents=True, exist_ok=True)
-    (engine.project.root / LINK_FILE).write_text(SCENE_LINK, encoding="utf-8")
-    TrustStore().approve(sha256_of((engine.project.root / LINK_FILE).read_bytes()), path=LINK_FILE)
-    doc = engine.live.document()
-    doc["views"]["kobi"] = {"type": "gallery", "label": "kobi", "layout": {"size": [600, 400]}}
-    doc["views"]["lami"] = {"type": "gallery", "label": "lami", "layout": {"size": [600, 400]}}
-    pin(doc, "lami", sources=["scans"])
-    doc["links"]["l9"] = {
-        "kind": "python",
-        "source": {"view": "lami", "port": "selection"},
-        "target": {"view": "kobi", "port": "data"},
-        "python": {"path": LINK_FILE, "resolves_to": "value", "output": "collection"},
-        "summary": {"sentence": "A pick in lami hands kobi the cloud."},
-    }
-    engine.live.submit(doc, origin="agent:s1", label="python")
+    _python_link(engine)
     gallery = reg.host("kobi")
     ctx.links.emit("lami", "selection", Selection(keys=["cloud"], last="cloud"))
     assert ctx.links.status("l9")["state"] == "resolved", ctx.links.status("l9")
@@ -218,24 +211,82 @@ def test_a_resolve_in_flight_across_the_type_change_never_lands(held):
     engine, ctx, reg, jobs = held
     reg.add_factory(SimpleFactory("3d", ScenesHost))
     _submit(engine, "gallery")
-    while _link_jobs(jobs):
-        _run_link_job(jobs)
+    while jobs.count(LINK_JOB_KIND):
+        jobs.run_next(LINK_JOB_KIND)
     gallery = reg.host("kobi")
     assert [it.key for it in gallery.collection.items] == ["cloud"]
 
     (lid,) = ctx.links.refresh("kobi")  # a rescan for the gallery, held open
-    assert _link_jobs(jobs) == 1 and ctx.links.resolving(lid)
+    assert jobs.count(LINK_JOB_KIND) == 1 and ctx.links.resolving(lid)
     _submit(engine, "3d")  # the type changes under it
     scenes = reg.host("kobi")
     assert isinstance(scenes, ScenesHost) and scenes.collections() == []
 
-    _run_link_job(jobs)  # the gallery's rescan lands: dropped, and the link resolves again
+    jobs.run_next(LINK_JOB_KIND)  # the gallery's rescan lands: dropped, resolved again
     assert scenes.collections() == [] and ctx.links.input_of("kobi", "data") is None
-    assert _link_jobs(jobs) == 1 and ctx.links.resolving(lid)
-    _run_link_job(jobs)
+    assert jobs.count(LINK_JOB_KIND) == 1 and ctx.links.resolving(lid)
+    jobs.run_next(LINK_JOB_KIND)
     cols = scenes.collections()
     assert len(cols) == 1 and cols[0].items[0].meta["scene"]["kind"] == "pointcloud"
     assert ctx.links.input_of("kobi", "data") is cols[0]
+
+
+def test_a_view_retyped_before_its_host_is_built_gets_the_new_types_input(setup):
+    """No host yet (in the app: the tick before the slots attach), so the registry has
+    nothing to rebuild; the link runtime sees the type op itself and resolves again, and
+    the host built afterwards is handed scenes, not the gallery's collection."""
+    engine, ctx, reg = setup
+    reg.add_factory(SimpleFactory("3d", ScenesHost))
+    _submit(engine, "gallery")
+    assert "scene" not in ctx.links.input_of("kobi", "data").items[0].meta
+
+    _submit(engine, "3d")
+    assert ctx.links.input_of("kobi", "data").items[0].meta["scene"]["kind"] == "pointcloud"
+    scenes = reg.host("kobi")
+    assert isinstance(scenes, ScenesHost)
+    cols = scenes.collections()
+    assert len(cols) == 1 and cols[0].items[0].meta["scene"]["kind"] == "pointcloud"
+
+
+def test_a_type_change_resolves_once_whoever_hears_it_first(held):
+    """The registry (rebuilding a host) and the link runtime (its own patch listener)
+    both see the type change; the links resolve again once."""
+    engine, ctx, reg, jobs = held
+    reg.add_factory(SimpleFactory("3d", ScenesHost))
+    _submit(engine, "gallery")
+    while jobs.count(LINK_JOB_KIND):
+        jobs.run_next(LINK_JOB_KIND)
+    reg.host("kobi")
+
+    _submit(engine, "3d")
+    assert jobs.count(LINK_JOB_KIND) == 1
+    assert ctx.links.retarget("kobi") == []  # already resolving for the new type
+    assert jobs.count(LINK_JOB_KIND) == 1
+
+
+def test_a_python_resolve_in_flight_across_the_type_change_never_lands(held):
+    """The Python link's run for the gallery is held open across the type change: its
+    table (built and prepared for the gallery) is dropped and the link runs again for
+    the 3d view."""
+    engine, ctx, reg, jobs = held
+    reg.add_factory(SimpleFactory("3d", ScenesHost))
+    _python_link(engine)
+    while jobs.count(LINK_JOB_KIND):
+        jobs.run_next(LINK_JOB_KIND)
+    reg.host("kobi")
+    ctx.links.emit("lami", "selection", Selection(keys=["cloud"], last="cloud"))
+    assert jobs.count() >= 1 and ctx.links.resolving("l9")
+    python_kind = next(job.kind for job, *_r in jobs.held if job.canvas == "l9")
+
+    _submit(engine, "3d")
+    scenes = reg.host("kobi")
+    assert isinstance(scenes, ScenesHost) and scenes.collections() == []
+    jobs.run_next(python_kind)  # the gallery's run lands: dropped, and run again
+    assert scenes.collections() == [] and ctx.links.input_of("kobi", "data") is None
+    assert ctx.links.resolving("l9")
+    jobs.run_next(python_kind)
+    cols = scenes.collections()
+    assert len(cols) == 1 and cols[0].items[0].meta["scene"]["kind"] == "pointcloud"
 
 
 def test_a_view_with_no_incoming_links_changes_type_too(setup):

@@ -15,6 +15,11 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- A view retyped before its host is built gets inputs resolved for its new type
+  (SPEC-84). Only a host's rebuild re-resolved a retyped view's links, so a view retyped
+  in the moment before its slot attached (a gallery turned 3d view) was handed the
+  gallery's collection, without scenes. The link runtime now re-resolves on the type
+  change itself, once, whoever hears it first.
 - An endpoint read from a file names this machine only (SPEC-88). A tcp address in
   `.specto/endpoint.json` or an instance file may name only a loopback host, so an agent
   cannot redirect `specto`, SDK and MCP calls to a server of its own; a remote host still

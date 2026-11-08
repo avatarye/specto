@@ -14,7 +14,8 @@ from pathlib import Path
 import pytest
 import test_shell
 from gallery_helpers import TESTDATA, FakeGallery, copy_frames, needs_testdata
-from test_ports_hosts import HeldJobs, _gallery_from_folder
+from jobs_helpers import HeldJobs
+from test_ports_hosts import _gallery_from_folder
 from test_shell import click_item, gallery_doc, submit
 
 import specto_intake  # noqa: F401  (registers the intaker resolver)

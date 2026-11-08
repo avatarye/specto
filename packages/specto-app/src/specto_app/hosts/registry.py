@@ -358,7 +358,10 @@ class HostRegistry(QObject):
         """Replace a view's host with one of its document type: the old host goes, the
         view's links resolve again for the new type (``links.retarget``: resolution
         depends on the target type, and no link changed), the new host takes its slot
-        and, off screen or collapsed, stays paused with the reason it had."""
+        and, off screen or collapsed, stays paused with the reason it had. The runtime
+        retargets from its own patch listener too (a view retyped before its host exists,
+        SPEC-84); whichever hears the patch first does it and the other call is a no-op,
+        so the new host is never handed the old type's inputs."""
         slot = self._slots.get(view_id)
         paused = view_id in self._paused
         why = self.ctx.health_of(view_id).get("message") or OFF_SCREEN

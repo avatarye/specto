@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from app_doc_helpers import pin
 from gallery_helpers import FakeGallery, copy_frames, needs_testdata
+from jobs_helpers import HeldJobs
 from PySide6.QtCore import QCoreApplication, Qt
 
 import specto_intake  # noqa: F401  (registers the intaker resolver)
@@ -410,27 +411,6 @@ def test_missing_host_is_a_card_with_health_error(engine: Engine):
 
 
 # -- #48: arrivals, progressive resolve ------------------------------------------------
-class HeldJobs(InlineJobManager):
-    """Holds every job until ``run_next``: the 'resolving' state stays observable."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.held: list = []
-
-    def submit(self, kind, fn, *args, canvas=None, on_done=None, **kwargs):
-        job = self._new(kind, canvas)
-        self.held.append((job, fn, args, kwargs, on_done))
-        return job
-
-    def run_next(self):
-        job, fn, args, kwargs, on_done = self.held.pop(0)
-        result = fn(*args, progress=lambda p, m="": None, **kwargs)
-        self._finish(job, result=result)
-        if on_done is not None:
-            on_done(job)
-        return job
-
-
 def _gallery_from_folder(doc: dict, sources: list[str], *, watch: bool) -> dict:
     doc["views"]["kobi"] = {"type": "gallery", "label": "Drops", "layout": {"size": [600, 400]}}
     doc["links"]["l2"] = {

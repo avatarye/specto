@@ -276,7 +276,9 @@ links.approve(link_id)                  # Python links (ADR 0006): the USER's ge
 links.refresh(view_id=None) -> [link ids]  # rescan: the project's links, or a view's (stat afresh), #102
 links.retarget(view_id) -> [link ids]   # the view's type changed: its inputs and outputs forgotten, its links
                                         # resolved again, fresh (a Python table is rebuilt); a resolve in flight
-                                        # for the old type never lands (SPEC-48)
+                                        # for the old type never lands (SPEC-48). Once per type change: the
+                                        # runtime's own patch listener calls it (host or no host yet, SPEC-84)
+                                        # and so does the registry's rebuild; the later call returns []
 links.poll() -> [link ids]              # the app's 8 ms timer: delivers job results, watch arrivals
 links.watching(); links.watch_status(link_id)
 links.global_clock: GlobalClock         # section 7
