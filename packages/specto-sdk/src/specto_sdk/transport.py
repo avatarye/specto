@@ -18,7 +18,13 @@ import sys
 from collections import deque
 from typing import TYPE_CHECKING, Any, Protocol
 
-from specto_core.rpc import EndpointInfo, RpcConnection, RpcHandler
+from specto_core.rpc import (
+    PIPE_REFUSED,
+    EndpointInfo,
+    RpcConnection,
+    RpcHandler,
+    local_pipe_path,
+)
 
 if TYPE_CHECKING:
     from specto_core.live_canvas import SerialLock
@@ -142,10 +148,14 @@ class SocketTransport:
 
 class PipeTransport:
     """Windows named pipe client. ``QLocalServer`` creates byte-mode pipes, which the C
-    runtime opens like a file; reads block until data arrives (no timeout)."""
+    runtime opens like a file; reads block until data arrives (no timeout). Only a local
+    pipe is opened (``specto_core.rpc.local_pipe_path``, SPEC-74): a remote one would
+    connect out over SMB."""
 
     def __init__(self, name: str) -> None:
-        path = name if name.startswith("\\\\") else rf"\\.\pipe\{name}"
+        path = local_pipe_path(name)
+        if path is None:
+            raise TransportError(f"{PIPE_REFUSED}, not {name!r}", fix="restart the app")
         try:
             self._f = open(path, "r+b", buffering=0)  # noqa: SIM115 - closed in close()
         except OSError as e:

@@ -15,6 +15,11 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- A client connects only to a local pipe (SPEC-74). `.specto/endpoint.json` is
+  agent-writable, and a pipe address such as `\\host\pipe\x` was opened as written, so
+  any `specto` command, MCP call or SDK connect could reach out over SMB and hand that
+  host the user's Windows sign-in hash. A pipe address is now a bare name or
+  `\\.\pipe\<name>`; anything else is refused before anything is opened.
 - A Python link's collection for a 3d view is prepared with the project as its root
   (SPEC-80), as an intaker's is with its source: an OBJ whose `mtllib` leaves the project
   is named under `missing` and never opened. The 3d reader compares an OBJ's folder and

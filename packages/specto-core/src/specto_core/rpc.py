@@ -18,11 +18,12 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .engine import CallContext, Engine
 from .errors import InvalidArgs, NotFound, SpectoError
@@ -43,6 +44,24 @@ SPECTO_ERROR = -32000
 
 EndpointKind = Literal["pipe", "unix", "tcp", "inproc"]
 
+#: a local pipe's name: what ``endpoint_name`` makes (``specto-<project id>``), ASCII only
+_PIPE_NAME = re.compile(r"[A-Za-z0-9_.-]+", re.ASCII)
+_LOCAL_PIPE_PREFIX = re.compile(r"\\\\\.\\pipe\\", re.ASCII | re.IGNORECASE)
+PIPE_REFUSED = r"a pipe endpoint must name a local pipe (a bare name or \\.\pipe\<name>)"
+
+
+def local_pipe_path(address: str) -> str | None:
+    r"""The ``\\.\pipe\<name>`` path a pipe endpoint's ``address`` names, or None when it
+    is not a local pipe (SPEC-74). Accepted: a bare name (``specto-<id>``) or that full
+    path, the name in ``[A-Za-z0-9_.-]``, not only dots. Everything else is refused by its
+    text, before any open: on Windows opening ``\\host\pipe\x`` connects to the host
+    over SMB and can hand it the user's NTLM hash, and ``endpoint.json`` is agent-writable."""
+    prefix = _LOCAL_PIPE_PREFIX.match(address)
+    name = address[prefix.end() :] if prefix else address
+    if not _PIPE_NAME.fullmatch(name) or not name.strip("."):
+        return None
+    return address if prefix else rf"\\.\pipe\{name}"
+
 
 # -- endpoint discovery (.specto/endpoint.json) ------------------------------------------
 class EndpointInfo(BaseModel):
@@ -57,6 +76,12 @@ class EndpointInfo(BaseModel):
     api_level: int = API_LEVEL
     api_compatible: int = API_COMPATIBLE
 
+    @model_validator(mode="after")
+    def _pipe_is_local(self) -> EndpointInfo:
+        if self.kind == "pipe" and local_pipe_path(self.address) is None:
+            raise ValueError(f"{PIPE_REFUSED}, not {self.address!r}")
+        return self
+
     def url(self) -> str:
         return f"{self.kind}://{self.address}"
 
@@ -69,7 +94,13 @@ class EndpointInfo(BaseModel):
                 f"bad endpoint url {url!r}",
                 fix="use pipe://<name>, unix://<path> or tcp://<host>:<port>",
             )
-        return cls(kind=kind, address=addr, pid=pid, project_id=project_id)  # type: ignore[arg-type]
+        try:
+            return cls(kind=kind, address=addr, pid=pid, project_id=project_id)  # type: ignore[arg-type]
+        except ValidationError as e:
+            raise InvalidArgs(
+                f"bad endpoint url {url!r}: {PIPE_REFUSED}" if kind == "pipe" else str(e),
+                fix="use pipe://<name>, unix://<path> or tcp://<host>:<port>",
+            ) from e
 
 
 def endpoint_name(project_id: str) -> str:

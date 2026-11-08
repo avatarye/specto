@@ -559,7 +559,11 @@ One connection = one client. Newline-delimited JSON-RPC 2.0 over `QLocalServer` 
 `specto-<project id>` (a named pipe on Windows, a unix socket on Linux and macOS); the app
 writes `.specto/endpoint.json` (`EndpointInfo {kind,
 address, pid, project_id, server, api_level, api_compatible}`); `SPECTO_ENDPOINT` and
-`SPECTO_PROJECT` override discovery.
+`SPECTO_PROJECT` override discovery. A `pipe` endpoint's `address` names a local pipe only:
+a bare name (`[A-Za-z0-9_.-]`, not only dots) or `\\.\pipe\<name>`. Anything else (a
+remote `\\host\pipe\x`, a device or NT path) is refused by its text before any open
+(`specto_core.rpc.local_pipe_path`, in `EndpointInfo`'s validator and in `PipeTransport`;
+SPEC-74): `endpoint.json` is agent-writable, and opening a remote pipe connects out over SMB.
 
 | Method | Params | Result |
 |---|---|---|
