@@ -86,6 +86,9 @@ the release and move on their own schedule.
   usd load"): `tools/ovrtx_probe` hands ovrtx carb settings for its CPU profiler or its
   streaming log, and `tools/ovrtx_trace_top.py` summarises the trace. The warehouse's
   5-6 s is ovrtx's material compile and handoff, then texture streaming, not Specto code.
+- `tools/soak_usd_switch.py` soaks a usd view's stage switches the way a user makes them
+  (mid first frame, a pending load replaced, a failed load, closes during a load) and
+  samples memory per load (SPEC-78, developer.md). Its first run found no reuse leak.
 - Security fix (SPEC-61): a path in a note's image (relative, or a page asset's), an
   OBJ's material map or a xacro include can no longer make Specto connect to another
   machine. On Windows a network path there (`\\host\share\x.png`, or the `\??\UNC\...`
