@@ -8,7 +8,9 @@ MTL and texture names, SPEC-68; a DAE's image names on their way to trimesh's re
 SPEC-69), xacro's includes (``specto_readers.xacro_expand``), an intaker's ``sources``
 (``canvas_document.IntakerParams`` and the unknown-files check, SPEC-72), every intake
 spec's source roots (``specto_intake.spec.SourceSpec`` and the backstop
-``specto_intake.sources.resolve_root``, SPEC-72), and through ``output_refusal``
+``specto_intake.sources.resolve_root``, SPEC-72), the scratch pad's paths
+(``specto_core.scratch``: link targets, drops, legacy cards; SPEC-67, SPEC-71), the
+prompt agent's ``scratch_append`` paths (SPEC-73), and through ``output_refusal``
 (``unc_ok`` for a project on a share) the roots and paths a Python link's output names
 (``specto_core.python_links``) and each item part the items host is asked for
 (``specto_app.web.scheme.locate_item``), SPEC-75, and a launcher's command, cwd and the

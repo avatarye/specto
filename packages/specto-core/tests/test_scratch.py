@@ -462,30 +462,10 @@ _NETWORK_LINK_FORMS = (
 
 
 def _trap_network_paths(monkeypatch, calls: list[str]) -> None:
-    """Every filesystem call that names ``host`` records itself and raises; the rest run,
-    since a store's own files are read and written meanwhile."""
-    import os
-    import pathlib
+    """The shared no-filesystem-call trap (``specto_core.testing.trap_paths``) on ``host``."""
+    from specto_core.testing import trap_paths
 
-    def trapped(real):
-        def call(*a, **k):
-            named = [str(x) for x in a if isinstance(x, (str, os.PathLike))]
-            if any("host" in x.lower() for x in named):
-                calls.append(" ".join(named))
-                raise AssertionError(f"a filesystem call on {named}")
-            return real(*a, **k)
-
-        return call
-
-    for name in (
-        *("is_file", "exists", "stat", "lstat", "resolve", "is_dir", "is_symlink"),
-        *("read_bytes", "read_text", "unlink", "replace", "rename", "open"),
-    ):
-        monkeypatch.setattr(pathlib.Path, name, trapped(getattr(pathlib.Path, name)))
-    for name in ("stat", "lstat", "listdir", "scandir", "replace", "rename", "unlink", "remove"):
-        monkeypatch.setattr(os, name, trapped(getattr(os, name)))
-    for name in ("realpath", "exists", "abspath", "isfile", "isdir"):
-        monkeypatch.setattr(os.path, name, trapped(getattr(os.path, name)))
+    trap_paths(monkeypatch, calls)
 
 
 def _legacy_index(root: Path, items: list[dict]) -> Path:
@@ -498,7 +478,11 @@ def _legacy_index(root: Path, items: list[dict]) -> Path:
 @pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")
 @pytest.mark.parametrize("kind", ["text", "image"])
 @pytest.mark.parametrize(
-    "name", [r"\\host\share\b.png", "//host/share/b.png", r"\\?\UNC\host\s\b.png", "b.png:host"]
+    "name",
+    [
+        *(r"\\host\share\b.png", "//host/share/b.png", r"/\host/s\b.png", r"\/host\s/b.png"),
+        *(r"\\?\UNC\host\s\b.png", "b.png:host"),
+    ],
 )
 def test_a_legacy_text_or_image_card_s_network_file_is_never_touched(root, monkeypatch, kind, name):
     """SPEC-71 review 1: ``_card_markdown`` joined a text or image card's ``file`` from the
@@ -517,7 +501,10 @@ def test_a_legacy_text_or_image_card_s_network_file_is_never_touched(root, monke
 
 
 @pytest.mark.parametrize("kind", ["text", "image"])
-@pytest.mark.parametrize("up", ["../../../victim", "../victim", "sub/../../victim"])
+@pytest.mark.parametrize(
+    "up",
+    ["../../../victim", "../victim", "sub/../../victim", r"..\..\..\victim", r"..\../..\victim"],
+)
 def test_a_legacy_card_s_file_outside_its_folder_is_never_read_moved_or_deleted(root, kind, up):
     """SPEC-71 review 1 (on main before): a text card with ``file: ../../../victim.txt``
     read a file outside the project into the pad and then unlinked it; an image card moved
@@ -592,8 +579,10 @@ def test_a_legacy_card_s_network_path_is_never_stat_ed_at_migration(root, monkey
         {"id": "s1", "kind": "file", "label": "frame", "path": "runs/00042.jpg"},
         {"id": "s2", "kind": "file", "label": "legacy", "path": r"\\host\share\legacy.png"},
         {"id": "s3", "kind": "file", "label": "", "path": r"\??\UNC\host\share\x.png"},
+        {"id": "s4", "kind": "file", "label": "mixed", "path": r"/\host/share\m.png"},
+        {"id": "s5", "kind": "file", "label": "mixed2", "path": r"\/host\share/n.png"},
     ]
-    (old / "index.json").write_text(json.dumps({"next": 4, "items": items}), encoding="utf-8")
+    (old / "index.json").write_text(json.dumps({"next": 6, "items": items}), encoding="utf-8")
     calls: list[str] = []
     _trap_network_paths(monkeypatch, calls)
     try:

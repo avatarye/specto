@@ -790,7 +790,7 @@ class ScratchStore:
             if path_refusal(text):
                 # a network or device path from the agent-writable index.json: named as
                 # plain text, never resolved or linked (SPEC-71)
-                return _clip(label or text).replace("[", "(").replace("]", ")")
+                return _link_label(label or text)
             name = Path(text).name
             return f"[{_link_label(label or name)}]({_target(self.link_to(text))})"
         return ""

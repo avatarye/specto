@@ -340,6 +340,10 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   on `\??\UNC\...`), and `specto_intake.sources.resolve_root` refuses it as the backstop
   before any walker, listing or resolver resolves it. The submit's unknown-files check
   never walks an absolute glob: it asks only whether the glob's base folder exists.
+  The scratch pad's paths (section 11: its link targets, drops, `markdown_of` and
+  `link_to`, and a legacy card's path or file at migration, SPEC-67, SPEC-71) and the
+  prompt bar agent's `scratch_append` `image` and `file` arguments (SPEC-73) pass it
+  too.
 - Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread follows the
   kind's sources; a change posts to the runtime, `poll()` emits the event
   `link.arrivals {link, target, added, removed, changed, arrived}` and re-resolves the
