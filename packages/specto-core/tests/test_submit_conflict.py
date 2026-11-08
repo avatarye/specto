@@ -569,6 +569,46 @@ def test_the_agent_s_own_undo_rewinds_its_copy(live: LiveCanvas):
     )
 
 
+def test_undos_out_of_order_leave_no_stale_copy(live: LiveCanvas):
+    """The agent relabels kobi (t1) and tamu (t2); the user undoes t2, then the agent
+    undoes t1. Its copy must hold neither write (t2's copy was the newest, t1's below
+    it), so its fresh relabel of kobi after the user's drag lands instead of meeting its
+    own stale label as a conflict."""
+    since = live.mark()
+    live.submit(edits={"views": {"kobi": {"label": "t1"}}}, origin=AGENT, since=since)
+    live.submit(edits={"views": {"tamu": {"label": "t2"}}}, origin=AGENT, since=since)
+    live.undo(origin="user")  # t2
+    live.undo(origin=AGENT)  # t1
+    assert live.data["views"]["kobi"]["label"] == "kobi"
+    gestures.move_views(live, {"kobi": (700, 300)})
+
+    live.submit(edits={"views": {"kobi": {"label": "again"}}}, origin=AGENT, since=since)
+    assert live.data["views"]["kobi"]["label"] == "again"
+    assert position(live, "kobi") == [700.0, 300.0]
+
+
+def test_a_whole_document_advances_only_the_fields_it_changed(live: LiveCanvas):
+    """The user drags tamu; the agent's fresh document (read after the drag) relabels
+    kobi and lands. It echoed tamu's new position without changing it, so the copy
+    does not absorb it: the agent's next edit moving tamu meets the user's drag as a
+    conflict, as it would have without the document in between."""
+    since = live.mark()
+    gestures.move_views(live, {"tamu": (1200, 500)})
+    doc = live.document()
+    doc["views"]["kobi"]["label"] = "front"
+    live.submit(doc, origin=AGENT, since=since)
+    assert live.data["views"]["kobi"]["label"] == "front"
+
+    with pytest.raises(CanvasConflict) as e:
+        live.submit(
+            edits={"views": {"tamu": {"layout": {"position": [1100, 0]}}}},
+            origin=AGENT,
+            since=since,
+        )
+    assert e.value.problems[0]["path"] == "/views/tamu"
+    assert position(live, "tamu") == [1200.0, 500.0]
+
+
 def test_the_agent_s_redo_advances_its_copy_again(live: LiveCanvas):
     since = live.mark()
     live.submit(edits={"views": {"kobi": {"label": "front"}}}, origin=AGENT, since=since)

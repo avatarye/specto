@@ -17,7 +17,6 @@ to the patch through ``on_patch``; nothing here reaches into views.
 from __future__ import annotations
 
 import copy
-import json
 import os
 import sys
 import threading
@@ -42,9 +41,12 @@ from .canvas_document import (
 from .diff_text import patch_label
 from .edits import (
     MISSING,
+    Clash,
     already_removed,
     conflict_problem,
     edit_conflict,
+    field_at,
+    field_paths,
     link_conflict_problem,
     link_ends,
     lost_ends,
@@ -129,36 +131,76 @@ Objects = dict[str, dict[str, Any]]
 class Mark:
     """A turn start (SPEC-18): where in ``_changes`` it was taken, and the agent's copy, the
     views and links as the agent last knew them. The copy starts as the mark found them
-    and advances with each accepted agent submit (``LiveCanvas._advance_mark``): one entry
-    per submit, keyed by its txn, so the agent's own undo rewinds the copy to before that
-    submit and its redo moves it forward again."""
+    (``found``) and advances with each accepted agent submit (``LiveCanvas._advance_mark``):
+    one entry per submit, keyed by its txn. When the agent undoes, the copies of submits
+    no longer applied (undone by anyone, in any order) are set aside, so the copy never
+    holds a write the canvas lost; its redo brings a copy back."""
 
     def __init__(self, start: int, found: Objects) -> None:
         self.start = start
-        #: ``(txn id or None for the turn's start, the copy after it)``, newest last
-        self.copies: list[tuple[str | None, Objects]] = [(None, found)]
-        #: copies the agent's undo took off, newest last, for its redo
+        #: the views and links as the mark found them
+        self.found = found
+        #: ``(txn, the copy after it)`` of the agent's applied submits, oldest first
+        self.copies: list[tuple[str, Objects]] = []
+        #: the copies of its undone submits, for a redo
         self.undone: list[tuple[str, Objects]] = []
 
     @property
     def known(self) -> Objects:
         """The agent's copy now."""
-        return self.copies[-1][1]
+        return self.copies[-1][1] if self.copies else self.found
 
     def advance(self, txn: str, known: Objects) -> None:
         self.copies.append((txn, known))
         self.undone.clear()
 
-    def rewind(self, txn: str) -> None:
-        """The agent undid ``txn``: back to the copy before it (when that submit is the
-        newest copy's; the agent undoes its own submits newest first)."""
-        if len(self.copies) > 1 and self.copies[-1][0] == txn:
-            self.undone.append(self.copies.pop())  # type: ignore[arg-type]
+    def sync(self, applied: set[str]) -> None:
+        """Keep the copies of the submits still applied (``applied``: the txns below the
+        undo cursor); the rest wait for a redo."""
+        self.undone += [c for c in self.copies if c[0] not in applied]
+        self.copies = [c for c in self.copies if c[0] in applied]
 
     def forward(self, txn: str) -> None:
-        """The agent redid ``txn``: its copy again."""
-        if self.undone and self.undone[-1][0] == txn:
-            self.copies.append(self.undone.pop())
+        """The agent redid ``txn``: its copy is the newest again."""
+        for i, (undone_txn, known) in enumerate(self.undone):
+            if undone_txn == txn:
+                del self.undone[i]
+                self.copies.append((txn, known))
+                return
+
+
+def _set_field(entry: dict[str, Any], path: str, value: Any) -> None:
+    """Set one ``field_paths`` field of ``entry`` (``MISSING`` removes it)."""
+    keys = path.split(".")
+    parent = entry
+    for key in keys[:-1]:
+        parent = parent.setdefault(key, {})
+    if value is MISSING:
+        parent.pop(keys[-1], None)
+    else:
+        parent[keys[-1]] = value
+
+
+def _document_changes(written: Objects, live: Objects) -> dict[str, dict[str, Any]]:
+    """What the agent's whole document changes against the live one, per section:
+    ``oid -> None`` for an object it removes, else the fields whose value differs
+    (``MISSING``: the field is dropped). What it merely echoes is no change of its."""
+    out: dict[str, dict[str, Any]] = {"views": {}, "links": {}}
+    for section in out:
+        for oid in {*written[section], *live[section]}:
+            agent = written[section].get(oid, MISSING)
+            before = live[section].get(oid, MISSING)
+            if agent is MISSING:
+                out[section][oid] = None
+                continue
+            fields = {
+                f: field_at(agent, f)
+                for f in field_paths(agent) | field_paths(before)
+                if field_at(agent, f) != field_at(before, f)
+            }
+            if fields:
+                out[section][oid] = fields
+    return out
 
 
 def _rename_ends(link: Any, renamed: dict[str, str]) -> Any:
@@ -504,9 +546,17 @@ class LiveCanvas:
             )
         retired = self.retired_ids()
         gone: list[str] = []
+        edit: dict[str, Any] | None = None
         if edits is not None:
+            if isinstance(edits, str):
+                # parsed once; text with a problem (bad JSON, a key written twice) stays
+                # text, so merge_edits reports it
+                parsed, text_problems = parse_canvas_text(edits)
+                if parsed is not None and not text_problems:
+                    edits = parsed
             gone = already_removed(self.data, edits, retired)
             document = merge_edits(self.data, edits, retired=retired)
+            edit = edits if isinstance(edits, dict) else None
         if isinstance(document, str):
             data, problems = parse_canvas_text(document)
         else:
@@ -541,16 +591,9 @@ class LiveCanvas:
                     view["params"] = {"selected": kept}
         patch = make_patch(self.data, new)
         agent_turn = since is not None and not is_user_origin(origin)
-        edit = json.loads(edits) if isinstance(edits, str) else edits
-        #: what the agent wrote (its whole document, before the merge): its copy next
-        written = copy.deepcopy({"views": new["views"], "links": new["links"]})
-        #: the views and links this submit creates (the copy takes them whole)
-        created = {
-            oid
-            for section in ("views", "links")
-            for oid in new[section]
-            if oid not in self.data[section]
-        }
+        #: what the agent's whole document changes (before the merge): its copy advances by
+        #: that alone, never by a value it merely echoed
+        changes = _document_changes(new, self.data) if agent_turn and edit is None else None
         if agent_turn:
             merged, conflicts = self._merge_user_changes(new, patch, since, edit)
             if conflicts:
@@ -559,6 +602,18 @@ class LiveCanvas:
                 doc = validate_canvas(new)
                 new = doc.to_data()
                 patch = make_patch(self.data, new)
+        #: the views and links this submit creates, after the merge (the copy takes them
+        #: whole, as the app writes them)
+        created = (
+            {
+                oid
+                for section in ("views", "links")
+                for oid in new[section]
+                if oid not in self.data[section]
+            }
+            if agent_turn
+            else set()
+        )
         problems = lock_problems(self.data, new, origin)
         problems += reach_problems(self.data, doc, is_user_origin(origin))
         problems += quota_problems(new, self.quotas, self.view_cost)
@@ -601,9 +656,7 @@ class LiveCanvas:
         rec.ts, rec.seq = entry.ts, entry.seq
         self.dirty = True
         if agent_turn:
-            self._advance_mark(
-                since, rec.id, written if edit is None else None, edit, renamed, created
-            )
+            self._advance_mark(since, rec.id, changes, edit, renamed, created)
         self.events.emit("canvas.submitted", {**rec.summary(), "seq": entry.seq})
         self._notify(patch, {"kind": "submit", "txn": rec.id, "origin": origin, "label": label})
         if self.autosave:
@@ -672,26 +725,36 @@ class LiveCanvas:
         self,
         since: int | None,
         txn: str,
-        written: Objects | None,
+        changes: dict[str, dict[str, Any]] | None,
         edit: dict[str, Any] | None,
         renamed: dict[str, str],
         created: set[str],
     ) -> None:
-        """After an accepted agent submit, the mark's copy becomes what the agent wrote
-        (SPEC-18): its whole document, or its edit laid over the copy. An edit advances
-        only the fields it named (an object it created goes in whole, as the app wrote
-        it), so a user's field the edit never named stays unknown to the agent and its
-        next document meets the user's value as a conflict, not as a copy of it. New
-        objects go by the names the app gave them, inside link ends too. The next submit
-        is judged against the agent's own last word, so a user change made after it (an
-        undo included) is the user's."""
+        """After an accepted agent submit, the mark's copy advances by what the submit
+        changed (SPEC-18), laid over the copy: an edit by the fields it named, a whole
+        document by the fields whose value differs from the live one (``changes``), an
+        object it created whole, as the app wrote it. A user's field the submit never
+        changed, or merely echoed, stays unknown to the agent, so its next submit meets
+        the user's value as a conflict, not as a copy of it. New objects go by the names
+        the app gave them, inside link ends too. The next submit is judged against the
+        agent's own last word, so a user change made after it (an undo included) is the
+        user's."""
         mark = self._marks.get(since) if since is not None else None
         if mark is None:
             return
-        if written is not None:
-            mark.advance(txn, written)
-            return
         known = copy.deepcopy(mark.known)
+        if changes is not None:
+            for section, objects in changes.items():
+                for oid, fields in objects.items():
+                    if fields is None:
+                        known[section].pop(oid, None)
+                    elif oid in created:
+                        known[section][oid] = copy.deepcopy(self.data[section][oid])
+                    else:
+                        entry = known[section].get(oid) or {}
+                        for path, value in fields.items():
+                            _set_field(entry, path, copy.deepcopy(value))
+                        known[section][oid] = entry
         for section in ("views", "links"):
             named = edit.get(section) if edit and isinstance(edit.get(section), dict) else {}
             for key, value in named.items():
@@ -709,7 +772,7 @@ class LiveCanvas:
                     merge_patch(known[section][oid], value) if oid in known[section] else value
                 )
         for lid in [lid for lid, link in known["links"].items() if lost_ends(link, known["views"])]:
-            del known["links"][lid]  # gone with a view the edit removed
+            del known["links"][lid]  # gone with a view the submit removed
         mark.advance(txn, known)
 
     def _merge_user_changes(
@@ -747,36 +810,30 @@ class LiveCanvas:
             seen.add(oid)
             live_entry = self.data[section].get(oid, MISSING)
             new_entry = new[section].get(oid, MISSING)
-            # a whole document's fix-it for a view the user removed names what else to
-            # leave out: the view's links still in the document, and the root view
-            links = (
-                [lid for lid, link in new["links"].items() if oid in link_ends(link)]
+            clash = Clash(
+                section,
+                oid,
+                live_entry,
+                form,
+                # a whole document's fix-it for a view the user removed names what else to
+                # leave out: the view's links still in the document, and the root view
+                links=tuple(lid for lid, link in new["links"].items() if oid in link_ends(link))
                 if form == "document" and section == "views"
-                else []
+                else (),
+                root=form == "document" and new.get("root_view") == oid,
             )
-            root = form == "document" and new.get("root_view") == oid
             if known is None:
-                out.append(
-                    conflict_problem(
-                        section, oid, live_entry, [""], form=form, links=links, root=root
-                    )
-                )
+                out.append(conflict_problem(clash, [""]))
                 continue
             known_entry = known[section].get(oid, MISSING)
             if edit is not None:
-                problem = edit_conflict(
-                    section, oid, edit, known_entry, live_entry, new_entry, new["views"]
-                )
+                problem = edit_conflict(clash, edit, known_entry, new_entry, new["views"])
                 if problem is not None:
                     out.append(problem)
                 continue
             merged, fields = three_way(known_entry, live_entry, new_entry)
             if fields:
-                out.append(
-                    conflict_problem(
-                        section, oid, live_entry, fields, form=form, links=links, root=root
-                    )
-                )
+                out.append(conflict_problem(clash, fields))
                 continue
             if merged is MISSING:
                 new[section].pop(oid, None)
@@ -827,11 +884,12 @@ class LiveCanvas:
         self._journal(rec, kind=kind, patch=patch, inverse=inverse, origin=origin)
         self._changes.append((origin, rec.touched))
         if not is_user_origin(origin):
-            # the agent's own undo takes its copy back to before the undone submit (its
+            # the agent's own undo takes its copy back to its submits still applied (its
             # redo forward again); a user's undo is a user change the copy knows nothing of
+            applied = {r.id for r in self.history[: self.cursor]}
             for mark in self._marks.values():
                 if kind == "undo":
-                    mark.rewind(rec.id)
+                    mark.sync(applied)
                 else:
                     mark.forward(rec.id)
         self.dirty = True

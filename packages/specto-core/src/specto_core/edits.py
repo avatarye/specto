@@ -14,6 +14,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from .canvas_document import CanvasInvalid, Problem, parse_canvas_text
@@ -296,28 +297,35 @@ def lost_ends(link: Any, views: Any) -> list[str]:
     return out
 
 
-def conflict_problem(
-    section: str,
-    oid: str,
-    entry: Any,
-    fields: list[str],
-    *,
-    form: Form,
-    links: Iterable[str] = (),
-    root: bool = False,
-) -> Problem:
-    """A turn-start conflict on one object: removed by the user (``entry`` ``MISSING``),
-    or changed in ``fields`` (dotted paths; ``""`` for the object as a whole) by both
-    sides. Writing over the user's value is refused again, so the fix-it says how to
-    keep it, per submit ``form``. An edit leaves the field out; a whole document copies
-    the live value (leaving it out would remove it, refused again), and leaves out a view
-    the user removed together with ``links``, its links still in the document, and
-    clears ``root_view`` when the document made it the root (``root``); both would fail
-    validation before the merge."""
+@dataclass(frozen=True)
+class Clash:
+    """One object a submit and the user both touched, as a conflict's fix-it needs it:
+    its ``section`` and id, its ``live`` entry (``MISSING``: the user removed it), the
+    submit's ``form``, and for a whole document removing a view, ``links`` (the view's
+    links still in the document) and ``root`` (the document makes it the root view)."""
+
+    section: str
+    oid: str
+    live: Any
+    form: Form
+    links: tuple[str, ...] = ()
+    root: bool = False
+
+
+def conflict_problem(clash: Clash, fields: list[str]) -> Problem:
+    """A turn-start conflict on one object: removed by the user (``clash.live``
+    ``MISSING``), or changed in ``fields`` (dotted paths; ``""`` for the object as a
+    whole) by both sides. Writing over the user's value is refused again, so the fix-it
+    says how to keep it, per submit form. An edit leaves the field out; a whole document
+    copies the live value (leaving it out would remove it, refused again), and leaves out
+    a view the user removed together with its links still in the document, and clears
+    ``root_view`` when the document made it the root; both would fail validation before
+    the merge."""
+    section, oid, entry = clash.section, clash.oid, clash.live
     if entry is MISSING:
-        with_links = sorted(links)
+        with_links = sorted(clash.links)
         what = f"{oid} and links {', '.join(with_links)}" if with_links else oid
-        if root:
+        if clash.root:
             what += " and clear root_view"
         return Problem(
             path=f"/{section}/{oid}",
@@ -328,7 +336,7 @@ def conflict_problem(
     what = f"{oid}'s {which}" if which else oid
     how = (
         "leave it out of your edits"
-        if form == "edits"
+        if clash.form == "edits"
         else "copy its live value (from this entry) into your document"
     )
     return Problem(
@@ -359,38 +367,34 @@ def link_conflict_problem(lid: str, views: list[str], *, form: Form) -> Problem:
 
 
 def edit_conflict(
-    section: str,
-    oid: str,
-    edit: dict[str, Any],
-    known: Any,
-    live: Any,
-    new: Any,
-    views: Any,
+    clash: Clash, edit: dict[str, Any], known: Any, new: Any, views: Any
 ) -> Problem | None:
     """The turn-start conflict of an edit on one object the user touched (SPEC-18), or
     ``None`` when it lands. An edit changes what it names: named fields the user changed
     (from ``known``, the object as the agent last knew it) to another value conflict,
     even when the edit sets them back to the known value; a named removal of what the
     user changed too; and a user's link the edit drops with a view it removes."""
+    section, oid, live = clash.section, clash.oid, clash.live
     named = edit.get(section) if isinstance(edit.get(section), dict) else {}
     if oid not in named:
         if new is MISSING and live is not MISSING and section == "links":
             return link_conflict_problem(oid, lost_ends(live, views), form="edits")
         return None
     if named[oid] is None:
-        return None if live == known else conflict_problem(section, oid, live, [""], form="edits")
-    clash = sorted(
+        return None if live == known else conflict_problem(clash, [""])
+    fields = sorted(
         f
         for f in field_paths(named[oid])
         if field_at(live, f) != field_at(known, f) and field_at(new, f) != field_at(live, f)
     )
-    return conflict_problem(section, oid, live, clash, form="edits") if clash else None
+    return conflict_problem(clash, fields) if fields else None
 
 
 __all__ = [
     "EDITABLE",
     "MISSING",
     "REFUSED",
+    "Clash",
     "Form",
     "already_removed",
     "conflict_problem",

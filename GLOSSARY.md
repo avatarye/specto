@@ -423,7 +423,7 @@ A submit that names only what changes, in the canvas document's own shape (a JSO
 _Avoid_: patch (that is the stored change), delta, diff
 
 **Agent's copy**:
-The canvas's views and links as the agent last knew them in a prompt turn: as the turn began, then as each accepted submit of the agent's wrote them (an edit advances only the fields it named; an object it created goes in whole). The agent's next submit is judged against it: what the user changed since is kept unless the agent changed the same field. The agent's own undo takes the copy back to before the undone submit; a user's undo is a user change. Also called the turn-start copy, its earlier name (it is still the copy as the turn starts).
+The canvas's views and links as the agent last knew them in a prompt turn: as the turn began, then advanced by what each accepted submit of the agent's changed (an edit by the fields it named, a document by the fields that differ from the live ones; an object it created goes in whole), never by a value it merely echoed. The agent's next submit is judged against it: what the user changed since is kept unless the agent changed the same field. The agent's own undo takes the copy back to before the undone submit; a user's undo is a user change. Also called the turn-start copy, its earlier name (it is still the copy as the turn starts).
 _Avoid_: base, snapshot (a snapshot is `snap`'s), checkpoint
 
 **Turn-start conflict**:

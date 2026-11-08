@@ -16,9 +16,12 @@ import select
 import socket
 import sys
 from collections import deque
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from specto_core.rpc import EndpointInfo, RpcConnection, RpcHandler
+
+if TYPE_CHECKING:
+    from specto_core.live_canvas import SerialLock
 
 from .errors import TransportError
 
@@ -197,10 +200,13 @@ class InProcessTransport:
     """Talks to an ``RpcHandler`` directly: ``send`` runs the request synchronously and
     queues the response plus any pushed notifications for ``recv``."""
 
-    def __init__(self, handler: RpcHandler, lock: Any = None) -> None:
+    def __init__(self, handler: RpcHandler, lock: SerialLock | None = None) -> None:
         self.handler = handler
-        #: held around each request (``InProcessEndpoint`` shares one among its clients)
-        self._lock = lock if lock is not None else contextlib.nullcontext()
+        #: the canvas's serialise lock, held around each request (``InProcessEndpoint``
+        #: shares it among its clients); None for a handler with no canvas behind it
+        self._lock: SerialLock | contextlib.AbstractContextManager[Any] = (
+            lock if lock is not None else contextlib.nullcontext()
+        )
         self._lines: deque[str] = deque()
         self.conn: RpcConnection = handler.connect(send=self._push)
         self._closed = False
