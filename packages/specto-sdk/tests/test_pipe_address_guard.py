@@ -13,6 +13,7 @@ import sys
 import pytest
 
 from specto_core import Project
+from specto_core.errors import SpectoError
 from specto_core.rpc import EndpointInfo, endpoint_path
 from specto_sdk import Client, TransportError
 from specto_sdk import transport as transport_mod
@@ -56,7 +57,7 @@ def test_a_client_refuses_an_endpoint_file_naming_a_remote_pipe(
     endpoint_path(proj).write_text(
         json.dumps({"kind": "pipe", "address": r"\\atk\pipe\p", "pid": 1}), encoding="utf-8"
     )
-    with pytest.raises(Exception, match="local pipe"):
+    with pytest.raises(SpectoError, match="local pipe"):
         Client.open(proj)
     assert opened == []
 

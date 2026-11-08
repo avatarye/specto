@@ -18,6 +18,7 @@ import sys
 from collections import deque
 from typing import TYPE_CHECKING, Any, Protocol
 
+from specto_core.pathguard import endpoint_refusal
 from specto_core.rpc import (
     PIPE_REFUSED,
     EndpointInfo,
@@ -30,6 +31,9 @@ if TYPE_CHECKING:
     from specto_core.live_canvas import SerialLock
 
 from .errors import TransportError
+
+#: what to do about an endpoint address that is refused (an agent may have written it)
+REFUSED_FIX = "delete .specto/endpoint.json and restart the app"
 
 
 class Transport(Protocol):
@@ -155,7 +159,7 @@ class PipeTransport:
     def __init__(self, name: str) -> None:
         path = local_pipe_path(name)
         if path is None:
-            raise TransportError(f"{PIPE_REFUSED}, not {name!r}", fix="restart the app")
+            raise TransportError(f"{PIPE_REFUSED}, not {name!r}", fix=REFUSED_FIX)
         try:
             self._f = open(path, "r+b", buffering=0)  # noqa: SIM115 - closed in close()
         except OSError as e:
@@ -252,7 +256,14 @@ class InProcessTransport:
 
 
 def open_transport(info: EndpointInfo, *, timeout: float = 5.0) -> Transport:
-    """Connect to the endpoint described by ``.specto/endpoint.json``."""
+    """Connect to the endpoint described by ``.specto/endpoint.json``. An address that is
+    not local is refused before any connect, however the ``EndpointInfo`` was built (its
+    validator judges it too; a tcp host may be remote here, as an explicit url names
+    one: ``read_endpoint_file`` narrows a file's to loopback, SPEC-88)."""
+    if info.kind != "inproc":
+        why = endpoint_refusal(info.kind, info.address, remote_ok=True)
+        if why is not None:
+            raise TransportError(f"{why}, not {info.address!r}", fix=REFUSED_FIX)
     if info.kind == "tcp":
         return SocketTransport.connect_tcp(info.address, timeout=timeout)
     if info.kind == "unix":

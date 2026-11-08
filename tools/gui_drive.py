@@ -144,14 +144,13 @@ import atexit
 import glob
 import json
 import os
-import socket
 import sys
-import tempfile
 import time
 from pathlib import Path
 
 import pyautogui
 from console_utf8 import utf8_stdio
+from endpoint_connect import connect  # local endpoints only (SPEC-88)
 from gui_platform import (
     WHEEL_NOTCH,
     activate,
@@ -211,23 +210,6 @@ def probe_rect(state: Path, timeout: float = 30.0) -> list[int]:
         if time.monotonic() > deadline:
             raise SystemExit(f"[ERROR] drop probe not ready after {timeout:.0f} s: {state}")
         time.sleep(0.2)
-
-
-def connect(info: dict):
-    """A binary stream to the app's endpoint (``.specto/endpoint.json``): the named pipe on
-    Windows; elsewhere QLocalServer's unix socket, a path or a name in the temp dir (the
-    SDK's ``open_transport`` rules; this venv has no specto_sdk)."""
-    address = info["address"]
-    if sys.platform == "win32" and info.get("kind", "pipe") == "pipe":
-        return open(address, "r+b", buffering=0)
-    if info.get("kind") == "tcp":
-        host, _, port = address.rpartition(":")
-        sock = socket.create_connection((host or "127.0.0.1", int(port)))
-    else:
-        path = address if os.sep in address else os.path.join(tempfile.gettempdir(), address)
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect(path)
-    return sock.makefile("rwb", buffering=0)
 
 
 class Endpoint:

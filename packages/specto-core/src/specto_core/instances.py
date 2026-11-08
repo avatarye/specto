@@ -32,10 +32,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .errors import NotFound
 from .names import CONSONANTS, VOWELS
+from .pathguard import endpoint_refusal
 
 NAMES_FILE = "instance-names.json"
 INSTANCES_DIR = "instances"
@@ -152,6 +153,20 @@ class Instance(BaseModel):
         default_factory=dict, description="The app's .specto/endpoint.json (kind, address, ...)."
     )
     started: float = 0.0
+
+    @model_validator(mode="after")
+    def _endpoint_is_local(self) -> Instance:
+        """The file is in the user dir, which an agent can write, and ``url()`` reaches
+        ``Client.open`` as if the user had typed it: the endpoint is judged as a file's
+        (a local pipe or socket, a loopback tcp host; SPEC-88). A refused one makes the
+        entry unreadable, so it is never listed."""
+        kind = str(self.endpoint.get("kind", ""))
+        address = str(self.endpoint.get("address", ""))
+        if kind and address:
+            why = endpoint_refusal(kind, address)
+            if why is not None:
+                raise ValueError(f"{why}, not {address!r}")
+        return self
 
     def url(self) -> str:
         """The endpoint as a url (``pipe://specto-<id>``) for ``Client.open(endpoint=)``."""

@@ -28,7 +28,6 @@ import glob
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -41,6 +40,7 @@ ROOT = HERE.parent
 sys.path.insert(0, str(HERE))
 import gui_scratch  # noqa: E402
 from console_utf8 import utf8_stdio  # noqa: E402
+from endpoint_connect import connect  # noqa: E402  (local endpoints only, SPEC-88)
 from gui_platform import kill_tree, popen_kwargs  # noqa: E402
 from gui_refs import Unresolved, has_refs, resolve_refs, tokens  # noqa: E402
 
@@ -52,22 +52,6 @@ START_S = 90.0
 
 class Flow(Exception):
     """A flow line failed."""
-
-
-def connect(info: dict) -> Any:
-    """A binary stream to a QLocalServer: the named pipe on Windows, the unix socket
-    elsewhere (``gui_drive.connect``'s rules)."""
-    address = info["address"]
-    if sys.platform == "win32" and info.get("kind", "pipe") == "pipe":
-        return open(address, "r+b", buffering=0)
-    if info.get("kind") == "tcp":
-        host, _, port = address.rpartition(":")
-        sock = socket.create_connection((host or "127.0.0.1", int(port)))
-    else:
-        path = address if os.sep in address else os.path.join(tempfile.gettempdir(), address)
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect(path)
-    return sock.makefile("rwb", buffering=0)
 
 
 class Lines:

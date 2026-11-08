@@ -31,6 +31,12 @@ accepted path a reserved device name (``NUL``, ``COM1``, ...) and a ``:`` stream
 A caller that judges network paths itself (xacro, inside its allowed folders;
 ``output_refusal``, inside a project on a share) may let a plain ``\\\\host\\share``
 through with ``unc_ok``; never anything else.
+
+The endpoint addresses clients read from ``.specto/endpoint.json`` and the instance
+files are judged here too, by ``local_pipe_path`` and ``endpoint_refusal`` (SPEC-74,
+SPEC-88; ``specto_core.rpc`` re-exports ``local_pipe_path``). This module imports only
+the standard library, so a tool outside the workspace venv (``tools/endpoint_connect.py``)
+loads it by its file.
 """
 
 from __future__ import annotations
@@ -199,11 +205,79 @@ def under(path: str | Path, roots: Iterable[str | Path]) -> bool:
     return any(p == Path(r) or p.is_relative_to(Path(r)) for r in roots)
 
 
+# -- endpoint addresses (SPEC-74, SPEC-88) ---------------------------------------------------
+#: a local pipe's name: what ``rpc.endpoint_name`` makes (``specto-<project id>``), ASCII only
+_PIPE_NAME = re.compile(r"[A-Za-z0-9_.-]+", re.ASCII)
+_LOCAL_PIPE_PREFIX = re.compile(r"\\\\\.\\pipe\\", re.ASCII | re.IGNORECASE)
+PIPE_REFUSED = r"a pipe endpoint must name a local pipe (a bare name or \\.\pipe\<name>)"
+TCP_REFUSED = "a tcp endpoint read from a file must be loopback (127.0.0.0/8, ::1 or localhost)"
+UNIX_REFUSED = "a unix endpoint must be a local socket path, not a network or device path"
+
+
+def local_pipe_path(address: str) -> str | None:
+    r"""The ``\\.\pipe\<name>`` path a pipe endpoint's ``address`` names, or None when it
+    is not a local pipe (SPEC-74). Accepted: a bare name (``specto-<id>``) or that full
+    path, the name in ``[A-Za-z0-9_.-]``, not only dots. Everything else is refused by its
+    text, before any open: on Windows opening ``\\host\pipe\x`` connects to the host
+    over SMB and can hand it the user's NTLM hash, and ``endpoint.json`` is agent-writable."""
+    prefix = _LOCAL_PIPE_PREFIX.match(address)
+    name = address[prefix.end() :] if prefix else address
+    if not _PIPE_NAME.fullmatch(name) or not name.strip("."):
+        return None
+    return address if prefix else rf"\\.\pipe\{name}"
+
+
+def _loopback(host: str) -> bool:
+    import ipaddress
+
+    if host == "" or host.lower() == "localhost":
+        return True  # an empty host is 127.0.0.1 to every client
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False  # a name other than localhost resolves who knows where
+
+
+def endpoint_refusal(kind: str, address: str, *, remote_ok: bool = False) -> str | None:
+    r"""Why an endpoint (``kind``, ``address``) may not be connected to, or None. Text
+    only: nothing is opened, resolved or connected.
+
+    - ``pipe``: a local pipe only (``local_pipe_path``).
+    - ``unix``: a local socket path: never one starting with ``\`` or ``//`` (no network
+      or device path, even where a backslash is a plain character), nor one
+      ``path_refusal`` refuses for anything but being rooted without a drive.
+    - ``tcp``: ``host:port`` with a port in 1-65535; the host loopback unless
+      ``remote_ok``, which only the user's explicit ``--endpoint`` / ``SPECTO_ENDPOINT``
+      grants: an address read from a file (``endpoint.json``, an instance file) is
+      agent-writable, and a remote host there would hand every call to a server the
+      agent controls (SPEC-88).
+    - ``inproc``: never from another process.
+    """
+    if kind == "pipe":
+        return None if local_pipe_path(address) is not None else PIPE_REFUSED
+    if kind == "unix":
+        if not address or address[:1] == "\\" or address[:2] == "//":
+            return UNIX_REFUSED
+        # a single leading "/" is a local path on Windows too (the current drive's root):
+        # only what reaches out or names a device is refused
+        why = path_refusal(address)
+        return UNIX_REFUSED if why is not None and why is not Refusal.ROOTED else None
+    if kind == "tcp":
+        host, sep, port = address.rpartition(":")
+        if not sep or not port.isdigit() or not 0 < int(port) < 65536:
+            return "a tcp endpoint is host:port, the port 1-65535"
+        return None if remote_ok or _loopback(host) else TCP_REFUSED
+    return f"an endpoint of kind {kind!r} cannot be connected to from a process"
+
+
 __all__ = [
     "DEVICE_NAMES",
+    "PIPE_REFUSED",
     "Refusal",
     "below_root",
+    "endpoint_refusal",
     "file_uri_path",
+    "local_pipe_path",
     "output_refusal",
     "path_refusal",
     "reference_refusal",

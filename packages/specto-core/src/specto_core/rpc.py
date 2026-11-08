@@ -18,7 +18,6 @@ from __future__ import annotations
 import inspect
 import json
 import os
-import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
@@ -28,6 +27,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from .engine import CallContext, Engine
 from .errors import InvalidArgs, NotFound, SpectoError
 from .events import Event
+from .pathguard import PIPE_REFUSED as PIPE_REFUSED  # re-exported (SPEC-74)
+from .pathguard import endpoint_refusal
+from .pathguard import local_pipe_path as local_pipe_path  # re-exported (SPEC-74)
 from .project import SPECTO_DIR, Project
 from .registry import API_COMPATIBLE, API_LEVEL
 
@@ -44,24 +46,6 @@ SPECTO_ERROR = -32000
 
 EndpointKind = Literal["pipe", "unix", "tcp", "inproc"]
 
-#: a local pipe's name: what ``endpoint_name`` makes (``specto-<project id>``), ASCII only
-_PIPE_NAME = re.compile(r"[A-Za-z0-9_.-]+", re.ASCII)
-_LOCAL_PIPE_PREFIX = re.compile(r"\\\\\.\\pipe\\", re.ASCII | re.IGNORECASE)
-PIPE_REFUSED = r"a pipe endpoint must name a local pipe (a bare name or \\.\pipe\<name>)"
-
-
-def local_pipe_path(address: str) -> str | None:
-    r"""The ``\\.\pipe\<name>`` path a pipe endpoint's ``address`` names, or None when it
-    is not a local pipe (SPEC-74). Accepted: a bare name (``specto-<id>``) or that full
-    path, the name in ``[A-Za-z0-9_.-]``, not only dots. Everything else is refused by its
-    text, before any open: on Windows opening ``\\host\pipe\x`` connects to the host
-    over SMB and can hand it the user's NTLM hash, and ``endpoint.json`` is agent-writable."""
-    prefix = _LOCAL_PIPE_PREFIX.match(address)
-    name = address[prefix.end() :] if prefix else address
-    if not _PIPE_NAME.fullmatch(name) or not name.strip("."):
-        return None
-    return address if prefix else rf"\\.\pipe\{name}"
-
 
 # -- endpoint discovery (.specto/endpoint.json) ------------------------------------------
 class EndpointInfo(BaseModel):
@@ -77,9 +61,14 @@ class EndpointInfo(BaseModel):
     api_compatible: int = API_COMPATIBLE
 
     @model_validator(mode="after")
-    def _pipe_is_local(self) -> EndpointInfo:
-        if self.kind == "pipe" and local_pipe_path(self.address) is None:
-            raise ValueError(f"{PIPE_REFUSED}, not {self.address!r}")
+    def _address_is_local(self) -> EndpointInfo:
+        """A pipe names a local pipe, a unix socket a local path (SPEC-74, SPEC-88); a
+        tcp host may be remote here (an explicit url), ``read_endpoint_file`` and the
+        instance files narrow it to loopback."""
+        if self.kind != "inproc":
+            why = endpoint_refusal(self.kind, self.address, remote_ok=True)
+            if why is not None:
+                raise ValueError(f"{why}, not {self.address!r}")
         return self
 
     def url(self) -> str:
@@ -97,8 +86,9 @@ class EndpointInfo(BaseModel):
         try:
             return cls(kind=kind, address=addr, pid=pid, project_id=project_id)  # type: ignore[arg-type]
         except ValidationError as e:
+            why = endpoint_refusal(kind, addr, remote_ok=True) or str(e)
             raise InvalidArgs(
-                f"bad endpoint url {url!r}: {PIPE_REFUSED}" if kind == "pipe" else str(e),
+                f"bad endpoint url {url!r}: {why}",
                 fix="use pipe://<name>, unix://<path> or tcp://<host>:<port>",
             ) from e
 
@@ -124,10 +114,16 @@ def read_endpoint_file(project: Project | Path) -> EndpointInfo | None:
     path = endpoint_path(project)
     if not path.exists():
         return None
+    fix = f"delete {SPECTO_DIR}/{ENDPOINT_FILE} and restart the app"
     try:
-        return EndpointInfo.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        info = EndpointInfo.model_validate(json.loads(path.read_text(encoding="utf-8")))
     except (ValueError, OSError) as e:
-        raise SpectoError(f"{path} is not a valid endpoint file: {e}", fix="restart the app") from e
+        raise SpectoError(f"{path} is not a valid endpoint file: {e}", fix=fix) from e
+    # the file is agent-writable: a tcp host there is loopback (SPEC-88)
+    why = endpoint_refusal(info.kind, info.address)
+    if why is not None:
+        raise SpectoError(f"{path} is not a valid endpoint file: {why}", fix=fix)
+    return info
 
 
 def remove_endpoint_file(project: Project | Path) -> None:

@@ -590,6 +590,14 @@ a bare name (`[A-Za-z0-9_.-]`, not only dots) or `\\.\pipe\<name>`. Anything els
 remote `\\host\pipe\x`, a device or NT path) is refused by its text before any open
 (`specto_core.rpc.local_pipe_path`, in `EndpointInfo`'s validator and in `PipeTransport`;
 SPEC-74): `endpoint.json` is agent-writable, and opening a remote pipe connects out over SMB.
+A `unix` address is a local socket path, never one starting with a backslash or `//`. A
+`tcp` address is `host:port`; read from `endpoint.json` or an instance file its host is
+loopback only (`127.0.0.0/8`, `::1`, `localhost`), since a remote host there would hand
+every call to a server an agent controls. A remote host is the user's choice only through
+`--endpoint` / `SPECTO_ENDPOINT` (SPEC-88). One rule, `specto_core.pathguard.endpoint_refusal`,
+judges them in `EndpointInfo`'s validator, `read_endpoint_file`, `Instance`'s validator
+(a refused entry is not listed), `open_transport` and the GUI drivers
+(`tools/endpoint_connect.py`, which loads `pathguard` by its file).
 
 | Method | Params | Result |
 |---|---|---|

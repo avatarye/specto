@@ -15,6 +15,13 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- An endpoint read from a file names this machine only (SPEC-88). A tcp address in
+  `.specto/endpoint.json` or an instance file may name only a loopback host, so an agent
+  cannot redirect `specto`, SDK and MCP calls to a server of its own; a remote host still
+  works through `--endpoint` / `SPECTO_ENDPOINT`. A unix socket address is never a network
+  or device path, and the repo's GUI drivers (`tools/gui_drive.py`, `tools/gui_qtdrive.py`)
+  judge the address the same way before they open it. A refused endpoint's fix says to
+  delete `.specto/endpoint.json` and restart the app.
 - A project that lives on a share (or on a mapped drive, which resolves to one) serves
   its content-link items, intaker items and scratch notes again (SPEC-91): the items
   host judges a part's path against the root of what delivered it, else the project's,
