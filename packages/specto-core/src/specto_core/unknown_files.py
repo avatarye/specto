@@ -14,9 +14,7 @@ from pathlib import Path, PurePath
 from typing import Any
 
 from .canvas_document import Problem
-from .pathguard import path_refusal, strip_local_long
-
-GLOB_CHARS = frozenset("*?[")
+from .pathguard import path_refusal, split_glob
 
 
 def source_exists(root: Path, source: str) -> bool:
@@ -31,34 +29,15 @@ def source_exists(root: Path, source: str) -> bool:
     first one with glob magic) is a folder (SPEC-79)."""
     if path_refusal(source) is not None:
         return False
-    source = strip_local_long(source)
-    if _is_glob(source):
-        if PurePath(source).anchor:
-            return _glob_base(source).is_dir()
+    base, pattern = split_glob(source)  # the intake spec's own split (SPEC-94)
+    if pattern is not None:
+        if PurePath(base).anchor:
+            return Path(base).is_dir()
         try:
             return next(root.glob(source), None) is not None
         except (ValueError, OSError, NotImplementedError):
             return False
-    return (root / source).exists()
-
-
-def _is_glob(source: str) -> bool:
-    """Glob magic after the anchor: the ``?`` of a long-path prefix (``\\\\?\\C:\\x``) is
-    no glob (SPEC-90). Text only."""
-    rest = source[len(PurePath(source).anchor) :]
-    return any(c in rest for c in GLOB_CHARS)
-
-
-def _glob_base(source: str) -> Path:
-    """The literal folder an absolute glob starts from: its anchor plus every segment
-    before the first one with glob magic. Text only."""
-    path = PurePath(source)
-    base = Path(path.anchor)
-    for part in path.parts[1:]:
-        if any(c in part for c in GLOB_CHARS):
-            break
-        base = base / part
-    return base
+    return (root / base).exists()
 
 
 def file_problems(doc: dict[str, Any], root: Path | None) -> list[Problem]:
@@ -91,10 +70,9 @@ def file_problems(doc: dict[str, Any], root: Path | None) -> list[Problem]:
 def _missing_source(path: str, src: str) -> Problem:
     """The problem for a source that names nothing: a relative one under the project
     folder, an absolute one on this machine."""
-    plain = strip_local_long(src)
-    if PurePath(plain).anchor:
-        is_glob = _is_glob(plain)
-        what = f"its folder {_glob_base(plain).as_posix()!r}" if is_glob else "it"
+    base, pattern = split_glob(src)
+    if PurePath(base).anchor:
+        what = f"its folder {base!r}" if pattern is not None else "it"
         return Problem(
             path=path,
             message=f"source {src!r} names an absolute local path; {what} does not exist",

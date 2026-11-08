@@ -66,6 +66,9 @@ class ContentValue(BaseModel):
     root: str = ""
     entries: list[ContentEntry] = Field(default_factory=list)
     link: str = Field(default="", description="The link that delivered it (runtime stamp).")
+    truncated: str = Field(
+        default="", description="Which source the walk cut short, and its fix-it (SPEC-94)."
+    )
 
     def entry(self, key: str) -> ContentEntry | None:
         return next((e for e in self.entries if e.key == key), None)

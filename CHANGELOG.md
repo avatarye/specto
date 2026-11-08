@@ -34,6 +34,12 @@ the release and move on their own schedule.
   another share stays refused, and so does a part with a bare leading slash (the
   current drive's root on Windows). The leading-slash rule is one helper,
   `pathguard.below_root`.
+- A run-time intake walk and a watcher's listing are bounded (SPEC-94): past 100,000
+  files or 10 s the walk stops, and the link's status says which source was cut short
+  and to narrow its folder or glob. Before, an agent-written `C:/**/*.x` walked the whole
+  drive on every rescan. `intake.preview` keeps its own 20,000-file cap and now stops
+  after 10 s too. The submit and the intake spec split a source into base and glob with
+  one helper (`pathguard.split_glob`).
 - Security fix (SPEC-73): the prompt bar agent's `scratch_append` no longer asks Windows
   whether a network path in its `image` or `file` argument exists; such a path (or a
   device or stream path) is refused by its text first.
