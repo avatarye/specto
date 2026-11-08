@@ -9,7 +9,7 @@ headless canvas skips this.
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any
 
 from .canvas_document import Problem
@@ -22,13 +22,18 @@ def source_exists(root: Path, source: str) -> bool:
     """A source names a file or folder under ``root`` (``.`` is the folder itself), or
     a glob that matches at least one entry. A source the path guard refuses (a network
     or device path; the document's validation reports it first, SPEC-72) is never looked
-    up: it does not exist here."""
+    up: it does not exist here. An absolute glob (a local drive path, ``C:/data/**/*.jpg``)
+    is looked up from its own anchor, since ``Path.glob`` takes only relative patterns
+    (SPEC-79)."""
     if path_refusal(source) is not None:
         return False
     if any(c in source for c in GLOB_CHARS):
+        where, pattern = root, PurePath(source)
+        if pattern.anchor:
+            where, pattern = Path(pattern.anchor), pattern.relative_to(pattern.anchor)
         try:
-            return next(root.glob(source), None) is not None
-        except (ValueError, OSError):
+            return next(where.glob(str(pattern)), None) is not None
+        except (ValueError, OSError, NotImplementedError):
             return False
     return (root / source).exists()
 

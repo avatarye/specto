@@ -331,7 +331,8 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   out or open a device. An intaker's `params.sources` and an intake spec's roots pass the
   same guard (SPEC-72): the canvas document's validation refuses such a source with a
   problem before the submit asks whether it exists, `intake.preview` answers with an
-  error, and `specto_intake.sources.resolve_root` refuses it as the backstop before any
+  error (a source string is judged whole before a glob is split out of it, so both agree
+  on `\??\UNC\...`), and `specto_intake.sources.resolve_root` refuses it as the backstop before any
   walker, listing or resolver resolves it.
 - Watch (story 57): for every link with `params.watch`, a `LinkWatch` thread follows the
   kind's sources; a change posts to the runtime, `poll()` emits the event

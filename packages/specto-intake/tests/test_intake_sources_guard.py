@@ -6,44 +6,21 @@ backstop for every walker, listing and resolver."""
 from __future__ import annotations
 
 import os
-import pathlib
 from pathlib import Path
 
 import pytest
 from intake_helpers import ALIASES, EXT_KINDS
+from pydantic import ValidationError
 
 import specto_intake  # noqa: F401  (registers the commands)
 from specto_core import Engine, Project
+from specto_core.canvas_document import IntakerParams
 from specto_core.errors import InvalidArgs
 from specto_intake.preview import preview
 from specto_intake.sources import resolve_root
 from specto_intake.spec import IntakeSpec, SourceSpec
 
 WINDOWS = os.name == "nt"
-SUSPECT = ("host", "\\\\.", "\\??", "/??")
-
-
-@pytest.fixture
-def no_reach(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    seen: list[str] = []
-
-    def guard(real):
-        def wrapped(path, *a, **k):
-            text = str(path)
-            seen.append(text)
-            if any(s in text for s in SUSPECT):
-                raise AssertionError(f"a filesystem call reached {text!r}")
-            return real(path, *a, **k)
-
-        return wrapped
-
-    for name in ("stat", "exists", "is_file", "is_dir", "resolve", "glob"):
-        monkeypatch.setattr(pathlib.Path, name, guard(getattr(pathlib.Path, name)))
-    for name in ("stat", "lstat", "listdir", "scandir"):
-        monkeypatch.setattr(os, name, guard(getattr(os, name)))
-    monkeypatch.setattr(os.path, "exists", guard(os.path.exists))
-    monkeypatch.setattr(os.path, "realpath", guard(os.path.realpath))
-    return seen
 
 
 NETWORK = [
@@ -61,21 +38,25 @@ def test_intake_preview_answers_a_network_source_with_an_error_and_no_lookup(
     out = engine.call("intake.preview", {"spec": {"sources": [source]}})
     assert out["errors"] and "host" in out["errors"][0]
     assert "under the project folder" in out["errors"][0]
-    assert out["count"] == 0 if "count" in out else True
+    assert out["ok"] is False and out["files"] == out["item_count"] == 0
     assert not any("host" in p for p in no_reach)
 
 
 @pytest.mark.skipif(not WINDOWS, reason="nt")
-def test_an_nt_object_spelling_is_a_glob_under_the_project_and_reaches_nothing(
-    tmp_path: Path, no_reach: list[str]
+@pytest.mark.parametrize("source", [r"\??\UNC\host\share", "/??/UNC/host/share"])
+def test_an_nt_object_spelling_is_refused_as_the_canvas_validator_refuses_it(
+    tmp_path: Path, no_reach: list[str], source: str
 ):
-    """The NT object spelling has glob magic (``?``) at its second character, so the spec
-    reads it as a pattern under the project folder: it matches nothing there and never
-    names a root of its own (the canvas validator refuses the same text as a device
-    path)."""
+    """The NT object spelling has glob magic (``?``) at its second character; the whole
+    text is judged before a glob is split out of it, so the spec refuses it as the same
+    device path the canvas validator calls it, not a pattern under the project folder
+    (SPEC-79)."""
+    with pytest.raises(ValidationError, match="a device path"):
+        IntakerParams(sources=[source])
     engine = Engine(project=Project.init(tmp_path / "proj", "demo"))
-    out = engine.call("intake.preview", {"spec": {"sources": [r"\??\UNC\host\share"]}})
-    assert out["errors"] == [] and out["sources"][0]["root"] == "."
+    out = engine.call("intake.preview", {"spec": {"sources": [source]}})
+    assert out["errors"] and "is a device path" in out["errors"][0]
+    assert out["ok"] is False and out["files"] == out["item_count"] == 0
     assert not any("host" in p for p in no_reach)
 
 

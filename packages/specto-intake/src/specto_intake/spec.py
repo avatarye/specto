@@ -63,6 +63,12 @@ class SourceSpec(BaseModel):
         if isinstance(value, SourceSpec):
             return value
         if isinstance(value, str):
+            # the whole text first, as the canvas validator judges it (SPEC-79): an NT
+            # object spelling (``\??\UNC\host``) has glob magic at its second
+            # character and would otherwise split into a pattern under the project folder
+            why = path_refusal(value)
+            if why is not None:
+                raise root_refused(value, why)
             text = value.replace("\\", "/")
             m = _GLOB_MAGIC.search(text)
             if m is None:

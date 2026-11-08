@@ -5,9 +5,11 @@ One guard for every place that turns text from a file into a path: the items hos
 relative paths (``specto_app.web.scheme.resolve_relative``: a note's image, an OBJ's
 material map), the 3d reader's references out of a file (``reference_refusal``: an OBJ's
 MTL and texture names, SPEC-68; a DAE's image names on their way to trimesh's resolver,
-SPEC-69) and xacro's includes (``specto_readers.xacro_expand``); a reader of robot
-descriptions joins it next. It never touches the disk or the network, and it is an
-allowlist: a path is accepted only when it is
+SPEC-69), xacro's includes (``specto_readers.xacro_expand``), an intaker's ``sources``
+(``canvas_document.IntakerParams`` and the unknown-files check, SPEC-72) and every intake
+spec's source roots (``specto_intake.spec.SourceSpec`` and the backstop
+``specto_intake.sources.resolve_root``, SPEC-72). It never touches the disk or the
+network, and it is an allowlist: a path is accepted only when it is
 
 - relative (no root, no drive), or
 - on Windows, an absolute drive path, ``C:\\...`` or ``C:/...`` (a long local

@@ -195,8 +195,8 @@ def _project_source(text: str) -> str:
 #: one intaker source: a path or glob under the project folder (a local drive path too)
 SourceText = Annotated[str, AfterValidator(_project_source)]
 SOURCE_FIX = (
-    "name a path or glob under the project folder ('.' is the whole folder); a network, "
-    "device or rooted path is never looked up"
+    "name a path or glob under the project folder ('.' is the whole folder) or a local "
+    "drive path; a network, device or rooted path is never looked up"
 )
 
 
@@ -208,9 +208,9 @@ class IntakerParams(BaseModel):
     sources: list[SourceText] = Field(
         default_factory=lambda: ["."],
         min_length=1,
-        description="Paths or globs, relative to the project folder ('.' is all, the "
-        "default; never a network path). Scope pinned: the data the view shows. Scope "
-        "selection: an optional narrowing of what the user picks.",
+        description="Paths or globs under the project folder ('.' is all, the default) "
+        "or on a local drive; never a network path. Scope pinned: the data "
+        "the view shows. Scope selection: an optional narrowing of what the user picks.",
     )
     screener: list[str] = Field(
         default_factory=list,
