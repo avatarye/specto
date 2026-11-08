@@ -394,6 +394,21 @@ def test_the_real_reference_with_the_app_s_views_fits_its_budget():
     assert "muted by default" in cards["video"]["doc"] and "defaults" not in cards["video"]
 
 
+def test_a_describe_only_param_leaves_the_card_but_not_describe():
+    """SPEC-43.1 (PR 85's budget): the urdf card leaves its cosmetic params
+    (``"x-describe": true``) and their defaults to ``describe view:urdf``; the params that
+    pick and pose the robot stay on the card."""
+    ref, engine = app_reference()
+    card = cards_of(ref)["urdf"]
+    assert len(json.dumps(card)) < 1000
+    assert {"joints", "package_paths", "view_mode", "up", "environment"} <= set(card["params"])
+    for name in ("show_grid", "show_com", "camera_speed", "environment_rotation", "selected"):
+        assert name not in card["params"] and name not in card.get("defaults", {})
+    info = engine.call("describe", {"target": "view:urdf"}, PROMPT_BAR)["info"]
+    assert "show_grid" in info["state_schema"]["properties"]
+    assert "params.selected" in info["guide"] and "orbit" in info["guide"]
+
+
 def test_the_session_prompt_explains_view_roles_and_the_reference_gives_each_type_its_role():
     """ADR 0020: the agent composes by role, a browser feeding a viewer or player, rather
     than reaching for one view per data type."""

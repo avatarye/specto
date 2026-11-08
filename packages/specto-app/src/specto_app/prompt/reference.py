@@ -34,6 +34,11 @@ _VIEW_SKIP = (
 )
 
 
+#: a state_schema property flag: the param is told by ``describe view:<type>`` only, not
+#: in the standing reference's card (its default neither)
+DESCRIBE_ONLY = "x-describe"
+
+
 def _one_line(text: str) -> str:
     return " ".join(str(text or "").split())
 
@@ -57,9 +62,12 @@ def _default(value: Any) -> str:
 
 def _param_lines(schema: dict[str, Any], defaults: dict[str, Any]) -> dict[str, str]:
     """``state_schema`` as one line per param: its choices or range with its default
-    (the schema's, else the manifest's), then its doc."""
+    (the schema's, else the manifest's), then its doc. A param marked
+    ``"x-describe": true`` (a cosmetic one, SPEC-43.1) is left to ``describe``."""
     out: dict[str, str] = {}
     for name, prop in (schema.get("properties") or {}).items():
+        if prop.get(DESCRIBE_ONLY):
+            continue
         default = prop["default"] if "default" in prop else defaults.get(name)
         head = ", ".join(
             p
@@ -93,7 +101,12 @@ def _view_card(info: dict[str, Any]) -> dict[str, Any]:
     if params:
         card["params"] = params
     # defaults ride on their param lines; only the ones no param line names stay here
-    rest = {k: v for k, v in defaults.items() if k not in params}
+    props = (info.get("state_schema") or {}).get("properties") or {}
+    rest = {
+        k: v
+        for k, v in defaults.items()
+        if k not in params and not (props.get(k) or {}).get(DESCRIBE_ONLY)
+    }
     if rest:
         card["defaults"] = rest
     handled = {*card, "defaults", "ports"}

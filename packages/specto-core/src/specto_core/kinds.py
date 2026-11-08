@@ -54,6 +54,7 @@ DATA_KINDS: tuple[str, ...] = (
     "message_stream",
     "pose_track",
     "joint_track",
+    "urdf",
 )
 DataKind = Literal[
     "image2d",
@@ -73,6 +74,7 @@ DataKind = Literal[
     "message_stream",
     "pose_track",
     "joint_track",
+    "urdf",
 ]
 
 HostKind = Literal["quick", "web", "frame"]
@@ -697,6 +699,14 @@ BUILTIN_LOCATORS: list[LocatorManifest] = [
     # lowest priority, so a .csv stays text for every view that does not ask for a track
     LocatorManifest(
         name="joint_track", extensions=[".csv", ".parquet"], kinds=["joint_track"], priority=1
+    ),
+    # what the urdf view shows (SPEC-43): a robot description, parsed by the view's host
+    LocatorManifest(
+        name="urdf",
+        extensions=[".urdf"],
+        aliases=["@urdf"],
+        kinds=["urdf"],
+        priority=10,
     ),
 ]
 

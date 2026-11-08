@@ -49,6 +49,7 @@ def app_plugins(reg: PluginRegistry | None = None) -> PluginRegistry:
         ViewManifest(type="pdf", label="PDF", host="quick", accepts=["pdf"]),
         ViewManifest(type="map", label="Map", host="web", accepts=["geojson"]),
         ViewManifest(type="3d", label="3D", host="web", accepts=["pointcloud", "mesh", "splat"]),
+        ViewManifest(type="urdf", label="URDF", host="web", accepts=["urdf"]),
         ViewManifest(
             type="preview",
             label="Preview",

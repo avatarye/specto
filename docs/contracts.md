@@ -80,7 +80,8 @@ remove `.specto/`); there is no migration (ADR 0017).
   is the id, so patch paths are stable. `source.view` may be `project` (the project source, port `all_files`), the one link
   source that is not a view; `project` is never a view key. Every view must be
   reachable from `project` by links (ADR 0018 amendment, #83).
-- View types: `file_tree`, `gallery`, `image`, `video`, `json`, `markdown`, `map`, `3d`
+- View types: `file_tree`, `gallery`, `image`, `video`, `json`, `markdown`, `map`, `3d`,
+  `html`, `pdf`, `preview`, `usd`, `scratch`, `text`, `urdf`
   (`specto_core.ports.VIEW_TYPES`). `params` is a free dict per type; the manifest's
   `defaults` and `describe view:<type>` document the keys. `params.selected` (gallery:
   the picked key; file tree: the picked rows; video: the selected item) is written by
@@ -230,6 +231,7 @@ Two-way links only on `time` and `selection`. Per view type (`VIEW_PORTS`):
 | `preview` | `data`, `selection` | `selection` | |
 | `scratch` | `selection` | `items: collection`, `selection` | |
 | `text` | `data` | | |
+| `urdf` | `data`, `camera`, `selection` (`joints` and `time` come with SPEC-43.3) | `camera`, `selection`, `content` | `data, selection -> selection, content`, `camera -> camera` |
 
 The project source `project` has one output, `all_files: files` (the whole folder). The
 intaker from it into a file tree is never walked (#231, ADR 0022): the tree receives a
@@ -310,20 +312,28 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   collection), its watcher (`watch_intaker`), `read_contents` and the 3D scene buffers
   (`scene3d.attach_scenes`, for intakers feeding a `3d` view). For a `.dae` that step
   writes the converted mesh `<name>.dae.glb` beside it, or in the cache when the folder
-  cannot take it (`specto_readers.dae`, ADR 0028); a converted mesh whose DAE is in the
+  cannot take it (`specto_readers.dae.prepare(src, cache_dir, key, *, beside=True)`, ADR
+  0028; `beside=False` keeps it in the cache only, for the urdf view's DAEs outside the
+  project); a converted mesh whose DAE is in the
   same collection gets no scene, so the model shows once. `attach_scenes` takes the
   collection's `root`; an OBJ's MTL and textures outside it, or missing, are listed under
   the scene's `missing`. The items host serves a part's trailing path that starts with
-  `@root/` from the root of the resolver that answers for the link (`ItemResolver.root`,
-  None by default), never outside it, and only an MTL, a buffer or an image
-  (`scheme.ROOT_SUFFIXES`). A part's own recorded path passes
+  `@root/` from the root of the resolver that answers for the item, never outside it:
+  every `ItemResolver` (`specto_app.web.items`: `parts(link_id, key)`, `keys(link_id)`,
+  `lookup(link_id, key)`, `root(link_id, key)`, `side_allowed(link_id, key, role,
+  path)`, `guard_root(link_id)`) implements `lookup -> (resolver, parts) | None`, the
+  one pass the items host makes per request (a single resolver answers for itself,
+  `CompositeItems` asks its members in order); the host then asks only that resolver
+  for its `root`. Under that root it serves only an MTL, a buffer or an image
+  (`scheme.ROOT_SUFFIXES`, the one list in `specto_readers.mesh_assets`); then the same
+  resolver's `side_allowed` may still refuse it. A part's own recorded path passes
   `specto_core.pathguard.output_refusal` against the resolver's `guard_root` before it
   is stat'ed (`scheme.part_refused`, status `refused`; SPEC-75), the backstop for every
   host that serves through items whatever produced the item; a container member is
   judged by its archive. `guard_root` is the root of what delivered the item (a
   collection's or a content value's, else the project's; an intaker table's; the
-  scratch store's project), so a project on a share serves its own parts and nothing
-  on another share (SPEC-91). A part with a bare leading slash is refused where it is
+  scratch store's project; the urdf view's robot: the project), so a project on a
+  share serves its own parts and nothing on another share (SPEC-91). A part with a bare leading slash is refused where it is
   no absolute path (Windows: the current drive's root). The one leading-slash rule is
   `pathguard.below_root`. A trailing path's text (and the text after
   `@root/`) passes `specto_core.pathguard` before any filesystem call (SPEC-61, ADR 0006
@@ -511,8 +521,10 @@ before. Thumbnails and posters never open an audio device.
   and what picks it, and each param's `description` is one clause, since both ride in the
   agent's standing reference, `specto_app.prompt.reference`, under 19.5k characters for
   core plus the app's views, tested; `guide` holds the controls and the long form of the
-  params, which only `describe view:<type>` shows, SPEC-56) in a `PluginManifest` so `describe` and
-  aliases (`@images`, `@json`, `@geo`, `@markdown`, `@pointclouds`, `@usd`) work without
+  params, which only `describe view:<type>` shows, SPEC-56; a `state_schema` property
+  marked `"x-describe": true` is left off the card with its default, for `describe` alone,
+  SPEC-43.1) in a `PluginManifest` so `describe` and
+  aliases (`@images`, `@json`, `@geo`, `@markdown`, `@pointclouds`, `@usd`, `@urdf`) work without
   reader code. `usd_info` (purpose `meta`) returns a USD file's root-layer header as JSON
   without pxr (default prim, up axis, metres per unit, time codes, Kit's camera,
   sublayers; `defaulted` and `unavailable` say what fell back and what needs the stage).
@@ -530,7 +542,8 @@ before. Thumbnails and posters never open an audio device.
   written for it) and `snap`'s `fallback_reason` name what is missing, and one notice
   says so. A disabled or faked capability is a fallback someone asked for: it says
   nothing. Data kinds: `image2d image_seq video_ref pointcloud mesh splat usd_stage_ref
-  geojson json text markdown table message_stream pose_track joint_track`. `joint_track`
+  geojson json text markdown table message_stream pose_track joint_track urdf`
+  (`urdf`: a `.urdf` robot description, behind `@urdf`, ADR 0029). `joint_track`
   (`specto_readers.joint_track`): a CSV or Parquet table, one time column plus one column
   per joint, located as a track only when its header (or schema) has a numeric time
   column and another numeric column (a locator may refuse an item by content in
@@ -817,6 +830,53 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   `scratch_read`, `scratch_append`, `scratch_write`, and four for pages); the MCP tool
   set is unchanged. `scratch_append`'s `image` and `file` paths pass `path_refusal` before
   anything asks whether they exist; a refused one raises `InvalidArgs` (SPEC-73).
+- Path guard (SPEC-61, ADR 0006 amended, `specto_core.pathguard`; its users are listed
+  in section 6): `path_refusal(text, *, unc_ok=False) -> Refusal | None` judges a path's
+  text with no filesystem call, as an allowlist: a relative path, a Windows drive path
+  (`C:\` or `C:/`) or a POSIX single-slash path; every other rooted form is refused
+  (UNC, NT object `\??\`, device `\\.\` and `\\?\`, drive-relative, drive-less), and so
+  are reserved device names and `:` streams inside an accepted path. `unc_ok` lets a
+  plain `\\host\share` through for a caller that bounds it by folder (xacro).
+  `strip_local_long(text)` turns a local long path (`\\?\C:\x`, `//?/C:/x`) into the
+  drive path it names, text only; `path_refusal` applies it first. `file_uri_path(uri)
+  -> (path | None, Refusal | None)` refuses a `file://` URI naming a host;
+  `reference_refusal(ref)` judges a reference read out of a file;
+  `output_refusal(text, root=None)` judges a path a producer recorded, letting a project
+  on a share serve its own files; `under(path, roots)` is the lexical scope test. The
+  urdf resolver uses `path_refusal`, `file_uri_path` and `under`.
+- URDF view (SPEC-43, ADR 0029, `specto_app.views.urdf_view`): `UrdfHost` is a web host
+  (`urdf/index.html`, Babylon.js) for one robot. It parses the shown `.urdf` item on the
+  job manager (`specto_readers.urdf.build_robot(path, package_paths, search_roots,
+  environ, text, cache_dir) -> {model, files, packages, scope, actuated, parse_ms}`;
+  `scope` lists the folders a served file may lie in: `parse_urdf` on the
+  standard library's `xml.etree`, refusing any DOCTYPE or entity declaration, the
+  package resolver, `missing_notes` for health; `PackageResolver.folder(name)` is the
+  picklable `$(find)` hook for xacro), serves the robot's files as extra roles of its
+  item (`.m0`, `.m1`, ...; `RobotMeshes`, first in the runtime's item resolvers, so
+  `specto://items/<link>/<key>/m<n>/<file name>`): only regular files of the mesh and
+  image types up to 512 MB, and next to a mesh only an OBJ's `.mtl` or a glTF's `.bin`
+  and images (`ItemResolver.side_allowed`, which `locate_item` asks of the resolver
+  answering for the item once a path resolved; the others allow any), and no `@root/`
+  paths (`root` is None). Served files lie under the project (`search_roots`) or a
+  package folder the parse resolved, checked again by their resolved path when served;
+  a reference is tested against that scope on its text (`os.path.abspath`) before it is
+  resolved, then on its resolved path; a package name matches `PACKAGE_NAME`; a
+  `package_paths` mapping (`{name: folder}`) counts only when the folder's
+  `package.xml` names the package; references pass `specto_core.pathguard`
+  before any filesystem call; per parse `MAX_REFERENCES` (2000) references,
+  `MAX_DAE_CONVERSIONS` (64) DAE conversions and one `SearchBudget` (4000 folders for
+  every package probe); past a cap the rest are missing with the cap named. A DAE goes
+  as ADR 0028's converted GLB (`beside=False` outside the project). It speaks ADR
+  0029's messages:
+  `model {generation, model, environments}`, `pose {joints, source, track?}`, `params`,
+  `step`, `render` and the `camera` and `selection` ports out; `select`, `joints` (the
+  full map: it replaces `params.joints` in one user submit, clamped), `loaded {ms,
+  meshes, failed}`, `frame` and `step` in. The camera goes out as the page's port emit
+  and the VIEW panel's and footer's params (`selected_links` among them) as its own
+  `setParams` writes. `params.selected` is the shown item's key; selection keys are
+  `<item key>#<link name>`; content is the selected link's or joint's properties. The
+  host owns the health dot: `warn` while meshes are missing or unreadable (the page's
+  `loaded.failed`) or `params.joints` names joints the robot lacks.
 - Context menu (#154, `specto_app.menu`): the shell has one (`Main.qml` `contextMenu`, a
   `PopMenu`; rows `menu:<entry id>`). A view contributes two things:
   - **its target**: `context_target(hit) -> MenuTarget | None` on the host says what is
@@ -1001,7 +1061,7 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
 
 ## 14. Web views (`specto_app.web`; on ports per ADR 0014)
 
-Every web view (`json`, `markdown`, `map`, `3d`, `html`) runs under an explicit grant list
+Every web view (`json`, `markdown`, `map`, `3d`, `html`, `urdf`) runs under an explicit grant list
 built by the app from the view's type and the links feeding it, never from the page (a
 `preview` showing a web kind runs that kind's page under that kind's grants, #106); the
 view's `network: false` param drops its `net:` grants (params narrow, never widen):
@@ -1010,7 +1070,7 @@ view's `network: false` param drops its `net:` grants (params narrow, never wide
 |---|---|---|
 | `read:link:<id>` | fetch the bytes behind the value that link delivered, over `specto://items/<link>/<key>/<role>` | every link into one of the view's input ports |
 | `emit:<port>` | emit on that output port through `Specto.emit` | the type's output ports (`VIEW_PORTS`) |
-| `params:<key>` | write that key of the view's own params through `Specto.setParams` (one user submit) | `json`: `wrap`; `markdown`: `panels`; `map`: `layers`, `basemap`, `panels`, `limit` (Load more, #181); `3d`: `point_size`, `up` (`panels` = `{<panel>: {collapsed, width}}`, the side panels' state, #130) |
+| `params:<key>` | write that key of the view's own params through `Specto.setParams` (one user submit) | `json`: `wrap`; `markdown`: `panels`; `map`: `layers`, `basemap`, `panels`, `limit` (Load more, #181); `3d`: `point_size`, `up` (`panels` = `{<panel>: {collapsed, width}}`, the side panels' state, #130); `urdf`: its VIEW panel's and footer's keys, never `joints` or `package_paths` (the pose goes through the host's `joints` message, ADR 0029) |
 | `cmd:<name>` | call that command through the bridge | `describe`, `vocabulary` always |
 | `net:tiles` | raster basemap tiles from `TILE_HOSTS`: the hosts of the basemap providers in `specto_app/web/basemaps.py` (OSM, Esri World Imagery; `params.basemap` = `none` \| `osm` \| `satellite`, #157) | `map` only |
 | `net:web` | any http(s) request from the page's frames, http(s) navigations of its frames (never the main frame) | `html`, unless `network: false` (ADR 0019) |

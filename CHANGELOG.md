@@ -15,6 +15,17 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- A new `urdf` view shows one robot description (SPEC-43.1, ADR 0029; the page is
+  SPEC-43.2). A double-click on a `.urdf` opens it. Specto parses the file with the
+  standard library (no new dependency; a DOCTYPE or entity declaration is refused) and
+  finds its meshes itself: `params.package_paths` first, then the nearest `package.xml`,
+  then `ROS_PACKAGE_PATH` and `AMENT_PREFIX_PATH`, never by stripping prefixes and never
+  over the network; a DAE mesh goes through the 3d view's converter. Only files in the
+  project or a package the robot names are served, and a network or device path in a
+  URDF is refused before anything is read. A mesh that is missing or unreadable draws
+  as a placeholder and turns the view's health to the new amber `warn`, with one note per
+  cause; `snap` lists each one. The agent poses the robot through `params.joints`
+  (radians and metres), and a slider release is one undo step.
 - A view retyped before its host is built gets inputs resolved for its new type
   (SPEC-84). Only a host's rebuild re-resolved a retyped view's links, so a view retyped
   in the moment before its slot attached (a gallery turned 3d view) was handed the

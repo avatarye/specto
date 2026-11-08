@@ -59,6 +59,9 @@ COLORS: dict[str, str] = {
     "loading": "#2f6fab",
     "paused": "#a89f91",
     "error": "#c0504d",
+    # a view that works but says something is off (SPEC-43: a robot's mesh not found):
+    # amber, the notices' warn colour
+    "warn": "#c98a1e",
     "approval": "#b86a2b",
     "approval_soft": "#f6e6d6",
     "disconnected": "#9b9186",  # a view no link reaches from the project source (#83)
@@ -116,6 +119,7 @@ GLYPHS: dict[str, str] = {
     "loading": "..",
     "paused": "||",
     "error": "!",
+    "warn": "~",
     "approval": "?",
     "disconnected": "x",
 }

@@ -5,8 +5,8 @@ declare namespace SpectoApi {
   type ApiLevel = 1;
   type SchemaVersion = 2;
   type Effect = "file" | "job" | "watch" | "process";
-  type DataKind = "image2d" | "image_seq" | "video_ref" | "pointcloud" | "mesh" | "splat" | "usd_stage_ref" | "geojson" | "json" | "text" | "markdown" | "html" | "pdf" | "table" | "message_stream" | "pose_track" | "joint_track";
-  type ViewType = "3d" | "gallery" | "html" | "image" | "json" | "map" | "markdown" | "pdf" | "preview" | "scratch" | "text" | "usd" | "video";
+  type DataKind = "image2d" | "image_seq" | "video_ref" | "pointcloud" | "mesh" | "splat" | "usd_stage_ref" | "geojson" | "json" | "text" | "markdown" | "html" | "pdf" | "table" | "message_stream" | "pose_track" | "joint_track" | "urdf";
+  type ViewType = "3d" | "gallery" | "html" | "image" | "json" | "map" | "markdown" | "pdf" | "preview" | "scratch" | "text" | "urdf" | "usd" | "video";
   type PortType = "files" | "collection" | "item" | "selection" | "time" | "content" | "camera";
   type LinkKind = "intaker" | "follow" | "read_contents" | "time_map" | "python";
   type CommandName = keyof CommandMap;
@@ -459,6 +459,41 @@ step, nothing journaled). */
     text?: string;
     [key: string]: unknown;
   }
+  interface UrdfState {
+    /** {joint: value}, rad or m, clamped to limits. default: {} */
+    joints?: Record<string, number>;
+    /** {package: folder} or folders, tried first. */
+    package_paths?: Record<string, string> | string[];
+    /** default: "lit" */
+    view_mode?: "lit" | "unlit" | "wireframe" | "collision" | "visual_collision";
+    /** default: "z" */
+    up?: "x" | "y" | "z" | "-x" | "-y" | "-z";
+    /** default: "none" */
+    environment?: "none" | "studio" | "overcast" | "sunny" | "indoor" | "urban";
+    /** default: 1.0 */
+    environment_intensity?: number;
+    /** default: false */
+    environment_background?: boolean;
+    /** default: 0.0 */
+    environment_rotation?: number;
+    /** default: true */
+    show_grid?: boolean;
+    /** default: false */
+    show_frames?: boolean;
+    /** default: false */
+    show_joint_axes?: boolean;
+    /** default: false */
+    show_com?: boolean;
+    /** default: 1.0 */
+    camera_speed?: number;
+    /** default: "free" */
+    camera_mode?: "free" | "orbit";
+    selected?: string | null;
+    /** By name. default: [] */
+    selected_links?: string[];
+    panels?: Record<string, unknown>;
+    [key: string]: unknown;
+  }
   interface UsdState {
     /** auto is rtx where this machine has ovrtx, else storm (describe view:usd reports renderer_auto). default: "auto" */
     renderer?: "auto" | "rtx" | "storm";
@@ -586,6 +621,8 @@ step, nothing journaled). */
     "scratch": ScratchState;
     /** Text: accepts nothing; host quick */
     "text": TextState;
+    /** URDF: accepts urdf; host web */
+    "urdf": UrdfState;
     /** USD: accepts usd_stage_ref; host frame */
     "usd": UsdState;
     /** Video: accepts video_ref; host quick */
@@ -656,6 +693,7 @@ step, nothing journaled). */
     "color-tip-port-border": string;
     "color-tip-port-text": string;
     "color-video-bg": string;
+    "color-warn": string;
     "font-mono": string;
     "font-ui": string;
     "glyph-added": string;
@@ -671,6 +709,7 @@ step, nothing journaled). */
     "glyph-paused": string;
     "glyph-removed": string;
     "glyph-user": string;
+    "glyph-warn": string;
     "metric-anim-ms": string;
     "metric-bar-h": string;
     "metric-collapsed-h": string;
