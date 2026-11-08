@@ -303,7 +303,7 @@ def test_a_missing_command_is_named_with_its_path_and_a_fix(files, tmp_path):
     with pytest.raises(NotFound) as e:
         book.launch("b", ["s.blend"])
     assert str(missing) in e.value.message.replace("/", os.sep)
-    assert f"{machine}:1" in e.value.fix and spawned == []
+    assert f"{machine}:3" in e.value.fix and spawned == []  # the command's own line
     with pytest.raises(NotFound) as e:
         book.launch("nope", ["s.blend"])
     assert "b" in e.value.fix and "system" in e.value.fix

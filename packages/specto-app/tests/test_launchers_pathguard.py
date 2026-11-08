@@ -26,28 +26,35 @@ HOSTILE = [
     "//attacker/share/tool.exe",
     r"\??\UNC\attacker\share\tool.exe",
     r"\\?\UNC\attacker\share\tool.exe",
+    "file://attacker/share/tool.exe",
 ]
-HOSTILE_IDS = ["unc-backslashes", "unc-slashes", "nt-object", "long-unc"]
+HOSTILE_IDS = ["unc-backslashes", "unc-slashes", "nt-object", "long-unc", "file-uri"]
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows path forms")
 
 
+class Reached(AssertionError):
+    """A filesystem call or a launch the guard should have stopped."""
+
+
 @pytest.fixture
 def reached(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Every filesystem call or launch on a path naming the attacker, recorded (the call
-    still runs, so a swallowed exception cannot hide it); spawning anything at all is
-    recorded too."""
+    """Every filesystem call on a path naming the attacker is recorded and raises instead
+    of running (a regression must never really reach the host); every launch at all is
+    recorded and raises too. The list is checked as well, in case the code under test
+    swallows the exception."""
     seen: list[str] = []
 
-    def trap(owner: object, name: str) -> None:
+    def trap(owner: object, name: str, *, every: bool = False) -> None:
         orig = getattr(owner, name)
 
-        def recorded(*args, **kwargs):
-            if any("attacker" in str(a) for a in (*args, *kwargs.values())):
+        def guarded(*args, **kwargs):
+            if every or any("attacker" in str(a) for a in (*args, *kwargs.values())):
                 seen.append(f"{name}{args}")
+                raise Reached(f"{name}{args}")
             return orig(*args, **kwargs)
 
-        monkeypatch.setattr(owner, name, recorded)
+        monkeypatch.setattr(owner, name, guarded)
 
     for name in ("stat", "lstat", "is_file", "is_dir", "exists", "resolve", "open"):
         trap(Path, name)
@@ -56,30 +63,61 @@ def reached(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     for name in ("isdir", "isfile", "exists", "realpath", "getsize"):
         trap(os.path, name)
     trap(shutil, "which")
-    trap(subprocess, "Popen")
+    trap(subprocess, "Popen", every=True)
     for name in ("spawn_program", "start_file", "reveal"):
-        monkeypatch.setattr(
-            launcher_run, name, lambda *a, _n=name, **k: seen.append(f"{_n}{a}") or 1
-        )
+        trap(launcher_run, name, every=True)
     return seen
 
 
-def book_with(tmp_path: Path, toml: str) -> LauncherBook:
+def book_with(tmp_path: Path, machine_toml: str, project_toml: str | None = None) -> LauncherBook:
     machine = tmp_path / "user" / "launchers.toml"
     machine.parent.mkdir(parents=True)
-    machine.write_text(toml, encoding="utf-8")
-    (tmp_path / "proj").mkdir()
+    machine.write_text(machine_toml, encoding="utf-8")
+    (tmp_path / "proj" / ".specto").mkdir(parents=True)
     (tmp_path / "proj" / "s.blend").write_bytes(b"x")
+    if project_toml is not None:
+        (tmp_path / "proj" / ".specto" / "launchers.toml").write_text(
+            project_toml, encoding="utf-8"
+        )
     return LauncherBook(tmp_path / "proj", machine_path=machine, log=lambda _m: None)
 
 
+def refused_words(message: str) -> bool:
+    return "network" in message or "device" in message
+
+
 @pytest.mark.parametrize("command", HOSTILE, ids=HOSTILE_IDS)
-def test_a_network_command_never_runs_or_is_looked_for(tmp_path, reached, command):
-    book = book_with(tmp_path, f"[[launcher]]\nid = \"b\"\ncommand = '{command}'\n")
+@pytest.mark.parametrize("where", ["machine", "project"])
+def test_a_network_command_never_runs_or_is_looked_for(tmp_path, reached, command, where):
+    toml = f"[[launcher]]\nid = \"b\"\ncommand = '{command}'\n"
+    book = (
+        book_with(tmp_path, toml)
+        if where == "machine"
+        else book_with(tmp_path, "", project_toml=toml)
+    )
     with pytest.raises(InvalidArgs) as e:
         book.launch("b", ["s.blend"])
-    assert "network" in e.value.message or "device" in e.value.message
-    assert "launchers.toml:" in e.value.fix
+    assert refused_words(e.value.message), e.value.message
+    assert "launchers.toml:3" in e.value.fix
+    if where == "project":
+        assert ".specto" in e.value.fix
+    assert reached == []
+
+
+def test_a_project_overriding_only_the_command_is_refused_and_named(tmp_path, reached):
+    """The agent-writable project file overrides only ``command`` of a machine launcher by
+    id: the merged launcher is refused, and the fix-it names the project's line, not the
+    machine's."""
+    exe = Path(sys.executable).as_posix()
+    machine = (
+        f'[[launcher]]\nid = "b"\nlabel = "Blender"\ncommand = \'{exe}\'\nmatch = ["*.blend"]\n'
+    )
+    project = "[[launcher]]\nid = \"b\"\ncommand = '\\\\attacker\\share\\tool.exe'\n"
+    book = book_with(tmp_path, machine, project_toml=project)
+    with pytest.raises(InvalidArgs) as e:
+        book.launch("b", ["s.blend"])
+    assert refused_words(e.value.message)
+    assert f"{Path('.specto') / 'launchers.toml'}:3" in e.value.fix
     assert reached == []
 
 
@@ -95,14 +133,20 @@ def test_a_command_that_becomes_a_network_path_through_a_variable_never_runs(
     assert reached == []
 
 
-def test_a_network_cwd_is_refused_before_it_is_looked_for(tmp_path, reached):
+@pytest.mark.parametrize("where", ["machine", "project"])
+def test_a_network_cwd_is_refused_before_it_is_looked_for(tmp_path, reached, where):
     exe = Path(sys.executable).as_posix()
-    book = book_with(
-        tmp_path, f"[[launcher]]\nid = \"b\"\ncommand = '{exe}'\ncwd = '\\\\attacker\\share'\n"
-    )
+    launcher = f"[[launcher]]\nid = \"b\"\ncommand = '{exe}'\n"
+    cwd = "cwd = '\\\\attacker\\share'\n"
+    if where == "machine":
+        book = book_with(tmp_path, launcher + cwd)
+        line = 4
+    else:
+        book = book_with(tmp_path, launcher, project_toml='[[launcher]]\nid = "b"\n' + cwd)
+        line = 3
     with pytest.raises(InvalidArgs) as e:
         book.launch("b", ["s.blend"])
-    assert "cwd" in e.value.fix
+    assert "cwd" in e.value.fix and f"launchers.toml:{line}" in e.value.fix
     assert reached == []
 
 
@@ -119,7 +163,8 @@ def test_a_network_path_to_open_never_reaches_the_filesystem(tmp_path, reached, 
     ):
         with pytest.raises(InvalidArgs) as e:
             act()
-        assert "network" in e.value.message or "device" in e.value.message
+        assert refused_words(e.value.message), e.value.message
+        assert "list_files" in e.value.fix
     assert file_of(path) == ""
     assert reached == []
 

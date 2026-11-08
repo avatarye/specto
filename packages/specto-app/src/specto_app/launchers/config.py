@@ -116,6 +116,17 @@ class Launcher:
     #: where it was defined (the last file that set any of its keys) and the line
     file: str = ""
     line: int = 0
+    #: ``(key, "file:line")``: the file and line that set each key (a project may set
+    #: only ``command`` of a machine launcher)
+    sites: tuple[tuple[str, str], ...] = ()
+
+    def site(self, key: str) -> str:
+        """``file:line`` of the file that set ``key``, else of the launcher; the file
+        alone when there is no line."""
+        found = dict(self.sites).get(key)
+        if found:
+            return found
+        return f"{self.file}:{self.line}" if self.line else self.file
 
     def matches(self, path: str, is_dir: bool = False) -> bool:
         name = os.path.basename(os.path.normpath(path)) if path else ""
@@ -412,6 +423,12 @@ def _build(lid: str, entry: dict[str, Any]) -> tuple[Launcher, Problem | None]:
         source="+".join(entry["levels"]),
         file=last.file,
         line=last.line,
+        sites=tuple(
+            (key, f"{f}:{n}" if n else f)
+            for key in KEYS
+            if any(key in raw.data for raw in raws)
+            for f, n in [where(key)]
+        ),
     )
     if not launcher.command:
         machine_hint = (

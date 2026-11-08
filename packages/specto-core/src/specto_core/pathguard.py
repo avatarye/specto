@@ -11,8 +11,9 @@ spec's source roots (``specto_intake.spec.SourceSpec`` and the backstop
 ``specto_intake.sources.resolve_root``, SPEC-72), and through ``output_refusal``
 (``unc_ok`` for a project on a share) the roots and paths a Python link's output names
 (``specto_core.python_links``) and each item part the items host is asked for
-(``specto_app.web.scheme.locate_item``), SPEC-75. It never touches the disk or the
-network, and it is an allowlist: a path is accepted only when it is
+(``specto_app.web.scheme.locate_item``), SPEC-75, and a launcher's command, cwd and the
+paths it is asked to open (``specto_app.launchers.book``), SPEC-76. It never touches the
+disk or the network, and it is an allowlist: a path is accepted only when it is
 
 - relative (no root, no drive), or
 - on Windows, an absolute drive path, ``C:\\...`` or ``C:/...`` (a long local
