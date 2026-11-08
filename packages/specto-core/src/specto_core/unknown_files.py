@@ -22,20 +22,34 @@ def source_exists(root: Path, source: str) -> bool:
     """A source names a file or folder under ``root`` (``.`` is the folder itself), or
     a glob that matches at least one entry. A source the path guard refuses (a network
     or device path; the document's validation reports it first, SPEC-72) is never looked
-    up: it does not exist here. An absolute glob (a local drive path, ``C:/data/**/*.jpg``)
-    is looked up from its own anchor, since ``Path.glob`` takes only relative patterns
-    (SPEC-79)."""
+    up: it does not exist here.
+
+    An absolute glob (an absolute local path, ``C:/data/**/*.jpg``) is never walked: this
+    runs on every intaker on every submit, on the canvas thread, and a walk from a drive's
+    root has no bound. It exists when its literal base folder (the segments before the
+    first one with glob magic) is a folder (SPEC-79)."""
     if path_refusal(source) is not None:
         return False
     if any(c in source for c in GLOB_CHARS):
-        where, pattern = root, PurePath(source)
-        if pattern.anchor:
-            where, pattern = Path(pattern.anchor), pattern.relative_to(pattern.anchor)
+        if PurePath(source).anchor:
+            return _glob_base(source).is_dir()
         try:
-            return next(where.glob(str(pattern)), None) is not None
+            return next(root.glob(source), None) is not None
         except (ValueError, OSError, NotImplementedError):
             return False
     return (root / source).exists()
+
+
+def _glob_base(source: str) -> Path:
+    """The literal folder an absolute glob starts from: its anchor plus every segment
+    before the first one with glob magic. Text only."""
+    path = PurePath(source)
+    base = Path(path.anchor)
+    for part in path.parts[1:]:
+        if any(c in part for c in GLOB_CHARS):
+            break
+        base = base / part
+    return base
 
 
 def file_problems(doc: dict[str, Any], root: Path | None) -> list[Problem]:
@@ -49,14 +63,7 @@ def file_problems(doc: dict[str, Any], root: Path | None) -> list[Problem]:
             for i, src in enumerate(link.get("params", {}).get("sources") or []):
                 if source_exists(root, str(src)):
                     continue
-                out.append(
-                    Problem(
-                        path=f"/links/{lid}/params/sources/{i}",
-                        message=f"source {src!r} matches no file or folder under the project",
-                        fix="point it at a path or glob under the project folder ('.' is the "
-                        "whole folder); the project's files in the context list them",
-                    )
-                )
+                out.append(_missing_source(f"/links/{lid}/params/sources/{i}", str(src)))
         elif kind == "python":
             py = link.get("python") or {}
             path = str(py.get("path", ""))
@@ -70,6 +77,26 @@ def file_problems(doc: dict[str, Any], root: Path | None) -> list[Problem]:
                     )
                 )
     return out
+
+
+def _missing_source(path: str, src: str) -> Problem:
+    """The problem for a source that names nothing: a relative one under the project
+    folder, an absolute one on this machine."""
+    if PurePath(src).anchor:
+        is_glob = any(c in src for c in GLOB_CHARS)
+        what = f"its folder {_glob_base(src).as_posix()!r}" if is_glob else "it"
+        return Problem(
+            path=path,
+            message=f"source {src!r} names an absolute local path; {what} does not exist",
+            fix="point it at an absolute local path that exists, or at a path or glob under "
+            "the project folder ('.' is the whole folder)",
+        )
+    return Problem(
+        path=path,
+        message=f"source {src!r} matches no file or folder under the project",
+        fix="point it at a path or glob under the project folder ('.' is the whole folder) "
+        "or at an absolute local path; the project's files in the context list them",
+    )
 
 
 __all__ = ["file_problems", "source_exists"]

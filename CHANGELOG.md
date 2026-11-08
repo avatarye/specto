@@ -29,11 +29,12 @@ the release and move on their own schedule.
   the rule it already applied afterwards to decide what is servable: an absolute path, a
   `\\?\C:\` path or a `..` path that leaves the root is named under `missing` without
   being read. Local files only; they were read, then listed as unservable.
-- An intaker source that is an absolute glob on a local drive (`C:/data/**/*.jpg`) no
-  longer fails the submit with an exception; it is looked up from its drive (SPEC-79).
-  `intake.preview` now refuses the NT object spelling of a network path (`\??\UNC\...`)
-  as the canvas document does, instead of reading it as a glob under the project folder,
-  and the sources fix-it and description say that a local drive path is accepted.
+- An intaker source that is an absolute local glob (`C:/data/**/*.jpg`) no longer fails
+  the submit with an exception (SPEC-79). It is not walked: the submit checks only that
+  its base folder (`C:/data`) exists. `intake.preview` now refuses the NT object spelling
+  of a network path (`\??\UNC\...`) as the canvas document does, instead of reading it
+  as a glob under the project folder, and the sources fix-it and description say that an
+  absolute local path is accepted.
 - A DAE's `<image><init_from>` goes through the same path allowlist before trimesh may
   look for the texture (SPEC-69, `specto_core.pathguard`): a network or device path in
   any spelling is refused by its text in the conversion's own resolver, so the isolated

@@ -28,8 +28,8 @@ def root_refused(root: str, why: Refusal) -> InvalidArgs:
     as the backstop, by ``sources.resolve_root`` before any filesystem call."""
     return InvalidArgs(
         f"source root {root!r} is {why}",
-        fix="name a path or glob under the project folder ('.' is the whole folder) or a "
-        "local drive path; a network, device or rooted path is never looked up",
+        fix="name a path or glob under the project folder ('.' is the whole folder) or an "
+        "absolute local path; a network, device or rooted path is never looked up",
     )
 
 
