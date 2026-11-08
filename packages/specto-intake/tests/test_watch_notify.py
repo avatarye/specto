@@ -1017,8 +1017,14 @@ def test_a_case_only_rename_on_disk_is_a_change_never_an_arrival(
     old = sorted((project.root / "drops").glob("*.json"))[0]
     os.rename(old, old.with_name(old.name.upper()))
 
-    assert pump_until(engine, jobs, lambda: bool(arrivals), timeout=10)
     try:
+        # the notice and the resolve it starts, all of it, before anything is judged
+        assert pump_until(
+            engine,
+            jobs,
+            lambda: bool(arrivals) and links.status("l2")["state"] == "resolved",
+            timeout=10,
+        )
         assert sum(a["added"] for a in arrivals) == 0, arrivals
         assert sum(a["removed"] for a in arrivals) == 0, arrivals
         assert sum(a["changed"] for a in arrivals) >= 1, arrivals
@@ -1026,3 +1032,94 @@ def test_a_case_only_rename_on_disk_is_a_change_never_an_arrival(
     finally:
         engine.close()
         jobs.shutdown()
+
+
+# -- SPEC-81 review: folders renamed in case; the stamp decides, in both modes -------------
+
+
+def _rewrite(p: Path, text: str) -> None:
+    p.write_text(text, encoding="utf-8")
+
+
+CASE_CASES = {
+    # name: (files before, what happens, the paths the notices name, expected change)
+    "a file renamed in case": (
+        {"data/a.txt": "1", "data/b.txt": "2"},
+        lambda d: os.rename(d / "a.txt", d / "A.txt"),
+        ["a.txt", "A.txt"],
+        (0, 0, 1, []),
+    ),
+    "a folder renamed in case, with its files": (
+        {"data/Sub/x.txt": "1", "data/Sub/y.txt": "2", "data/b.txt": "3"},
+        lambda d: os.rename(d / "Sub", d / "sub"),
+        ["Sub", "sub"],
+        (0, 0, 2, []),
+    ),
+    "renamed in case and rewritten": (
+        {"data/A.txt": "1"},
+        lambda d: (os.rename(d / "A.txt", d / "a.txt"), _rewrite(d / "a.txt", "longer")),
+        ["A.txt", "a.txt"],
+        (1, 1, 0, ["0:a.txt"]),
+    ),
+    "removed, and another case made with other content": (
+        {"data/A.txt": "1"},
+        lambda d: ((d / "A.txt").unlink(), _rewrite(d / "a.txt", "other")),
+        ["A.txt", "a.txt"],
+        (1, 1, 0, ["0:a.txt"]),
+    ),
+}
+
+
+@pytest.mark.parametrize("order", ["sorted", "reversed"])
+@pytest.mark.parametrize("case", sorted(CASE_CASES))
+def test_notices_and_a_full_listing_agree_on_a_case_change(tmp_path: Path, case, order):
+    """The rule (SPEC-81): a gone entry and an added one that differ only by case are one
+    file renamed when their stamps match, a removal and an arrival otherwise; notices
+    (in either order) and a full listing say the same, and leave the full listing's
+    table."""
+    from specto_core.links import table_change
+
+    files, act, named, expected = CASE_CASES[case]
+    root = make_tree(tmp_path, files)
+    if not fswatch.case_insensitive(str(root / "data")):
+        pytest.skip("a case-sensitive file system: two names, two files")
+    listing, link, table = listing_for(root, {"sources": ["data"]})
+    before = dict(table)
+    act(root / "data")
+    paths = sorted(str(root / "data" / n) for n in named)
+    if order == "reversed":
+        paths.reverse()
+
+    notified = listing.apply(table, paths)
+    listed = table_change(before, fresh(root, link))
+
+    assert tuple(listed) == expected, listed
+    assert tuple(notified) == expected, notified
+    assert table == fresh(root, link)
+
+
+def test_a_folder_renamed_in_case_from_real_notices_moves_its_files(tmp_path: Path):
+    """The notices watchdog really sends for ``data/Sub`` renamed ``data/sub`` (and
+    whatever it names below it), applied as the watcher does (sorted): two changes, no
+    arrival, and no key left under the old name."""
+    root = make_tree(tmp_path, {"data/Sub/x.txt": "1", "data/Sub/y.txt": "2"})
+    if not fswatch.case_insensitive(str(root / "data")):
+        pytest.skip("a case-sensitive file system: two names, two files")
+    listing, link, table = listing_for(root, {"sources": ["data"]})
+    seen: list[str] = []
+    notifier = fswatch.Notifier([(str(root / "data"), True)], seen.extend, lambda *a: None).start()
+    try:
+        os.rename(root / "data" / "Sub", root / "data" / "sub")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and not any(p.endswith("sub") for p in seen):
+            time.sleep(0.02)
+        time.sleep(0.2)  # the rest of the batch
+    finally:
+        notifier.stop()
+    assert seen, "no notice for the rename"
+
+    change = listing.apply(table, sorted(set(seen)))
+
+    assert tuple(change) == (0, 0, 2, []), (change, seen)
+    assert table == fresh(root, link)
+    assert not [k for k in table if k.startswith("0:Sub/")]

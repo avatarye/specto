@@ -522,11 +522,11 @@ class LinkWatch:
             return False
         return self._post(table_change(before, table))
 
-    def _post(self, c: TableChange) -> bool:
-        if not (c.added or c.removed or c.changed):
+    def _post(self, change: TableChange) -> bool:
+        if not (change.added or change.removed or change.changed):
             return False
         self.changes.put(
-            WatchChange(self.link_id, c.added, c.removed, c.changed, c.arrived[:ARRIVALS_CAP])
+            WatchChange(self.link_id, change.added, change.removed, change.changed, change.arrived)
         )
         return True
 
@@ -757,16 +757,16 @@ class LinkWatch:
             if len(paths) > max(BURST_PATHS, len(self.table) // 2):
                 return  # more paths than half the table: that listing is cheaper
         try:
-            counts = self._listing.apply(self.table, sorted(paths))
+            change = self._listing.apply(self.table, sorted(paths))
         except Exception as e:
             log.warning("watch %s: applying notices failed: %s", self.link_id, e)
-            counts = None
+            change = None
         self.notices += 1
-        if counts is None:
+        if change is None:
             self._mark_dirty(now)
             self._settle_at = now  # only a full listing can tell: as soon as allowed
         else:
-            self._post(counts)
+            self._post(change)
 
 
 def _field_of(item: Item, name: str) -> str | None:

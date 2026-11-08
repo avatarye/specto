@@ -217,10 +217,8 @@ class IntakerListing:
         return TableChange(counts.added, counts.removed, counts.changed, counts.arrived)
 
     # -- one path ------------------------------------------------------------------------
-    def _actual_name(self, s: _Source, path: str) -> str | None:
-        """The name the folder holds for the last part of ``path`` (case-insensitive file
-        systems: the notice may name it in an old case); None when it holds none."""
-        folder, name = os.path.split(path)
+    def _names_in(self, folder: str) -> dict[str, str]:
+        """The folder's entry names by lower-cased name, listed once per batch."""
         names = self._names.get(folder)
         if names is None:
             try:
@@ -229,42 +227,44 @@ class IntakerListing:
             except OSError:
                 names = {}
             self._names[folder] = names
-        return names.get(name.lower())
+        return names
+
+    def _actual_rel(self, s: _Source, rel: str) -> str | None:
+        """``rel`` with every part in the case the disk holds it (case-insensitive file
+        systems: a notice may name a file, or a folder above it, in an old case); None
+        when some part is not there."""
+        folder, parts = str(s.root), []
+        for part in rel.split("/"):
+            actual = self._names_in(folder).get(part.lower())
+            if actual is None:
+                return None
+            parts.append(actual)
+            folder = os.path.join(folder, actual)
+        return "/".join(parts)
 
     def _apply_named(
         self, table: dict[str, str], s: _Source, rel: str, path: str, counts: _Counts
     ) -> None:
         if s.ci:
-            name = os.path.basename(path)
-            actual = self._actual_name(s, path)
+            # the notice may name the path, or a folder above it, in an old case: what
+            # the disk holds now is filed under the disk's own case (``_put`` moves an
+            # entry kept under another case, SPEC-81)
+            actual = self._actual_rel(s, rel)
             if actual is None:
                 self._gone(table, s, rel, counts)
                 return
-            if actual != name:
-                # the notice names an old case of what the folder holds under another
-                new_rel = rel[: len(rel) - len(name)] + actual
-                old_key = arrival_entry(s.index, rel)
-                if old_key not in table:
-                    self._gone(table, s, rel, counts)  # a folder under its old case
-                rel, path = new_rel, os.path.join(os.path.dirname(path), actual)
-            # a rename that only changed case, whichever of its two notices comes first:
-            # the entry moves to the folder's own name, a change rather than an arrival
-            # and a removal (SPEC-81)
-            key = arrival_entry(s.index, rel)
-            old = self._folded.get(key.lower())
-            if key not in table and old is not None and old != key and old in table:
-                stamp = table[old]
-                self._drop(table, old, _Counts())
-                self._set(table, key, stamp, _Counts())
-                counts.changed += 1
+            if actual != rel:
+                rel, path = actual, os.path.join(str(s.root), *actual.split("/"))
         self._apply_one(table, s, rel, path, counts)
 
     def _gone(self, table: dict[str, str], s: _Source, rel: str, counts: _Counts) -> None:
         key = arrival_entry(s.index, rel)
+        if s.ci:
+            key = self._folded.get(key.lower(), key)
         if key in table:
             self._drop(table, key, counts)
         else:  # not a file the table held: a folder, maybe
-            self._drop_under(table, key + "/", counts)
+            self._drop_under(table, f"{s.index}:{rel}/", counts, fold=s.ci)
 
     def _apply_one(
         self, table: dict[str, str], s: _Source, rel: str, path: str, counts: _Counts
@@ -280,7 +280,7 @@ class IntakerListing:
             self._drop(table, key, counts)
             self._walk(table, s, rel, path, counts)
         elif st is not None and stat.S_ISREG(st.st_mode) and self._wanted(s, rel):
-            self._set(table, key, f"{st.st_size}:{st.st_mtime_ns}", counts)
+            self._put(table, s, key, f"{st.st_size}:{st.st_mtime_ns}", counts)
         else:
             self._gone(table, s, rel, counts)
 
@@ -306,7 +306,7 @@ class IntakerListing:
     ) -> None:
         """A folder now: list it as the walk would, and drop what was under it before
         but is not now."""
-        prefix = arrival_entry(s.index, rel) + "/"
+        prefix = f"{s.index}:{rel}/"
         if not s.src.follow_links and os.path.islink(path):
             self._drop_under(table, prefix, counts)
             return
@@ -332,8 +332,10 @@ class IntakerListing:
                 continue
             k = arrival_entry(s.index, f.rel)
             seen.add(k)
-            self._set(table, k, f"{f.size}:{f.mtime_ns}", counts)
-        for k in self._keys_under(prefix):
+            self._put(table, s, k, f"{f.size}:{f.mtime_ns}", counts)
+        # what was under the folder before, in any case where names fold: a folder
+        # renamed in case leaves nothing behind under its old name
+        for k in self._keys_under(prefix, fold=s.ci):
             if k not in seen:
                 self._drop(table, k, counts)
 
@@ -346,6 +348,23 @@ class IntakerListing:
     def _index(self, key: str) -> None:
         self._dirs.setdefault(self._folder_of(key), set()).add(key)
         self._folded[key.lower()] = key
+
+    def _put(
+        self, table: dict[str, str], s: _Source, key: str, stamp: str, counts: _Counts
+    ) -> None:
+        """``_set``, and where names fold an entry the table keeps under another case of
+        ``key`` moves to it (SPEC-81): with the same stamp one file renamed in case, a
+        change; with another stamp a removal and an arrival, as a full listing says."""
+        if s.ci and key not in table:
+            old = self._folded.get(key.lower())
+            if old is not None and old != key and old in table:
+                if table[old] == stamp:
+                    self._drop(table, old, _Counts())
+                    self._set(table, key, stamp, _Counts())
+                    counts.changed += 1
+                    return
+                self._drop(table, old, counts)
+        self._set(table, key, stamp, counts)
 
     def _set(self, table: dict[str, str], key: str, stamp: str, counts: _Counts) -> None:
         before = table.get(key)
@@ -372,12 +391,18 @@ class IntakerListing:
             if not folder:
                 del self._dirs[self._folder_of(key)]
 
-    def _keys_under(self, prefix: str) -> list[str]:
-        # the names come from the disk, as the notices' do: compared as they are
-        return [k for d, keys in self._dirs.items() if d.startswith(prefix) for k in keys]
+    def _keys_under(self, prefix: str, *, fold: bool = False) -> list[str]:
+        """The table's keys under ``prefix``: compared as they are, or without case where
+        the file system folds names (``fold``)."""
+        if not fold:
+            return [k for d, keys in self._dirs.items() if d.startswith(prefix) for k in keys]
+        low = prefix.lower()
+        return [k for d, keys in self._dirs.items() if d.lower().startswith(low) for k in keys]
 
-    def _drop_under(self, table: dict[str, str], prefix: str, counts: _Counts) -> None:
-        for k in self._keys_under(prefix):
+    def _drop_under(
+        self, table: dict[str, str], prefix: str, counts: _Counts, *, fold: bool = False
+    ) -> None:
+        for k in self._keys_under(prefix, fold=fold):
             self._drop(table, k, counts)
 
 
