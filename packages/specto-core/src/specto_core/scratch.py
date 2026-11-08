@@ -7,8 +7,10 @@ counters. Each page is one markdown file ``<page id>.md``; the pictures dropped 
 png files in ``<page id>.assets/``, embedded with ``![label](<page id>.assets/<name>.png)``.
 Links point at files with paths relative to the page (``../../runs/front/00042.jpg``, so
 the note reads the same in any markdown viewer); a file outside the project is a
-``file:///`` URL, and never a network path: every link target and dropped ``file:`` URL
-passes ``specto_core.pathguard`` before anything asks whether the file exists (SPEC-67).
+``file:///`` URL, and never a network path: every path that reaches the pad as text (a
+link target, a dropped ``file:`` URL or Specto payload path, a file entry, a legacy
+card's path) passes ``specto_core.pathguard`` before anything asks whether the file
+exists (SPEC-67, SPEC-71).
 ``markdown_of`` turns dropped entries into markdown: text as text,
 pictures as embedded assets, files and prims as links, an item from a Specto view as a
 short quote with its source.
@@ -372,7 +374,12 @@ class ScratchStore:
     # -- markdown from drops -------------------------------------------------------------
     def link_to(self, path: str | Path) -> str:
         """A link target for a file, from the scratch folder: relative inside the
-        project, a ``file:///`` URL outside it."""
+        project, a ``file:///`` URL outside it. ``InvalidArgs`` for a path the shared guard
+        refuses (a network, NT object or device path), before anything resolves it
+        (SPEC-71)."""
+        why = path_refusal(str(path))
+        if why:
+            raise InvalidArgs(f"{path} is {why}", fix="link a file on this machine")
         p = Path(path)
         if not p.is_absolute():
             p = self.root / p
@@ -427,6 +434,9 @@ class ScratchStore:
             elif e.kind == "file":
                 if not e.path:
                     continue
+                why = path_refusal(e.path)
+                if why:  # before anything asks whether it exists (SPEC-71)
+                    raise InvalidArgs(f"{e.path} is {why}", fix="link a file on this machine")
                 p = Path(e.path)
                 if not p.is_absolute():
                     p = self.root / p
@@ -759,7 +769,12 @@ class ScratchStore:
             alt = _link_label(label or "image")
             return f"![{alt}]({_target(f'{pid}{ASSETS_SUFFIX}/{name}')})"
         if kind == "file" and it.get("path"):
-            p = Path(str(it["path"]))
+            text = str(it["path"])
+            if path_refusal(text):
+                # a network or device path from the agent-writable index.json: named as
+                # plain text, never resolved or linked (SPEC-71)
+                return _clip(label or text).replace("[", "(").replace("]", ")")
+            p = Path(text)
             p = p if p.is_absolute() else self.root / p
             return f"[{_link_label(label or p.name)}]({_target(self.link_to(p))})"
         return ""
@@ -868,7 +883,13 @@ def _from_payload(payload: dict[str, Any], png: bytes | None) -> list[NewItem]:
                 )
         if out:
             return out
-    files = [it for it in items if it.get("abs") and Path(str(it["abs"])).exists()]
+    # an item's path is text from the drag source: judged before anything asks whether
+    # it exists (SPEC-71)
+    files = [
+        it
+        for it in items
+        if it.get("abs") and not path_refusal(str(it["abs"])) and Path(str(it["abs"])).exists()
+    ]
     picture = png is not None and (
         len(files) < len(items)
         or any(it.get("kind") in PICTURE_KINDS[1:] for it in items)

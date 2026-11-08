@@ -59,6 +59,12 @@ the release and move on their own schedule.
   any spelling is refused by its text in the conversion's own resolver, so the isolated
   child never connects out; the model converts without that texture. Before, trimesh
   stat'ed the path (an SMB connect on Windows) before its own root check refused it.
+- Security fix (SPEC-71), the rest of SPEC-67: the scratch pad's other paths are judged
+  by their text too. A legacy card in the agent-writable `index.json` with a network
+  path was resolved when the store opened (no click), and a dropped Specto item or file
+  entry with such a path was asked whether it exists. Now a legacy card with a network
+  path keeps its label as plain text, a dropped item with one is skipped, and a file
+  entry with one is refused, all before any filesystem call.
 - Security fix (SPEC-72): an intaker's `sources` can no longer make Specto connect to
   another machine. A network path as a source (`\\host\share`, `//host/...`, the
   `\??\UNC\...` spelling), a device path or a rooted path that is no drive path was

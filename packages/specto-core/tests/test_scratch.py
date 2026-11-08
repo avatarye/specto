@@ -446,12 +446,95 @@ def test_a_file_url_is_a_local_path_by_the_platform_s_rules():
 
 _NETWORK_LINK_FORMS = (
     r"\\host\share\x.png",
+    r"\\host",  # no share: still a host
     "//host/share/x.png",
     "%5C%5Chost%5Cshare%5Cx.png",
     "file://host/share/x.png",
     "file:///%5C%5Chost/share/x.png",
+    "file:///%2F%2Fhost/share/x.png",
+    "file://localhost//host/share/x.png",
+    r"file:\\host\share\x.png",
     r"\??\UNC\host\share\x.png",
+    r"\\?\UNC\host\share\x.png",
+    r"\\.\UNC\host\share\x.png",
+    "//?/UNC/host/share/x.png",
 )
+
+
+def _trap_network_paths(monkeypatch, calls: list[str]) -> None:
+    """Every filesystem call that names ``host`` records itself and raises; the rest run,
+    since a store's own files are read and written meanwhile."""
+    import os
+    import pathlib
+
+    def trapped(real):
+        def call(path, *a, **k):
+            if "host" in str(path).lower():
+                calls.append(str(path))
+                raise AssertionError(f"a filesystem call on {path}")
+            return real(path, *a, **k)
+
+        return call
+
+    for name in ("is_file", "exists", "stat", "resolve", "is_dir", "read_bytes", "read_text"):
+        monkeypatch.setattr(pathlib.Path, name, trapped(getattr(pathlib.Path, name)))
+    for name in ("stat", "lstat", "listdir", "scandir"):
+        monkeypatch.setattr(os, name, trapped(getattr(os, name)))
+    for name in ("realpath", "exists", "abspath"):
+        monkeypatch.setattr(os.path, name, trapped(getattr(os.path, name)))
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")
+def test_a_legacy_card_s_network_path_is_never_stat_ed_at_migration(root, monkeypatch):
+    """SPEC-71: ``ScratchStore()`` migrates legacy cards from the agent-writable
+    ``index.json`` with no click; a file card's ``\\\\host\\share`` path reached
+    ``Path.resolve`` (``os.stat`` on the share) in ``link_to``. The card's text is judged
+    first; such a card becomes plain text, not a link."""
+    old = root / ".specto" / "scratch"
+    old.mkdir(parents=True)
+    items = [
+        {"id": "s1", "kind": "file", "label": "frame", "path": "runs/00042.jpg"},
+        {"id": "s2", "kind": "file", "label": "legacy", "path": r"\\host\share\legacy.png"},
+        {"id": "s3", "kind": "file", "label": "", "path": r"\??\UNC\host\share\x.png"},
+    ]
+    (old / "index.json").write_text(json.dumps({"next": 4, "items": items}), encoding="utf-8")
+    calls: list[str] = []
+    _trap_network_paths(monkeypatch, calls)
+    try:
+        store = ScratchStore(root)
+        text = store.text()
+    finally:
+        monkeypatch.undo()
+    assert calls == []
+    assert "[frame](../../runs/00042.jpg)" in text
+    assert "host" in text and "](" not in text.split("\n\n", 1)[1]  # named, never linked
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")
+def test_a_dropped_payload_s_network_path_never_reaches_the_filesystem(store, monkeypatch):
+    """SPEC-71: a dropped Specto payload (``application/x-specto-item+json``) with
+    ``abs = \\\\host\\share\\x`` reached ``Path.exists`` in ``_from_payload``, and a file
+    entry with such a path reached it in ``markdown_of``; both are judged by text first."""
+    from specto_core.scratch import SPECTO_MIME
+
+    payload = {
+        "items": [
+            {"kind": "image", "key": "x", "abs": r"\\host\share\x.jpg", "label": "x"},
+            {"kind": "image", "key": "y", "abs": "//host/share/y.jpg"},
+        ]
+    }
+    calls: list[str] = []
+    _trap_network_paths(monkeypatch, calls)
+    try:
+        got = entries_from_mime({SPECTO_MIME: json.dumps(payload).encode()})
+        with pytest.raises(InvalidArgs, match="network path"):
+            store.markdown_of([NewItem(kind="file", path=r"\\host\share\x.jpg")])
+        with pytest.raises(InvalidArgs, match="network path"):
+            store.link_to(r"\\host\share\x.jpg")
+    finally:
+        monkeypatch.undo()
+    assert calls == [] and [e.kind for e in got] != ["file", "file"]
+    assert all(e.kind != "file" for e in got)
 
 
 @pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")

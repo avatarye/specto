@@ -762,11 +762,16 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   into markdown (text; png assets embedded; links relative to the page, `file:///` off
   the project; a Specto item as a quote with its source); `collection(page)` is the page
   (key = page id, part `.md`) then each local file and picture it links (key = path
-  relative to the project). A link target and a dropped `file:` URL pass
-  `specto_core.pathguard` (section 6) before `links()`, `open_link` or a drop asks
-  whether the file exists: a network path (`\\host\share`, `//host`, percent-encoded, or
-  a `file://host/...` URL) or an NT object path is no link, since agents write pad text
-  and the pad rebuilds its collection on every change (SPEC-67). The card store before
+  relative to the project). Every path that reaches the pad as text passes
+  `specto_core.pathguard` (section 6) before anything asks whether the file exists: a
+  page's link targets (`links()`, `open_link`), a dropped `file:` URL, a dropped Specto
+  payload's `abs` paths (`_from_payload`), a `file` entry given to `markdown_of` and
+  `link_to`, and a legacy card's `path` at migration. A network path (`\\host\share`,
+  `\\host`, `//host`, percent-encoded, a `file://host/...` URL, `\\?\UNC`, `\\.\UNC`)
+  or an NT object path is no link: such a link target or payload path is dropped, a
+  `markdown_of` file entry raises `InvalidArgs`, and a legacy card keeps its label as
+  plain text. Agents write pad text and `index.json`, and the pad rebuilds its collection
+  on every change, so no click is needed (SPEC-67, SPEC-71). The card store before
   markdown (`index.json`) migrates on open. `ScratchHost` is a web host (`scratch/index.html`: the markdown renderer and
   outline, Monaco for the source; page events `save`, `caret`, `open`, `paste`) inside
   `Specto/Scratch/ScratchView.qml` (the tab strip, the drop area over the page); it
