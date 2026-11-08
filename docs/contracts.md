@@ -314,7 +314,10 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   (`scheme.ROOT_SUFFIXES`). A trailing path's text (and the text after `@root/`) passes
   `specto_core.pathguard` before any filesystem call (SPEC-61, ADR 0006 amended): an
   allowlist, shared with the page host's asset paths (`scheme.resolve_asset`, whose
-  decoded URL path may not be rooted either) and xacro's includes (section 10), that
+  decoded URL path may not be rooted either), the 3d reader's own look-up of an OBJ's
+  MTL and texture references at resolve (`scene3d.ref_refusal`, SPEC-68: such a
+  reference is named under `missing` and never looked for) and xacro's includes
+  (section 10), that
   accepts only a relative path, a Windows drive path or a POSIX single-slash path, so a
   network path (`\\host\share`, `\??\UNC\host`), an NT object or device path, a reserved
   device name or a stream name is refused by its text and never makes the machine connect

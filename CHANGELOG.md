@@ -15,6 +15,11 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The 3d reader's check of an OBJ's MTL and texture references at resolve goes through
+  the same path allowlist as the items host (SPEC-68, `specto_core.pathguard`): a
+  reference naming a network or device path, in any spelling (`\\host\x`, `//host/x`,
+  `\??\UNC\host\x`, `%5C%5Chost%5Cx`), is listed as unservable and never looked for
+  on disk. It kept the drive before, so nothing reached out; the guard makes that a rule.
 - Security fix (SPEC-61): a path in a note's image (relative, or a page asset's), an
   OBJ's material map or a xacro include can no longer make Specto connect to another
   machine. On Windows a network path there (`\\host\share\x.png`, or the `\??\UNC\...`

@@ -615,6 +615,55 @@ def test_an_obj_names_its_textures_relative_to_itself_within_the_root(tmp_path: 
     assert "missing" not in prepare_scene(out, tmp_path / "cache")
 
 
+#: an OBJ or MTL reference that names a network or device path, in each form a file can
+#: carry it: a UNC path with backslashes and with slashes, an NT object path, and the UNC
+#: with its backslashes percent-encoded, as the page's URL would carry them
+HOSTILE_REFS = [
+    r"\\attacker\share\m.mtl",
+    "//attacker/share/m.mtl",
+    r"\??\UNC\attacker\share\m.mtl",
+    "%5C%5Cattacker%5Cshare%5Cm.mtl",
+]
+
+
+def test_no_obj_reference_form_reaches_the_filesystem_as_a_network_or_device_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """SPEC-68: the files an OBJ and its MTL name go through ``specto_core.pathguard``
+    before any filesystem call (asking Windows whether ``\\\\host\\x`` exists connects to
+    the host). Every filesystem call on a path naming the attacker raises; the hostile
+    references come back as files that cannot be served, the honest ones resolve."""
+    obj = write_obj(tmp_path / "panel.obj")
+    hostile_maps = [ref.replace("m.mtl", "t.png") for ref in HOSTILE_REFS]
+    obj.write_text(
+        "".join(f"mtllib {ref}\n" for ref in HOSTILE_REFS) + obj.read_text(encoding="ascii"),
+        encoding="ascii",
+    )
+    mtl = tmp_path / "panel.mtl"
+    mtl.write_text(
+        mtl.read_text(encoding="ascii") + "".join(f"map_Kd {m}\n" for m in hostile_maps),
+        encoding="ascii",
+    )
+
+    def trap(owner: object, name: str) -> None:
+        orig = getattr(owner, name)
+
+        def guarded(path, *args, **kwargs):
+            assert "attacker" not in str(path), f"{name}() reached the filesystem with {path}"
+            return orig(path, *args, **kwargs)
+
+        monkeypatch.setattr(owner, name, guarded)
+
+    for name in ("stat", "lstat", "is_file", "is_dir", "exists", "resolve", "open", "iterdir"):
+        trap(Path, name)
+    for name in ("stat", "lstat", "open", "listdir", "scandir"):
+        trap(os, name)
+
+    scene = prepare_scene(obj, tmp_path / "cache", root=tmp_path)
+    assert scene["missing"] == HOSTILE_REFS + hostile_maps
+    assert scene["count"] == 24  # the OBJ itself was read
+
+
 def test_an_empty_stl_or_obj_still_opens(tmp_path: Path):
     (tmp_path / "e.obj").write_text("# nothing\n", encoding="ascii")
     (tmp_path / "e.stl").write_bytes(b" " * 80 + struct.pack("<I", 0))

@@ -3,7 +3,8 @@ sections 6 and 10).
 
 One guard for every place that turns text from a file into a path: the items host's
 relative paths (``specto_app.web.scheme.resolve_relative``: a note's image, an OBJ's
-material map) and xacro's includes (``specto_readers.xacro_expand``); a reader of robot
+material map), the 3d reader's OBJ and MTL references (``specto_readers.scene3d.ref_refusal``,
+SPEC-68) and xacro's includes (``specto_readers.xacro_expand``); a reader of robot
 descriptions joins it next. It never touches the disk or the network, and it is an
 allowlist: a path is accepted only when it is
 
