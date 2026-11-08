@@ -521,7 +521,9 @@ before. Thumbnails and posters never open an audio device.
   and what picks it, and each param's `description` is one clause, since both ride in the
   agent's standing reference, `specto_app.prompt.reference`, under 19.5k characters for
   core plus the app's views, tested; `guide` holds the controls and the long form of the
-  params, which only `describe view:<type>` shows, SPEC-56) in a `PluginManifest` so `describe` and
+  params, which only `describe view:<type>` shows, SPEC-56; a `state_schema` property
+  marked `"x-describe": true` is left off the card with its default, for `describe` alone,
+  SPEC-43.1) in a `PluginManifest` so `describe` and
   aliases (`@images`, `@json`, `@geo`, `@markdown`, `@pointclouds`, `@usd`, `@urdf`) work without
   reader code. `usd_info` (purpose `meta`) returns a USD file's root-layer header as JSON
   without pxr (default prim, up axis, metres per unit, time codes, Kit's camera,
