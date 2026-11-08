@@ -313,6 +313,65 @@ def test_a_collection_for_a_3d_view_carries_its_scenes(project: Project, monkeyp
     assert col.items[0].meta["scene"]["kind"] == "pointcloud"
 
 
+def test_a_3d_collection_from_a_script_names_no_mtl_outside_the_project(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+):
+    """SPEC-80: a Python link's collection is prepared with the project as its root, as an
+    intaker's is with its source: an OBJ whose ``mtllib`` climbs out of the project names
+    that MTL under ``missing`` and never opens, stats or resolves it (so its texture maps,
+    never read, are not named)."""
+    import os
+
+    monkeypatch.setenv("SPECTO_CACHE_DIR", str(project.root.parent / "cache"))
+    elsewhere = project.root.parent / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "o.mtl").write_text("newmtl x\nmap_Kd secret.png\n", encoding="ascii")
+    (project.root / "meshes").mkdir()
+    (project.root / "meshes" / "panel.obj").write_text(
+        "mtllib ../../elsewhere/o.mtl\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="ascii"
+    )
+    rel = write_link(
+        project,
+        "meshes",
+        "def resolve(value, items, params, root):\n    return ['meshes/panel.obj']\n",
+    )
+    approve(project, rel)
+    engine, _ = engine_on(project)
+    doc = engine.live.document()
+    doc["views"]["sika"] = {"type": "3d", "label": "meshes", "layout": {"position": [600, 0]}}
+    doc["links"]["l9"] = {
+        "kind": "python",
+        "source": {"view": "fege", "port": "selected_files"},
+        "target": {"view": "sika", "port": "data"},
+        "python": {"path": rel, "resolves_to": "value", "output": "collection"},
+        "summary": {"sentence": "The 3D view shows the meshes the script names."},
+    }
+    engine.live.submit(doc, origin="agent:s1", label="meshes")
+
+    reached: list[str] = []
+
+    def trap(owner: object, name: str) -> None:
+        orig = getattr(owner, name)
+
+        def recorded(path, *args, **kwargs):
+            if "elsewhere" in str(path):
+                reached.append(f"{name}({path})")
+            return orig(path, *args, **kwargs)
+
+        monkeypatch.setattr(owner, name, recorded)
+
+    for name in ("stat", "lstat", "is_file", "exists", "resolve", "open", "read_text"):
+        trap(Path, name)
+    for name in ("stat", "lstat", "open"):
+        trap(os, name)
+    pick(engine, project, "geo/a.geojson")
+
+    col = engine.links.input_of("sika", "data")
+    assert engine.links.status("l9")["state"] == "resolved", engine.links.status("l9")
+    assert col.items[0].meta["scene"]["missing"] == ["../../elsewhere/o.mtl"]
+    assert reached == []
+
+
 def test_bare_seconds_from_a_script_land_on_the_targets_own_timeline(project: Project):
     # a gallery whose frames carry stamps runs on the "stamp" clock; a script's plain
     # number names no timeline, and the gallery's clock still finds the nearest frame

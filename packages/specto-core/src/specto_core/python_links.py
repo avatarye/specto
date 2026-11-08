@@ -227,13 +227,14 @@ def build_python_table(
         return ScriptFailed(message=str(e))
     values = out.values() if isinstance(out, dict) else [s[1] for s in out]
     for v in values:
-        _prepare(v, prepare, progress)
+        _prepare(v, prepare, progress, root)
     return out
 
 
-def _prepare(value: Any, prepare: Any, progress: Any) -> None:
+def _prepare(value: Any, prepare: Any, progress: Any, root: str) -> None:
     if prepare is not None and isinstance(value, Collection):
-        prepare(value.items, progress=progress)
+        # the project bounds what a prepared item may name (an OBJ's MTL, SPEC-80)
+        prepare(value.items, progress=progress, root=root)
 
 
 def build_python_value(
@@ -265,7 +266,7 @@ def build_python_value(
         return e.failed
     except TypeError as e:  # a shape the output port does not take, with its fix-it
         return ScriptFailed(message=str(e))
-    _prepare(out, prepare, progress)
+    _prepare(out, prepare, progress, root)
     return out
 
 

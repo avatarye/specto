@@ -312,9 +312,10 @@ def register_watcher(
         WATCH_LISTINGS.pop(kind, None)
 
 
-#: ``fn(items, *, progress) -> items``: what a collection for a view of this type needs
-#: once built (a 3d view's scene buffers); picklable, run in the resolve job. The
-#: intaker prepares its own; a Python link's collection output gets it here (#176)
+#: ``fn(items, *, progress, root) -> items``: what a collection for a view of this type
+#: needs once built (a 3d view's scene buffers); picklable, run in the resolve job. ``root``
+#: bounds the files an item may name (SPEC-80). The intaker prepares its own with its source
+#: root; a Python link's collection output gets it here (#176) with the project root
 Preparer = Callable[..., Any]
 PREPARERS: dict[str, Preparer] = {}
 

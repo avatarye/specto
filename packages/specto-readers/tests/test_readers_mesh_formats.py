@@ -771,10 +771,43 @@ def test_an_mtllib_outside_the_root_is_never_opened(tmp_path: Path, monkeypatch)
     assert reached == []
     assert scene["missing"] == outside
     assert scene["count"] == 24
-    # with no root (a Python link's collection) a relative path may leave the folder, as
-    # unreachable allows; an absolute one still is not read
+    # with no root (no caller in the app since SPEC-80: an intaker passes its source, a
+    # Python link the project) a relative path may leave the folder; an absolute one never
     scene = prepare_scene(obj, tmp_path / "cache")
     assert scene["missing"] == [*outside[:2], "secret.png"]
+
+
+def junction(link: Path, target: Path) -> None:
+    """``link`` as a directory junction to ``target`` (``mklink /J`` needs no admin)."""
+    subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+        check=True,
+        capture_output=True,
+    )
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="directory junctions are Windows-only")
+def test_an_mtl_inside_a_root_reached_through_a_junction_still_loads(tmp_path: Path):
+    """SPEC-80: the part and the root may arrive by different spellings of one folder (a
+    junctioned or symlinked root, an 8.3 short name); an MTL and texture really inside the
+    root are found either way, and a ``..`` that climbs out of it still is not."""
+    real = tmp_path / "real"
+    (real / "meshes").mkdir(parents=True)
+    write_obj(real / "meshes" / "panel.obj", texture_ref="../textures/panel.png")
+    via = tmp_path / "via"
+    junction(via, real)
+    obj_via = via / "meshes" / "panel.obj"
+    # the part through the junction, the root by its real name, and the other way round
+    for obj, root in ((obj_via, real), (real / "meshes" / "panel.obj", via)):
+        assert "missing" not in prepare_scene(obj, tmp_path / "cache", root=root), (obj, root)
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "o.mtl").write_text("newmtl x\nmap_Kd secret.png\n", encoding="ascii")
+    obj_via.write_text(
+        "mtllib ../../out/o.mtl\n" + obj_via.read_text(encoding="ascii"), encoding="ascii"
+    )
+    for root in (real, via):
+        scene = prepare_scene(obj_via, tmp_path / "cache", root=root)
+        assert scene["missing"] == ["../../out/o.mtl"], root
 
 
 def test_an_empty_stl_or_obj_still_opens(tmp_path: Path):

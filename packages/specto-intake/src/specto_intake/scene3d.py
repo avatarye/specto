@@ -9,8 +9,9 @@ screener lists it as well: while its DAE is in the same collection, the converte
 item gets no scene, and the view shows the model once (from the DAE, regenerated when
 the DAE changes). A converted mesh whose DAE is not in the collection is an ordinary GLB.
 
-``root`` (the collection's root, the project folder for an intaker) bounds the files an
-OBJ may name next to it (``../textures/skin.png`` inside the project is fine).
+``root`` (required: an intaker's source root, the project folder for a Python link's
+collection, SPEC-80) bounds the files an OBJ may name next to it
+(``../textures/skin.png`` inside the project is fine).
 """
 
 from __future__ import annotations
@@ -30,9 +31,7 @@ def _norm(path: str | Path) -> str:
     return os.path.normcase(os.path.normpath(str(path)))
 
 
-def attach_scenes(
-    items: list[Item], *, progress: Any = None, root: str | Path | None = None
-) -> list[Item]:
+def attach_scenes(items: list[Item], *, root: str | Path, progress: Any = None) -> list[Item]:
     cache = default_cache_root()
     with_part = [(it, role) for it in items if (role := scene_role(it.parts)) is not None]
     converted = {

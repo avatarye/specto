@@ -15,6 +15,11 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- A Python link's collection for a 3d view is prepared with the project as its root
+  (SPEC-80), as an intaker's is with its source: an OBJ whose `mtllib` leaves the project
+  is named under `missing` and never opened. The 3d reader compares an OBJ's folder and
+  the root by their resolved names, so an MTL inside a root reached through a junction,
+  a symlink or an 8.3 short name is found.
 - The 3d reader opens an OBJ's `mtllib` only when it resolves inside the root (SPEC-70),
   the rule it already applied afterwards to decide what is servable: an absolute path, a
   `\\?\C:\` path or a `..` path that leaves the root is named under `missing` without

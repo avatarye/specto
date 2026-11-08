@@ -317,7 +317,8 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   decoded URL path may not be rooted either), the 3d reader's own look-up of the
   references it reads out of a file (`pathguard.reference_refusal`: an OBJ's MTL and
   texture names, SPEC-68, named under `missing` and never looked for, and an MTL is
-  opened only when it resolves inside the root, SPEC-70; a DAE's image
+  opened only when it resolves inside the root, SPEC-70, the OBJ's folder and the root
+  compared by their resolved names, SPEC-80; a DAE's image
   names, SPEC-69, refused in front of trimesh's resolver so the model converts without
   that texture) and xacro's includes
   (section 10), that
@@ -411,7 +412,8 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   `{root?, items}` or a list of items, an item a path or `{key?, parts: {role: path} |
   [path, ...], keys?, meta?}`, each part checked on disk and recorded with `meta.rel`
   and `meta.stat` as an intaker's, keys defaulting to the path without extension, and a
-  3d or preview target prepared with its scenes (`links.register_preparer`); None
+  3d or preview target prepared with its scenes (`links.register_preparer`, the project
+  the root that bounds what an item may name, SPEC-80); None
   delivers nothing. A wrong shape fails the link with a fix-it (`python_links.SHAPES`).
   The code runs as `python -I -X utf8` (no script folder, working folder or PYTHONPATH on
   `sys.path`; files and the console are UTF-8); its prints go to stderr. What it gets

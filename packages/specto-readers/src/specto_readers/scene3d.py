@@ -277,7 +277,7 @@ def measure_obj(path: Path) -> dict[str, Any]:
     return scene
 
 
-def obj_references(obj: Path, mtllibs: list[str], root: Path | None = None) -> list[str]:
+def obj_references(obj: Path, mtllibs: list[str], root: Path | None) -> list[str]:
     """The files an OBJ names as Babylon's loader reads them, all relative to the OBJ's
     folder: each ``mtllib`` (the rest of its line), then the texture maps in each MTL
     found (``map_Kd`` and kin, ``-bm <n>`` dropped). An MTL is opened only where
@@ -331,18 +331,23 @@ def reference_target(obj: Path, ref: str, root: Path | None) -> Path | None:
     anywhere). None otherwise: such a reference is named under ``missing`` and never opened,
     stat'ed or resolved (SPEC-70). The one rule for the MTL read and for ``unreachable``.
 
-    Whether the path leaves the root is read off its normalised text first, so a ``..``
-    that climbs out costs no filesystem call; what stays inside by its text is then resolved,
-    which catches a link inside the root that points out."""
+    The OBJ's folder and the root are compared by their resolved names (SPEC-80: a part and
+    a root may arrive by different spellings of one folder, through a junction, a symlink or
+    an 8.3 short name); only they are resolved, never the reference before it is judged.
+    Whether the reference leaves the root is read off its normalised text against them, so
+    a ``..`` that climbs out costs no filesystem call; what stays inside by its text is then
+    resolved, which catches a link inside the root that points out."""
     rel = ref.replace("\\", "/")
     if reference_refusal(ref) or Path(rel).is_absolute() or ":" in rel:
         return None
-    joined = Path(os.path.abspath(obj.parent / rel))  # text only: normalised, no lookup
-    if root is not None and not joined.is_relative_to(Path(os.path.abspath(root))):
-        return None
     try:
+        base = obj.parent.resolve()  # the part's own folder, not the reference
+        real_root = root.resolve() if root is not None else None
+        joined = Path(os.path.abspath(base / rel))  # text only: normalised, no lookup
+        if real_root is not None and not joined.is_relative_to(real_root):
+            return None
         target = joined.resolve()
-        if root is not None and not target.is_relative_to(root.resolve()):
+        if real_root is not None and not target.is_relative_to(real_root):
             return None
     except (OSError, ValueError):
         return None
@@ -401,10 +406,12 @@ __all__ = [
     "MeshError",
     "cache_key",
     "load_points",
+    "map_file_name",
     "measure_obj",
     "measure_stl",
     "obj_references",
     "prepare_scene",
+    "reference_target",
     "scene_role",
     "unreachable",
 ]
