@@ -22,9 +22,9 @@ import re
 import sys
 
 NOISE = {"Running fiber", "processing threads"}
-#: zones that wrap other work for its whole length; left out of a window's top list
 #: a streaming loop shorter than this goes in the "other loops" line
 LONG_LOOP_US = 50_000
+#: zones that wrap other work for its whole length; left out of a window's top list
 WRAPPERS = {"Executing task", "finishLoad", "Dispatch Event: progress.beginevent"}
 
 

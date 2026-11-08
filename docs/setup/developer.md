@@ -534,7 +534,7 @@ has no public way to set the carb settings it reads. Two dev-only tools fill the
 (SPEC-65); nothing in `packages/` imports them:
 
 - `tools/ovrtx_probe/sitecustomize.py`: with its folder first on `PYTHONPATH`, in the usd
-  source process alone it hands ovrtx the carb settings in `SPECTO_PROBE_CARB_SETTINGS`
+  frame source process alone it hands ovrtx the carb settings in `SPECTO_PROBE_CARB_SETTINGS`
   (a `--/path=value ...` string) before the first renderer, and adds the
   `RendererConfig` fields in `SPECTO_PROBE_CONFIG` (JSON). It goes through
   `ovrtx.settings.apply_settings`, an internal ovrtx extension (vtable slot 0) that may
@@ -552,8 +552,7 @@ heavy-run slot, as above):
 ```text
 export PYTHONPATH=<repo>/tools/ovrtx_probe OVRTX_PROFILER_BACKEND=cpu
 P=--/plugins/carb.profiler-cpu.plugin
-export SPECTO_PROBE_CARB_SETTINGS="--/app/profilerBackend=cpu --/app/profileFromStart=true
-  $P/saveProfile=true $P/compressProfile=false $P/filePath=<scratch>/profile.json"
+export SPECTO_PROBE_CARB_SETTINGS="--/app/profilerBackend=cpu --/app/profileFromStart=true $P/saveProfile=true $P/compressProfile=false $P/filePath=<scratch>/profile.json"
 uv run --no-sync python tools/bench_usd_load.py --work <scratch>/run --repeat 1 \
     <scratch>/full/Isaac/Environments/Simple_Warehouse/full_warehouse.usd
 python -I tools/ovrtx_trace_top.py <scratch>/profile.json
@@ -582,13 +581,14 @@ The ovrtx log names what holds it: `omni.rtx.MaterialDb` and `rtx.hydra.Material
 are busy the whole frame (4.7 s), `rtx.hydra.MaterialStreaming` 3.3 s,
 `omni.rtx.PSORaytracing` 1.4 s after the materials, `gpu.resourceManager` 1.5 s, and
 `gpu.foundation.TextureStreaming`, which starts 0.5 s in, is the last to go idle. The
-materials are the long pole, which is why the 1x1-texture copy is no faster. None of it
-is Specto's code. A second round in the same process (the renderer reused, cleared with
+materials look like the long pole, which would explain why the 1x1-texture copy is no
+faster. None of it is Specto's code. A second round in the same process (the renderer reused, cleared with
 `reset_stage`) took 7.3 s against 5.9 s: every material and texture system runs again in
 full after the clear, and longer (MaterialStreaming 6.1 s, resourceManager 3.5 s,
-TextureStreaming 5.6 s), so nothing carries over inside the renderer; the old stage's
-teardown (thousands of textures and material instances destroyed per frame in the trace)
-running beside the new load is a likely reason, not yet proven.
+TextureStreaming 5.6 s), which suggests little carries over inside the renderer; the old
+stage's teardown (thousands of textures and material instances destroyed per frame in the
+trace) running beside the new load is one possible reason, not proven. SPEC-78 later saw
+the same drift with a fresh renderer per stage, so the reuse is not what drives it.
 
 ## Common failures
 

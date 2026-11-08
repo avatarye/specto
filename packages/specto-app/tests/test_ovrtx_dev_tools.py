@@ -101,3 +101,15 @@ def test_the_trace_summary_breaks_the_first_frame_down_by_quality_loop(tmp_path:
     assert "other loops: 1, 0.100 s" in step
     assert "Running fiber" not in text
     assert "UJITSO: RequestsTotal" in text
+
+
+def test_a_bad_probe_config_says_so_in_one_line_and_goes_on():
+    """A malformed ``SPECTO_PROBE_CONFIG`` names the variable once on stderr; the process
+    runs on without the fields (the argument makes the probe take it for the source)."""
+    env = _env(SPECTO_PROBE_CONFIG="{log_level: verbose")
+    code = "print('ran')"
+    argv = [sys.executable, "-c", code, "specto_app.usd.source"]
+    out = subprocess.run(argv, capture_output=True, text=True, env=env)
+    assert out.returncode == 0 and out.stdout.strip() == "ran"
+    lines = [ln for ln in out.stderr.splitlines() if ln.strip()]
+    assert len(lines) == 1 and "SPECTO_PROBE_CONFIG" in lines[0]

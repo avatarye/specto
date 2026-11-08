@@ -10,7 +10,11 @@ ovrtx creates its first renderer, it:
 - adds the ``ovrtx.RendererConfig`` fields in ``SPECTO_PROBE_CONFIG``, a JSON object
   (``{"log_level": "verbose"}``).
 
-Every other process (the bench, gpu_guard, uv) is left alone.
+Every other process (the bench, gpu_guard, uv) is left alone. A malformed
+``SPECTO_PROBE_CONFIG`` is said in one stderr line and left out.
+
+Python imports only the first ``sitecustomize`` on its path, so while this folder leads
+PYTHONPATH it hides any other one (a venv's or the interpreter's) in every process.
 
 WARNING: the settings go through ``ovrtx.settings.apply_settings``, an INTERNAL ovrtx 0.6
 extension: ``ovrtx_query_extension`` hands back its vtable and slot 0 is taken to be
@@ -65,7 +69,14 @@ def _main() -> None:
     if "specto_app.usd.source" not in getattr(sys, "orig_argv", sys.argv):
         return
     settings = os.environ.get("SPECTO_PROBE_CARB_SETTINGS", "").strip()
-    extra = json.loads(os.environ.get("SPECTO_PROBE_CONFIG", "").strip() or "{}")
+    raw = os.environ.get("SPECTO_PROBE_CONFIG", "").strip()
+    try:
+        extra = json.loads(raw or "{}")
+        if not isinstance(extra, dict):
+            raise ValueError("not a JSON object")
+    except ValueError as e:  # json.JSONDecodeError is a ValueError
+        print(f"[probe] SPECTO_PROBE_CONFIG ignored, not a JSON object: {e}", file=sys.stderr)
+        extra = {}
     if settings:
         status = _apply_carb_settings(settings)
         print(f"[probe] carb settings status {status}: {settings}", file=sys.stderr, flush=True)
