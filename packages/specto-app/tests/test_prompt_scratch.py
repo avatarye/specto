@@ -136,6 +136,47 @@ def test_the_errors_the_agent_gets_back(engine: Engine):
     assert "keeps at least one page" in session.calls[6].text
 
 
+@pytest.mark.skipif(__import__("os").name != "nt", reason="Windows path forms")
+@pytest.mark.parametrize("arg", ["image", "file"])
+@pytest.mark.parametrize(
+    "text",
+    [r"\\host\share\x.png", "//host/share/x.png", r"\\?\UNC\host\share\x.png", "x.png:host"],
+)
+def test_an_append_s_path_is_judged_before_any_filesystem_call(engine, monkeypatch, arg, text):
+    """SPEC-73: scratch_append's image and file args went to ``Path.is_file`` in
+    ``ScratchTools._path``, so an agent naming ``\\\\host\\share\\x`` made Windows connect to
+    the host. The text passes the path guard first and the agent gets the refusal."""
+    import os
+    import pathlib
+
+    from specto_core.errors import InvalidArgs
+
+    tools = ScratchTools(lambda: engine.scratch, to_png=to_png)
+    assert tools.store is not None  # the store opens (reads its own files) before the trap
+    calls: list[str] = []
+
+    def trapped(real):
+        def call(path, *a, **k):
+            if "host" in str(path).lower():
+                calls.append(str(path))
+                raise AssertionError(f"a filesystem call on {path}")
+            return real(path, *a, **k)
+
+        return call
+
+    for name in ("is_file", "exists", "stat", "resolve", "read_bytes"):
+        monkeypatch.setattr(pathlib.Path, name, trapped(getattr(pathlib.Path, name)))
+    for name in ("stat", "lstat"):
+        monkeypatch.setattr(os, name, trapped(getattr(os, name)))
+    try:
+        with pytest.raises(InvalidArgs) as err:
+            tools.run("scratch_append", {arg: text})
+    finally:
+        monkeypatch.undo()
+    assert calls == []
+    assert any(w in str(err.value) for w in ("network path", "device path", "stream name"))
+
+
 def test_the_context_names_the_pages_with_their_headings(engine: Engine):
     assert context_items(ScratchStore(engine.project.root / "elsewhere")) == []  # empty pad
     engine.scratch.append("# Long finding\n" + "z" * 500 + "\n## Detail")

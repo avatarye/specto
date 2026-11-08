@@ -15,6 +15,9 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Security fix (SPEC-73): the prompt bar agent's `scratch_append` no longer asks Windows
+  whether a network path in its `image` or `file` argument exists; such a path (or a
+  device or stream path) is refused by its text first.
 - Launchers judge a network or device path by its text before any filesystem call
   (SPEC-76): a command in `launchers.toml` that is (or expands to) `\\host\share\x.exe`
   never runs, a cwd like it is refused, and a path to open like it is refused with a

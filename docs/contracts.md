@@ -787,7 +787,8 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   the canvas and scratch stacks changed last (`TxnRecord.ts` against `ScratchStep.ts`).
   The prompt bar's agent has seven scratch tools (`specto_app.prompt.scratch`:
   `scratch_read`, `scratch_append`, `scratch_write`, and four for pages); the MCP tool
-  set is unchanged.
+  set is unchanged. `scratch_append`'s `image` and `file` paths pass `path_refusal` before
+  anything asks whether they exist; a refused one raises `InvalidArgs` (SPEC-73).
 - Context menu (#154, `specto_app.menu`): the shell has one (`Main.qml` `contextMenu`, a
   `PopMenu`; rows `menu:<entry id>`). A view contributes two things:
   - **its target**: `context_target(hit) -> MenuTarget | None` on the host says what is

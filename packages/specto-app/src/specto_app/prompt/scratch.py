@@ -23,6 +23,7 @@ from typing import Any
 
 from specto_core.agent_tools import ToolSpec
 from specto_core.errors import InvalidArgs, NotFound
+from specto_core.pathguard import path_refusal
 from specto_core.scratch import NewItem, ScratchStep, ScratchStore
 
 #: the most of a page ``scratch_read`` returns
@@ -172,6 +173,9 @@ class ScratchTools:
         text = str(value or "").strip()
         if not text:
             raise InvalidArgs(f"the {what} needs a path")
+        why = path_refusal(text)
+        if why:  # judged by its text before is_file asks Windows (SPEC-73)
+            raise InvalidArgs(f"{text} is {why}", fix="give a file on this machine")
         p = Path(text)
         p = p if p.is_absolute() else self.store.root / p
         if not p.is_file():
