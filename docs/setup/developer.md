@@ -502,7 +502,7 @@ uv run --no-sync python tools/bench_usd_load.py --work <scratch>/run --repeat 3 
 The numbers behind the SPEC-27 decisions (one Windows machine, RTX 4070 Ti, ovrtx 0.6.0,
 warm caches, three rounds): a warehouse reload takes 7-10 s with a fresh renderer, 5-7 s
 of it the first frame, and the 1x1-texture copy takes the same; a reused renderer saves
-the 1-1.5 s swap, `Renderer.reset_stage` on a reused one costs the same as plain reuse;
+the 1.0-1.4 s swap, `Renderer.reset_stage` on a reused one costs the same as plain reuse;
 without `keep_system_alive` (ovrtx's default) the swap is 3-4 s; `datastore_cache
 local://` relocates the DerivedDataCache (1.5 GB for this world) and is no faster warm;
 `enable_profiling` writes nothing a user can read, and the ovrtx log, at `log_level`
