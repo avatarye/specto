@@ -553,7 +553,7 @@ The PNGs under a project's `.specto/cache/thumbs/`, one per thumbnail (`<xx>/<ha
 _Avoid_: thumb cache, preview cache
 
 **Look**:
-The colours a thumbnail card is drawn in (surface, border, text and the kind tokens), taken from the theme and folded into the thumbnail's cache key, so a theme change gets new cards.
+The colours a thumbnail card is drawn in (surface, border, text and the kind tokens), taken from the theme and folded into the thumbnail's cache key, so a theme change gets new cards. The theme's own colour table stays a palette (`thumbs.palette()`, the gallery's `_palette`); the look is the part of it a card is drawn with.
 _Avoid_: palette (for a card's colours), pal
 
 **Health**:

@@ -27,6 +27,11 @@ def decode_task(
     )
 
 
+def _uri_of(raw: Any) -> str:
+    """What a malformed ref dump still names, for its error slot."""
+    return str(raw.get("uri", "")) if isinstance(raw, dict) else ""
+
+
 def map_refs(
     refs: list[Any],
     one: Callable[[DataRef], Any],
@@ -35,16 +40,17 @@ def map_refs(
     every: int = 16,
 ) -> list[Any]:
     """``one(ref)`` for each ref (``DataRef`` dumps or models) of a batch job: a failing
-    item becomes ``{"error": ..., "uri": ...}`` in its slot instead of failing the
-    batch; progress every ``every`` items."""
+    item, a malformed ref included, becomes ``{"error": ..., "uri": ...}`` in its slot
+    instead of failing the batch; progress every ``every`` items."""
     out: list[Any] = []
     n = max(1, len(refs))
     for i, r in enumerate(refs):
-        ref = r if isinstance(r, DataRef) else DataRef.model_validate(r)
         try:
+            ref = r if isinstance(r, DataRef) else DataRef.model_validate(r)
             out.append(one(ref))
         except Exception as e:
-            out.append({"error": f"{type(e).__name__}: {e}", "uri": ref.uri})
+            uri = r.uri if isinstance(r, DataRef) else _uri_of(r)
+            out.append({"error": f"{type(e).__name__}: {e}", "uri": uri})
         if (i + 1) % every == 0:
             progress((i + 1) / n, f"{i + 1}/{n}")
     return out

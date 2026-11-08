@@ -140,7 +140,7 @@ def cache_dir_for(project_root: Path | str | None) -> str | None:
 
 def cache_path(cache_dir: str, uri: str, px: int, look: dict[str, Any]) -> Path:
     """The PNG for ``uri`` at ``px`` under ``cache_dir``: one per path, size and look
-    (the card palette, or ``image_look`` for an image), ``<40 hex>.png`` in the folder
+    (the card's colours, or ``image_look`` for an image), ``<40 hex>.png`` in the folder
     named by its first two."""
     key = json.dumps(look, sort_keys=True)
     h = hashlib.sha1(f"{THUMB_VERSION}|{uri}|{px}|{key}".encode()).hexdigest()
@@ -171,8 +171,8 @@ def render_batch(
     look: dict[str, str],
     progress: Progress,
 ) -> list[TypedBuffer | dict[str, str]]:
-    """Thumbnails for ``refs`` (``DataRef`` dumps) at ``px`` in the card ``look`` (the
-    palette), from the disk cache when the file's stat still matches, else rendered (and
+    """Thumbnails for ``refs`` (``DataRef`` dumps) at ``px`` in the card ``look`` (its
+    colours), from the disk cache when the file's stat still matches, else rendered (and
     cached). A failing item becomes ``{"error": ...}`` in its slot. ``meta.cache`` says
     ``disk`` or ``rendered``, ``meta.stat`` the (size, mtime_ns) the picture is of. A
     cancelled job stops an archived video's copy (``progress.cancelled``)."""

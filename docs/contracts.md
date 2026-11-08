@@ -453,7 +453,7 @@ before. Thumbnails and posters never open an audio device.
   one `<xx>/<hash>.png` per file, size and look, `hash` the sha1 of `THUMB_VERSION`, the
   path, the size and the look (`cache_path`), `xx` its first two characters. Text chunks:
   `specto-stat` (`size:mtime_ns`, compared on read), `specto-source` (the path) and, for
-  images, `specto-source-w`/`-h`. Cards are keyed by the theme palette; images (written
+  images, `specto-source-w`/`-h`. Cards are keyed by their look; images (written
   only from 2 MP up, `IMAGE_CACHE_MIN_PIXELS`) by `image_look(request)`: the purpose, the
   `exif_transpose` option and `IMAGE_DECODER_VERSION`. Writers go through
   `<hash>.<pid>.tmp`, and an archived video's copy for its poster is one too.

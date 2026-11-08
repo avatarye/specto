@@ -212,3 +212,22 @@ def test_decode_batch_isolates_bad_items(pool: PoolJobManager):
     release_result(j)
     with pytest.raises(ValueError):
         submit_decode_batch(pool, [], DecodeRequest())
+
+
+def test_map_refs_slots_a_malformed_ref_instead_of_failing_the_batch():
+    """A ref that is not a ``DataRef`` (no kind) fails its own slot, with the uri the
+    dump gave, and the rest of the batch is served; a ref with nothing to name it gets
+    an empty uri."""
+    from specto_readers import map_refs
+
+    refs = [
+        {"kind": "image2d", "uri": "a.jpg"},
+        {"uri": "b.jpg"},  # no kind: not a DataRef
+        DataRef(kind="image2d", uri="c.jpg"),
+        {},
+    ]
+    out = map_refs(refs, lambda ref: ref.uri.upper(), lambda p, m="": None, every=1)
+    assert out[0] == "A.JPG" and out[2] == "C.JPG"
+    assert set(out[1]) == {"error", "uri"} and out[1]["uri"] == "b.jpg"
+    assert "ValidationError" in out[1]["error"]
+    assert out[3]["uri"] == "" and "error" in out[3]
