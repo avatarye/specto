@@ -22,7 +22,8 @@ the release and move on their own schedule.
   outside its own folder. A text card with `file: ../../../x.txt` read that file into the
   pad and then deleted it, an image card moved such a file in, and either asked a
   network share whether its file existed. Only a plain file directly in the card's folder
-  is taken now.
+  is taken now, and a page folder or assets folder that is a symlink or junction to
+  somewhere else is never read from or written into at migration.
 - Launchers judge a network or device path by its text before any filesystem call
   (SPEC-76): a command in `launchers.toml` that is (or expands to) `\\host\share\x.exe`
   never runs, a cwd like it is refused, and a path to open like it is refused with a

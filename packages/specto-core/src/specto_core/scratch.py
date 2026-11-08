@@ -782,6 +782,8 @@ class ScratchStore:
             return text.strip("\n")
         if kind == "image" and it.get("file"):
             name = str(it["file"])
+            if _linked(self.assets_dir(pid)):
+                return ""  # never moved through a link or junction out (SPEC-71)
             src = self._card_file(pid, folder, name)
             if src is None:
                 return ""

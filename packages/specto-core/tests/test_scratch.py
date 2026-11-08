@@ -572,6 +572,34 @@ def test_a_page_folder_that_is_a_junction_out_is_never_migrated(root, tmp_path):
             (scratch / "p2").rmdir()  # removes the junction only, never its target
 
 
+@pytest.mark.skipif(__import__("os").name != "nt", reason="mklink /J is Windows")
+def test_an_image_card_never_moves_into_an_assets_folder_that_is_a_junction_out(root, tmp_path):
+    """SPEC-71 review 4: with ``p1.assets`` a junction to an outside folder, migrating an
+    image card ``os.replace``d its file over the outside file of the same name. Image
+    cards are skipped when the page's assets folder is a link or junction."""
+    import os
+    import subprocess
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "s2.png").write_bytes(b"VICTIM")
+    old = _legacy_index(root, [{"id": "s2", "kind": "image", "file": "s2.png", "label": "p"}])
+    (old / "s2.png").write_bytes(b"\x89PNGcard")
+    junction = old / "p1.assets"
+    subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(junction), str(outside)],
+        check=True,
+        capture_output=True,
+    )
+    try:
+        text = ScratchStore(root).text()
+        assert (outside / "s2.png").read_bytes() == b"VICTIM"
+        assert "s2.png" not in text
+    finally:
+        if os.path.lexists(junction):
+            junction.rmdir()  # removes the junction only, never its target
+
+
 def test_a_legacy_file_card_outside_the_project_is_only_a_link(root, tmp_path):
     """A file card is a link, never read: a ``..`` form stays a link."""
     (tmp_path / "outside.txt").write_text("SECRET", encoding="utf-8")
