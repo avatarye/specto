@@ -29,6 +29,8 @@ import sys
 import urllib.request
 from pathlib import Path
 
+import specto_web
+
 HERE = Path(__file__).resolve().parent
 WEB = HERE / "web"
 VENDOR = WEB / "vendor"
@@ -147,7 +149,7 @@ def fetch_hdri(manifest: dict | None = None) -> dict[str, Path]:
     out: dict[str, Path] = {}
     HDRI_CACHE.mkdir(parents=True, exist_ok=True)
     for e in (manifest or hdri_manifest())["environments"]:
-        dst = HDRI_CACHE / Path(e["url"]).name
+        dst = HDRI_CACHE / specto_web.hdri_file_name(e)
         if not dst.is_file() or sha256_of(dst) != e["sha256"]:
             print(f"[..] fetch {e['url']}")
             part = dst.with_name(dst.name + HDRI_PART_SUFFIX)

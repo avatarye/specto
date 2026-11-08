@@ -155,6 +155,21 @@ def test_a_killed_build_leaves_no_hdri_the_source_would_serve(tmp_path, monkeypa
     assert [p.name for p in cache.iterdir()] == [dst.name]
 
 
+def test_a_whole_hdri_is_a_file_at_the_manifests_size(tmp_path):
+    """SPEC-62: one predicate, shared by ``hdri_source`` and ``skies.hdri_path``, says
+    whether an HDRI on disk is whole: a file at the manifest entry's size. A missing
+    file, a truncated one, an entry without a size and a folder at the name are not."""
+    entry = {"name": "studio", "url": "https://x/studio_1k.hdr", "size": 12}
+    hdr = tmp_path / "studio_1k.hdr"
+    assert not specto_web.hdri_whole(hdr, entry)
+    hdr.write_bytes(b"#?RADIANCE\n")  # 11 bytes
+    assert not specto_web.hdri_whole(hdr, entry)
+    hdr.write_bytes(b"#?RADIANCE\n\n")
+    assert specto_web.hdri_whole(hdr, entry)
+    assert not specto_web.hdri_whole(hdr, {"name": "studio", "url": entry["url"]})
+    assert not specto_web.hdri_whole(tmp_path, {**entry, "size": tmp_path.stat().st_size})
+
+
 def test_the_build_stamp_follows_the_pins(tmp_path):
     build = load_build()
     m = build.hdri_manifest()

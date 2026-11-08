@@ -453,7 +453,7 @@ def hdri_path(name: str, folder: Path | None = None) -> Path | None:
     if entry_ is None:
         return None
     path = (folder or hdri_dir()) / specto_web.hdri_file_name(entry_)
-    return path if path.is_file() and path.stat().st_size == int(entry_.get("size", -1)) else None
+    return path if specto_web.hdri_whole(path, entry_) else None
 
 
 def fetch_hdri(

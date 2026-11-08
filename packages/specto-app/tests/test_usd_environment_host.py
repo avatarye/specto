@@ -132,12 +132,12 @@ def fetchers(sandbox: Path) -> list[FakeFetcher]:
     return []
 
 
-def make_host(cache: Path, fetchers: list[FakeFetcher], params: dict | None = None) -> UsdHost:
+def make_host(sandbox: Path, fetchers: list[FakeFetcher], params: dict | None = None) -> UsdHost:
     engine = Engine(project=None, jobs=InlineJobManager())
     submit_usd(engine, params)
 
     def factory(on_change):
-        fetchers.append(FakeFetcher(on_change, cache))
+        fetchers.append(FakeFetcher(on_change, sandbox))
         return fetchers[-1]
 
     return UsdHost(

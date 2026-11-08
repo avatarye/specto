@@ -107,6 +107,16 @@ def hdri_file_name(entry: dict[str, Any]) -> str:
     return str(entry.get("url", "")).rsplit("/", 1)[-1]
 
 
+def hdri_whole(path: Path, entry: dict[str, Any]) -> bool:
+    """True when ``path`` is a file at the manifest entry's ``size``: the one test of a
+    whole HDRI on disk, for build.py's cache here and the user's folder in
+    ``specto_app.usd.skies`` (a truncated file, or an entry without a size, is not)."""
+    try:
+        return path.is_file() and path.stat().st_size == int(entry.get("size", -1))
+    except OSError:
+        return False
+
+
 def hdri_source(name: str, root: Path | None = None) -> Path | None:
     """The source ``.hdr`` of environment ``name`` (SPEC-31: the usd view lights a stage with
     it; a dome light reads ``.hdr``, not Babylon's ``.env``): the file build.py downloaded
@@ -119,11 +129,7 @@ def hdri_source(name: str, root: Path | None = None) -> Path | None:
     if base is None or entry is None:
         return None
     f = base.parent / HDRI_CACHE / hdri_file_name(entry)
-    try:
-        whole = f.is_file() and f.stat().st_size == int(entry.get("size", -1))
-    except OSError:
-        return None
-    return f if whole else None
+    return f if hdri_whole(f, entry) else None
 
 
 BUILD_HINT = "run: uv run python packages/specto-web/build.py  (npm install + offline copy)"
@@ -142,6 +148,7 @@ __all__ = [
     "find_web_root",
     "hdri_file_name",
     "hdri_source",
+    "hdri_whole",
     "monaco_dir",
     "monaco_ok",
     "monaco_version",
