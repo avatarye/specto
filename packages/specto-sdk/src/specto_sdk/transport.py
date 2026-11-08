@@ -18,14 +18,8 @@ import sys
 from collections import deque
 from typing import TYPE_CHECKING, Any, Protocol
 
-from specto_core.pathguard import endpoint_refusal
-from specto_core.rpc import (
-    PIPE_REFUSED,
-    EndpointInfo,
-    RpcConnection,
-    RpcHandler,
-    local_pipe_path,
-)
+from specto_core.pathguard import PIPE_REFUSED, endpoint_refusal, local_pipe_path
+from specto_core.rpc import EndpointInfo, RpcConnection, RpcHandler
 
 if TYPE_CHECKING:
     from specto_core.live_canvas import SerialLock
@@ -96,6 +90,7 @@ class SocketTransport:
     @classmethod
     def connect_tcp(cls, address: str, *, timeout: float = 5.0) -> SocketTransport:
         host, _, port = address.rpartition(":")
+        host = host.strip("[]")  # [::1]:5000 names ::1; create_connection takes it bare
         try:
             sock = socket.create_connection((host or "127.0.0.1", int(port)), timeout=timeout)
         except (OSError, ValueError) as e:

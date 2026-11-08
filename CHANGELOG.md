@@ -15,6 +15,9 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- A tcp endpoint's port is ASCII digits (SPEC-98): a superscript digit raised an error
+  instead of a refusal, and a fullwidth one was taken. A bracketed IPv6 loopback
+  (`tcp://[::1]:5000`) connects; the brackets reached the socket call before.
 - A view retyped before its host is built gets inputs resolved for its new type
   (SPEC-84). Only a host's rebuild re-resolved a retyped view's links, so a view retyped
   in the moment before its slot attached (a gallery turned 3d view) was handed the

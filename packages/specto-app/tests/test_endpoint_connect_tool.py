@@ -85,3 +85,43 @@ def test_both_drivers_connect_through_it(tool):
     src = (TOOLS / tool).read_text(encoding="utf-8")
     assert "from endpoint_connect import connect" in src
     assert "def connect(" not in src and "open(address" not in src
+
+
+def test_a_bare_unix_name_connects_in_the_temp_dir(trapped, monkeypatch):
+    """SPEC-98: QLocalServer's socket name off Windows; the AF_UNIX constant is faked
+    where this Python has none (the socket itself is trapped)."""
+    import tempfile
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(socket, "AF_UNIX", 1, raising=False)
+    with pytest.raises(ConnectionRefusedError):
+        endpoint_connect.connect({"kind": "unix", "address": "specto-abc"})
+    assert trapped == [("unix", str(Path(tempfile.gettempdir()) / "specto-abc"))]
+
+
+@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="this Python has no AF_UNIX")
+def test_a_local_unix_socket_is_reached(tmp_path, monkeypatch):
+    """A real round trip: a listener on a socket path, a line each way."""
+    import threading
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    path = str(tmp_path / "s")
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(path)
+    server.listen(1)
+
+    def echo() -> None:
+        conn, _ = server.accept()
+        with conn:
+            conn.sendall(conn.recv(64).upper())
+
+    t = threading.Thread(target=echo, daemon=True)
+    t.start()
+    try:
+        f = endpoint_connect.connect({"kind": "unix", "address": path})
+        f.write(b"ping\n")
+        assert f.read(5) == b"PING\n"
+        f.close()
+    finally:
+        t.join(5)
+        server.close()
