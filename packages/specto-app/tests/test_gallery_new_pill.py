@@ -6,12 +6,14 @@ the pill's own retirement (``ackArrivals``) clears what is new."""
 
 from __future__ import annotations
 
+import os
 import time
+import zipfile
 from pathlib import Path
 
 import pytest
 import test_shell
-from gallery_helpers import FakeGallery, copy_frames, needs_testdata
+from gallery_helpers import TESTDATA, FakeGallery, copy_frames, needs_testdata
 from test_ports_hosts import HeldJobs, _gallery_from_folder
 from test_shell import click_item, gallery_doc, submit
 
@@ -100,6 +102,20 @@ def test_an_unchanged_or_failed_re_resolve_then_a_filter_edit_adds_nothing_new(t
     engine.close()
 
 
+def test_an_arriving_archive_marks_every_member_new(tmp_path: Path):
+    """The watcher lists an archive unexpanded (``0:drive.zip``); the items it yields
+    carry member paths (``drive.zip#/front/a.jpg``): they match by the archive."""
+    host, fake, engine = _host(tmp_path)
+    host.receive("data", _col(tmp_path, ["c.jpg"], 1))
+    host.on_arrivals(_arrivals("drive.zip"))
+    host.receive(
+        "data", _col(tmp_path, ["c.jpg", "drive.zip#/front/a.jpg", "drive.zip#/front/b.jpg"], 2)
+    )
+    assert fake.new == NewPill(2, 1)  # the collection's order: c, then the archive's a and b
+    assert host.pending_arrivals() == 0
+    engine.close()
+
+
 def test_pending_entries_are_capped(tmp_path: Path):
     host, _fake, engine = _host(tmp_path)
     host.on_arrivals(_arrivals(*(f"{i}.jpg" for i in range(PENDING_CAP + 500))))
@@ -162,6 +178,31 @@ def test_arrivals_show_the_new_pill_and_its_retirement_clears_it(tmp_path, monke
 
 
 @needs_testdata
+def test_an_archive_arriving_in_the_folder_marks_its_frames_new(tmp_path, monkeypatch):
+    proj, engine, jobs, ctx, reg, fake = _watched(tmp_path, monkeypatch, 3)
+    kobi = reg.host("kobi")  # hosts are built on first use; this one hears the arrivals
+    assert fake.count() == 3
+    frames = sorted((TESTDATA / "runs" / "run-001" / "cam-a").glob("*.jpg"))[3:5]
+    staged = tmp_path / "drive.zip"  # written aside, then moved in whole
+    with zipfile.ZipFile(staged, "w") as z:
+        for f in frames:
+            z.write(f, f"front/{f.name}")
+    os.replace(staged, proj.root / "drops" / "drive.zip")
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and "l2" not in ctx.links.poll():
+        time.sleep(0.02)
+    while fake.count() == 3 and jobs.held:
+        jobs.run_next()
+    assert fake.count() == 5
+    assert [it.meta["rel"] for it in kobi.items][3:] == [
+        {".jpg": f"drive.zip#/front/{f.name}"} for f in frames
+    ]
+    assert fake.new == NewPill(2, 3)  # the archive arrived as one entry; both members are new
+    assert kobi.pending_arrivals() == 0
+    engine.close()
+
+
+@needs_testdata
 def test_a_host_that_fails_on_arrivals_lands_in_its_health(tmp_path, monkeypatch):
     proj, engine, jobs, ctx, reg, fake = _watched(tmp_path, monkeypatch, 3)
     kobi = reg.host("kobi")
@@ -175,8 +216,10 @@ def test_a_host_that_fails_on_arrivals_lands_in_its_health(tmp_path, monkeypatch
         lambda vid: seen.append((ctx.health_of(vid)["status"], ctx.health_of(vid)["message"]))
     )
     _arrive(proj, ctx, jobs, fake, 4)
-    # the error landed in the view's health (contracts section 11); the re-resolve the
-    # same poll started then reported its own progress, and the collection swapped in
+    # the arrival note posted, then the error landed in the view's health (contracts
+    # section 11); the re-resolve the same poll started then reported its own progress,
+    # and the collection swapped in
+    assert any(s == "loading" and m.startswith("2 arrived") for s, m in seen)
     assert ("error", "on_arrivals: RuntimeError: boom") in seen
     assert fake.count() == 4 and ctx.health_of("kobi")["status"] != "error"
     engine.close()

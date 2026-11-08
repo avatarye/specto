@@ -328,8 +328,9 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   arrived}` and re-resolves the link once the folder has been quiet for
   `watch_debounce_s`; the new collection generation swaps in. `arrived` names the
   added entries as the watcher does (the intaker's: `<source index>:<rel path>`,
-  what an item's `meta.source` and `meta.rel` hold), at most `ARRIVALS_CAP` (1000) of
-  them; `added` counts them all (SPEC-59). The resolve re-runs the whole intaker (ADR 0016 note). `engine.close()`
+  what an item's `meta.source` and `meta.rel` hold; an archive is one entry,
+  `0:drive.zip`, and its members' items go by it: `links.arrival_entry`), at most
+  `ARRIVALS_CAP` (1000) of them; `added` counts them all (SPEC-59). The resolve re-runs the whole intaker (ADR 0016 note). `engine.close()`
   stops and joins the watchers.
 - Auto-update and refresh (#102): `params.watch` is off by default; the file tree's intaker
   is on unless it says false (#115: new canvases write it, a submit or load that leaves it
@@ -612,7 +613,9 @@ class GalleryHost(QuickViewHost):  # one per live view
 
     # optional: pause(), resume(), on_release(), on_restore(), snapshot_image(),
     # health_hint(), dispose(), on_arrivals(payload): a link.arrivals for one of the
-    # view's inputs (SPEC-59)
+    # view's inputs (SPEC-59: the gallery keeps its `arrived` entries pending, at most
+    # 1000, and marks an item new when a delivery holds one; an entry waits through two
+    # deliveries, a sort or filter change among them, then is forgotten)
     release_when_paused = True  # optional: paused release_delay_s (3 s), the item leaves the scene
 
 

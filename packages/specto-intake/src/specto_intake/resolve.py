@@ -31,6 +31,7 @@ from specto_core.errors import SpectoError
 from specto_core.links import (
     Collection,
     FilesValue,
+    arrival_entry,
     register_preparer,
     register_resolver,
     register_watcher,
@@ -217,7 +218,7 @@ def watch_intaker(
                 )
                 if _hidden(rel_proj):
                     continue
-                table[f"{i}:{f.rel}"] = f"{f.size}:{f.mtime_ns}"
+                table[arrival_entry(i, f.rel)] = f"{f.size}:{f.mtime_ns}"
         except SpectoError as e:  # a source that is not there (yet) is an entry too
             table[f"{i}:"] = f"missing:{e.message}"
     return table

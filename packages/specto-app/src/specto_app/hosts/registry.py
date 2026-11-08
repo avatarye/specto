@@ -303,20 +303,20 @@ class HostRegistry(QObject):
                 self.ctx.set_health(vid, status, message)
 
         if ev.kind == "link.arrivals":
-            # watch mode: what the host shows stays until the new collection swaps in;
-            # a host that marks arrivals (the gallery's "+N new", SPEC-59) hears of them
+            # watch mode: what the host shows stays until the new collection swaps in
+            n = ev.payload.get("added", 0)
+            gone = ev.payload.get("removed", 0)
+            note = f"{n} arrived" if n else (f"{gone} removed" if gone else "files changed")
+            set_health("loading", f"{note}, resolving {what}")
+            # a host that marks arrivals (the gallery's "+N new", SPEC-59) hears of them;
+            # its error lands in the health the view shows, or in a paused view's record
             h = self.hosts.get(vid)
             on_arrivals = getattr(h, "on_arrivals", None)
             if on_arrivals is not None and not getattr(h, "disposed", False):
                 try:
                     on_arrivals(ev.payload)
                 except Exception as e:
-                    self.ctx.set_health(vid, "error", f"on_arrivals: {type(e).__name__}: {e}")
-                    return
-            n = ev.payload.get("added", 0)
-            gone = ev.payload.get("removed", 0)
-            note = f"{n} arrived" if n else (f"{gone} removed" if gone else "files changed")
-            set_health("loading", f"{note}, resolving {what}")
+                    set_health("error", f"on_arrivals: {type(e).__name__}: {e}")
         elif ev.kind == "link.resolving":
             if current != "loading":
                 set_health("loading", f"resolving {what}")

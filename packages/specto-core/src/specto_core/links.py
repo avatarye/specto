@@ -73,7 +73,7 @@ import time
 import weakref
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -91,6 +91,27 @@ PROJECT_OUT = (PROJECT_ID, PROJECT_PORT)
 #: how many arrived entries a change notice and ``link.arrivals`` name (SPEC-59);
 #: ``added`` counts them all
 ARRIVALS_CAP = 1000
+
+
+def arrival_entry(source: int, rel: str) -> str:
+    """The name an arrival goes by, in a watcher's table and in ``link.arrivals``:
+    ``<source index>:<rel>``. An archive's member (``drive.zip#/front/a.jpg``) goes by
+    its archive (``0:drive.zip``), since a watcher lists archives unexpanded; a
+    host matching its items' parts against the entries uses the same name."""
+    return f"{source}:{rel.split('#/', 1)[0]}"
+
+
+class WatchChange(NamedTuple):
+    """What a watcher posts on ``changes`` when its listing changed."""
+
+    link_id: str
+    added: int
+    removed: int
+    changed: int
+    #: the added entries (``arrival_entry``), at most ``ARRIVALS_CAP``
+    arrived: list[str]
+
+
 DEFAULT_WATCH_INTERVAL_S = 1.0
 DEFAULT_WATCH_DEBOUNCE_S = 0.5
 #: a per-pick Python link waits this long after a burst of picks before it runs the
@@ -210,9 +231,9 @@ def stop_all_watches(*, join: bool = True) -> int:
 
 class LinkWatch:
     """One watched link's poller: a daemon thread that lists the sources every
-    ``interval_s`` and posts ``(link id, added, removed, changed, arrived)`` on
-    ``changes`` when the listing differs from the last one (``arrived``: the added
-    entries' keys as the watcher names them, at most ``ARRIVALS_CAP``, SPEC-59). The first
+    ``interval_s`` and posts a :class:`WatchChange` on ``changes`` when the listing
+    differs from the last one (``arrived``: the added entries as ``arrival_entry``
+    names them, at most ``ARRIVALS_CAP``, SPEC-59). The first
     listing is the baseline. The thread holds its owner (the runtime) only weakly and
     ends with it, so a dropped engine never leaves a watcher behind; ``stop(join=True)``
     ends it now."""
@@ -276,7 +297,7 @@ class LinkWatch:
         changed = sum(1 for k, v in table.items() if k in before and before[k] != v)
         if not (added or removed or changed):
             return False
-        self.changes.put((self.link_id, added, removed, changed, arrived[:ARRIVALS_CAP]))
+        self.changes.put(WatchChange(self.link_id, added, removed, changed, arrived[:ARRIVALS_CAP]))
         return True
 
     def _orphaned(self) -> bool:

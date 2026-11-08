@@ -78,6 +78,10 @@ _Avoid_: fixed intaker, static intaker, locked (that is a lock)
 Whether a view fed by an intaker follows its files on its own: the switch in the view's header sets the intaker's `watch`, so files arriving, leaving or changing in its sources resolve in the background. Off by default except the file tree, which follows the project folder unless its intaker says `watch: false` (#115); the agent turns it on for folders an agent writes into. While it is off the status bar says "auto-update off · refresh" (#102).
 _Avoid_: live mode, sync, watch mode (in user-facing text)
 
+**Arrival**:
+A file that an intaker with auto-update on saw appear in one of its sources since its last listing. The event `link.arrivals` names the arrivals (`<source index>:<rel>`, an archive by its own name) and the collection that holds them resolves. A gallery counts an arrival as new once it shows the item that holds it: its "+N new" pill; a click scrolls to the first of them, and the pill retires once they are in view (SPEC-59).
+_Avoid_: new file notification, change event, added file
+
 **Refresh**:
 One manual rescan, for views whose auto-update is off: the view header's refresh rescans the intakers feeding that view, the project node's rescans every link off the project source. Not an undo step; only what changed is delivered, so nothing downstream of an unchanged result re-runs (#102).
 _Avoid_: reload, rescan (in user-facing text)

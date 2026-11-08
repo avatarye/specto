@@ -83,7 +83,7 @@ from specto_core.errors import SpectoError
 from specto_core.gestures import open_gallery_preview, open_image_view
 from specto_core.jobs import JobInfo, JobManager
 from specto_core.kinds import DataRef, DecodeRequest, Item, PluginManifest, ViewManifest
-from specto_core.links import Collection, Selection, TimeValue
+from specto_core.links import Collection, Selection, TimeValue, arrival_entry
 
 from . import gallery_native
 
@@ -587,20 +587,23 @@ class GalleryHost(QuickViewHost):
             del self._pending[next(iter(self._pending))]
 
     def _take_arrivals(self) -> None:
-        """After a reload (a delivery, whatever resolved it): an item holding a pending
-        entry is new; an entry no item holds waits one more delivery, and after
-        ``PENDING_DELIVERIES`` of them it is forgotten (a file the screener drops, a
-        resolve that failed). Keys gone since drop out. Shows the count and the first."""
+        """After a reload (a delivery, whatever resolved it: the arrival's own
+        collection, a sort or filter change, a rescan): an item holding a pending entry
+        is new, every member of an arriving archive among them (``arrival_entry``
+        names a member by its archive); an entry no item holds waits one more
+        delivery, and after ``PENDING_DELIVERIES`` of them it is forgotten (a file the
+        screener drops, a resolve that failed). Keys gone since drop out. Shows the
+        count (at most the ``PENDING_CAP`` entries pending) and the first."""
         if self._pending:
-            held = {
-                f"{it.meta.get('source', 0)}:{rel}": it.key
-                for it in self.items
-                for rel in (it.meta.get("rel") or {}).values()
-            }
+            held: dict[str, set[str]] = {}
+            for it in self.items:
+                for rel in (it.meta.get("rel") or {}).values():
+                    entry = arrival_entry(int(it.meta.get("source", 0)), str(rel))
+                    held.setdefault(entry, set()).add(it.key)
             for entry in list(self._pending):
-                key = held.get(entry)
-                if key is not None:
-                    self._new_keys.add(key)
+                keys = held.get(entry)
+                if keys:
+                    self._new_keys |= keys
                     del self._pending[entry]
                 elif self._pending[entry] + 1 >= PENDING_DELIVERIES:
                     del self._pending[entry]
