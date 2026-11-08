@@ -49,6 +49,8 @@ def settled(links, link_id: str = "l2") -> bool:
     """The watcher's start is behind it: the baseline, and in notify mode the listing
     after notifications armed (SPEC-83), so a count of listings taken now stays put."""
     status = links.watch_status(link_id) or {}
+    if not status.get("decided"):
+        return False
     return status.get("polls", 0) >= (2 if status.get("mode") == "notify" else 1)
 
 
@@ -1044,13 +1046,19 @@ def test_a_notify_watch_that_gets_no_notices_still_lands_files_by_the_safety_net
         jobs.shutdown()
 
 
+def _watching_events(links) -> list:
+    said: list = []
+    links.events.subscribe(
+        lambda ev: said.append(ev.payload) if ev.kind == "link.watching" else None
+    )
+    return said
+
+
 @needs_testdata
-def test_the_mode_is_said_before_the_baseline_while_notifications_arm(
-    project: Project, monkeypatch
-):
-    """SPEC-83 review: the baseline now comes before arming, but the mode is decided
-    first, so a listed watcher never reports (or says through ``link.watching``) that it
-    polls while its notifications are only arming."""
+def test_nothing_is_said_while_the_first_arming_is_under_way(project: Project, monkeypatch):
+    """SPEC-83 review: the baseline comes before arming, and until arming is done the
+    watcher's mode is undecided: no ``link.watching``, no status-bar note; then exactly
+    one notify."""
     monkeypatch.delenv("SPECTO_WATCH", raising=False)
     real_start = fswatch.Notifier.start
     armed = []
@@ -1064,18 +1072,58 @@ def test_the_mode_is_said_before_the_baseline_while_notifications_arm(
     jobs = ThreadJobManager()
     engine = Engine(project=project, jobs=jobs, watch_interval_s=0.05, watch_debounce_s=0.05)
     links = engine.links
-    said: list = []
-    links.events.subscribe(
-        lambda ev: said.append(ev.payload) if ev.kind == "link.watching" else None
-    )
+    said = _watching_events(links)
     engine.live.submit(watched_gallery(engine.live.document()), origin="agent:s1", label="w")
     try:
         assert pump_until(
             engine, jobs, lambda: (links.watch_status("l2") or {}).get("polls", 0) >= 1
         )
-        assert not armed and links.watch_status("l2")["mode"] == "notify"
+        assert not armed and not links.watch_status("l2")["decided"]
+        assert said == [] and links.watch_note("kobi") == ""
         assert pump_until(engine, jobs, lambda: bool(armed) and bool(said))
-        assert [s["mode"] for s in said] == ["notify"], said
+        assert pump_until(engine, jobs, lambda: settled(links))
+        assert [e["mode"] for e in said] == ["notify"], said
+    finally:
+        engine.close()
+        jobs.shutdown()
+
+
+@needs_testdata
+def test_a_refused_arming_says_poll_once_and_never_notify(project: Project, monkeypatch):
+    """SPEC-83 review round 2: notifications that are refused, first and on every retry,
+    give one poll event with its reason, which stays in the status while each retry
+    arms; never a notify in between."""
+    monkeypatch.delenv("SPECTO_WATCH", raising=False)
+    monkeypatch.setattr(links_mod, "RETRY_MIN_S", 0.2)
+    tries = []
+
+    def refusing_start(self):
+        time.sleep(0.2)
+        tries.append(1)
+        raise fswatch.NotifyUnavailable("the share refuses", reason=fswatch.Unavailable.REFUSED)
+
+    monkeypatch.setattr(fswatch.Notifier, "start", refusing_start)
+    jobs = ThreadJobManager()
+    engine = Engine(project=project, jobs=jobs, watch_interval_s=0.05, watch_debounce_s=0.05)
+    links = engine.links
+    said = _watching_events(links)
+    engine.live.submit(watched_gallery(engine.live.document()), origin="agent:s1", label="w")
+    reasons = set()
+    try:
+
+        def sampled() -> bool:
+            status = links.watch_status("l2") or {}
+            if status.get("decided"):
+                reasons.add((status["mode"], status["reason"]))
+                note = links.watch_note("kobi")
+                assert note == "polling: the share refuses", note
+            return len(tries) >= 3
+
+        assert pump_until(engine, jobs, sampled)
+        assert reasons == {("poll", "polling: the share refuses")}, reasons
+        assert [(e["mode"], e["reason"]) for e in said] == [
+            ("poll", "polling: the share refuses")
+        ], said
     finally:
         engine.close()
         jobs.shutdown()

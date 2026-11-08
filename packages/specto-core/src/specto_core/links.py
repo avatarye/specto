@@ -400,6 +400,9 @@ class LinkWatch:
         self.notices = 0
         #: (mode, reason), written as one pair (the runtime reads it from its thread)
         self._state = WatchState(WatchMode.POLL, "")
+        #: the mode has been decided (notifications armed, or the reason it polls); not
+        #: yet while the first arming is under way (SPEC-83)
+        self._decided = False
         self._listing_factory = listing
         self._listing: WatchListing | None = None
         #: the last listing made, kept while polling too: it answers source_missing
@@ -447,6 +450,13 @@ class LinkWatch:
 
     def _set_state(self, mode: WatchMode, reason: str) -> None:
         self._state = WatchState(mode, reason)
+        self._decided = True
+
+    @property
+    def decided(self) -> bool:
+        """The mode is decided: notifications armed, or the watcher polls and says why.
+        False only while its first arming is under way."""
+        return self._decided
 
     def start(self) -> LinkWatch:
         self._thread.start()
@@ -579,8 +589,9 @@ class LinkWatch:
 
     def _plan_notify(self) -> tuple[WatchListing, list[tuple[str, bool]]] | None:
         """The quick half of starting notifications: the kind's listing and the folders
-        to observe, with the mode said (notify) before anything is armed; None (and the
-        poll ``reason``) when the watcher polls instead."""
+        to observe; None (and the poll ``reason``) when the watcher polls instead. The
+        mode is not said here: notify only once armed (``_arm_notify``), and a watcher
+        already polling keeps its mode and reason while it tries again."""
         self._retry_now = False
         if self._listing_factory is None:
             self._set_state(WatchMode.POLL, "")
@@ -598,7 +609,6 @@ class LinkWatch:
             self._refused(e)
             return None
         self._remote = any(fswatch.is_remote(folder) for folder, _ in roots)
-        self._set_state(WatchMode.NOTIFY, self._notify_note())
         return listing, roots
 
     def _arm_notify(self, listing: WatchListing, roots: list[tuple[str, bool]]) -> bool:
@@ -960,6 +970,7 @@ class LinkRuntime:
             "interval_s": w.interval_s,
             "mode": w.state.mode.value,
             "reason": w.state.reason,
+            "decided": w.decided,
             "notices": w.notices,
         }
 
@@ -1608,8 +1619,8 @@ class LinkRuntime:
         it follows its sources, and again when that changes (notifications stopped, a
         missing source came back): the status bar says when a view is polled."""
         for lid, w in list(self._watches.items()):
-            if w.polls == 0:
-                continue  # not started yet: the mode is decided before the baseline
+            if not w.decided:
+                continue  # its first arming is under way: nothing to say yet
             mode, reason = w.state
             said = (mode.value, reason)
             if self._watch_said.get(lid) == said:
@@ -1630,7 +1641,7 @@ class LinkRuntime:
         notes = []
         for lid, w in self._watches.items():
             link = self.live.data["links"].get(lid)
-            if link is None or link["target"]["view"] != view_id or w.polls == 0:
+            if link is None or link["target"]["view"] != view_id or not w.decided:
                 continue
             reason = w.state.reason
             if reason and reason not in notes:
