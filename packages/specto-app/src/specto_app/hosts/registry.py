@@ -73,7 +73,7 @@ class HostRegistry(QObject):
         self.engine: Engine = ctx.engine
         self.factories: dict[str, ViewHostFactory] = {}
         self._fallbacks: dict[str, list[ViewHostFactory]] = {}
-        self.hosts: dict[str, Any] = {}  # QuickViewHost or any host with an ``item``
+        self.hosts: dict[str, Any] = {}  # view id -> its QuickViewHost
         self._slots: dict[str, QQuickItem] = {}
         # the hidden holder item (Main.qml) detached host items wait in, alive and
         # out of sight, until a slot takes them
