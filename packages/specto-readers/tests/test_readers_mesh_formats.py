@@ -177,7 +177,7 @@ def filesystem_calls_naming(monkeypatch: pytest.MonkeyPatch, marker: str) -> lis
         trap(Path, name)
     for name in ("stat", "lstat", "open", "listdir", "scandir"):
         trap(os, name)
-    for name in ("isdir", "isfile", "exists", "realpath", "abspath"):
+    for name in ("isdir", "isfile", "exists", "realpath"):  # abspath is text only
         trap(os.path, name)
     return reached
 
@@ -744,6 +744,37 @@ def test_no_obj_reference_form_reaches_the_filesystem_as_a_network_or_device_pat
     assert reached == []
     assert scene["missing"] == HOSTILE_REFS + hostile_maps
     assert scene["count"] == 24  # the OBJ itself was read
+
+
+def test_an_mtllib_outside_the_root_is_never_opened(tmp_path: Path, monkeypatch):
+    """SPEC-70: an OBJ's ``mtllib`` is read only when it resolves inside the root, the
+    same rule ``unreachable`` applies afterwards. An absolute path, a long-prefix drive
+    path and a ``..`` path that leaves the root are named under ``missing`` without a
+    filesystem call on them (and their texture maps, never read, are not named at all)."""
+    pkg = tmp_path / "pkg"
+    (pkg / "meshes").mkdir(parents=True)
+    obj = write_obj(pkg / "meshes" / "panel.obj")
+    forbidden = tmp_path / "forbidden"
+    forbidden.mkdir()
+    (forbidden / "o.mtl").write_text("newmtl x\nmap_Kd secret.png\n", encoding="ascii")
+    outside = [
+        str(forbidden / "o.mtl"),  # absolute
+        "\\\\?\\" + str(forbidden / "o.mtl"),  # the long local prefix
+        "../../forbidden/o.mtl",  # relative, leaving the root
+    ]
+    obj.write_text(
+        "".join(f"mtllib {ref}\n" for ref in outside) + obj.read_text(encoding="ascii"),
+        encoding="ascii",
+    )
+    reached = filesystem_calls_naming(monkeypatch, "forbidden")
+    scene = prepare_scene(obj, tmp_path / "cache", root=pkg)
+    assert reached == []
+    assert scene["missing"] == outside
+    assert scene["count"] == 24
+    # with no root (a Python link's collection) a relative path may leave the folder, as
+    # unreachable allows; an absolute one still is not read
+    scene = prepare_scene(obj, tmp_path / "cache")
+    assert scene["missing"] == [*outside[:2], "secret.png"]
 
 
 def test_an_empty_stl_or_obj_still_opens(tmp_path: Path):

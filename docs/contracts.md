@@ -316,7 +316,8 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   allowlist, shared with the page host's asset paths (`scheme.resolve_asset`, whose
   decoded URL path may not be rooted either), the 3d reader's own look-up of the
   references it reads out of a file (`pathguard.reference_refusal`: an OBJ's MTL and
-  texture names, SPEC-68, named under `missing` and never looked for; a DAE's image
+  texture names, SPEC-68, named under `missing` and never looked for, and an MTL is
+  opened only when it resolves inside the root, SPEC-70; a DAE's image
   names, SPEC-69, refused in front of trimesh's resolver so the model converts without
   that texture) and xacro's includes
   (section 10), that

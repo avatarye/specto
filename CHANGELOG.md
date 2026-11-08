@@ -15,6 +15,10 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- The 3d reader opens an OBJ's `mtllib` only when it resolves inside the root (SPEC-70),
+  the rule it already applied afterwards to decide what is servable: an absolute path, a
+  `\\?\C:\` path or a `..` path that leaves the root is named under `missing` without
+  being read. Local files only; they were read, then listed as unservable.
 - A DAE's `<image><init_from>` goes through the same path allowlist before trimesh may
   look for the texture (SPEC-69, `specto_core.pathguard`): a network or device path in
   any spelling is refused by its text in the conversion's own resolver, so the isolated

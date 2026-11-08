@@ -100,7 +100,7 @@ def prepare_scene(
         scene = dict(_measured(path, ext, cache_dir))
         libs = scene.pop("mtllib", None)
         if libs:  # checked on every resolve: a texture may come or go
-            missing = unreachable(path, obj_references(path, libs), root)
+            missing = unreachable(path, obj_references(path, libs, root), root)
             if missing:
                 scene["missing"] = missing
         return scene
@@ -277,16 +277,18 @@ def measure_obj(path: Path) -> dict[str, Any]:
     return scene
 
 
-def obj_references(obj: Path, mtllibs: list[str]) -> list[str]:
+def obj_references(obj: Path, mtllibs: list[str], root: Path | None = None) -> list[str]:
     """The files an OBJ names as Babylon's loader reads them, all relative to the OBJ's
     folder: each ``mtllib`` (the rest of its line), then the texture maps in each MTL
-    found (``map_Kd`` and kin, ``-bm <n>`` dropped)."""
+    found (``map_Kd`` and kin, ``-bm <n>`` dropped). An MTL is opened only where
+    ``reference_target`` lets it be looked for: inside ``root``, never by a rooted or
+    refused path (SPEC-68, SPEC-70); its name is still listed, so ``unreachable`` names it."""
     refs: list[str] = []
     for lib in mtllibs:
         refs.append(lib)
-        if reference_refusal(lib):  # named, never looked for (SPEC-68)
+        mtl = reference_target(obj, lib, root)
+        if mtl is None:  # named, never opened
             continue
-        mtl = obj.parent / lib
         try:
             text = mtl.read_text(encoding="utf-8", errors="replace") if mtl.is_file() else ""
         except OSError:
@@ -321,25 +323,39 @@ def _is_number(word: str) -> bool:
     return True
 
 
+def reference_target(obj: Path, ref: str, root: Path | None) -> Path | None:
+    """Where a reference of an OBJ or of its MTL points when it may be looked for at all:
+    judged by its text first (``specto_core.pathguard.reference_refusal``, SPEC-68), relative
+    only (a drive or rooted path never is, whatever it names), resolved against the OBJ's
+    folder, and inside ``root`` when there is one (the project or source root; None:
+    anywhere). None otherwise: such a reference is named under ``missing`` and never opened,
+    stat'ed or resolved (SPEC-70). The one rule for the MTL read and for ``unreachable``.
+
+    Whether the path leaves the root is read off its normalised text first, so a ``..``
+    that climbs out costs no filesystem call; what stays inside by its text is then resolved,
+    which catches a link inside the root that points out."""
+    rel = ref.replace("\\", "/")
+    if reference_refusal(ref) or Path(rel).is_absolute() or ":" in rel:
+        return None
+    joined = Path(os.path.abspath(obj.parent / rel))  # text only: normalised, no lookup
+    if root is not None and not joined.is_relative_to(Path(os.path.abspath(root))):
+        return None
+    try:
+        target = joined.resolve()
+        if root is not None and not target.is_relative_to(root.resolve()):
+            return None
+    except (OSError, ValueError):
+        return None
+    return target
+
+
 def unreachable(obj: Path, refs: list[str], root: Path | None) -> list[str]:
-    """The references that do not resolve to a file, or that resolve outside ``root``
-    (the project or source root; None: anywhere), or that may not be looked for at all
-    (``specto_core.pathguard.reference_refusal``, SPEC-68)."""
+    """The references that may not be looked for (``reference_target``: refused, rooted or
+    outside ``root``) or that do not resolve to a file."""
     out: list[str] = []
-    base = obj.parent
-    top = root.resolve() if root is not None else None
     for ref in refs:
-        rel = ref.replace("\\", "/")
-        if reference_refusal(ref) or Path(rel).is_absolute() or ":" in rel:
-            out.append(ref)
-            continue
-        try:
-            target = (base / rel).resolve()
-        except (OSError, ValueError):
-            out.append(ref)
-            continue
-        inside = top is None or target.is_relative_to(top)
-        if not inside or not target.is_file():
+        target = reference_target(obj, ref, root)
+        if target is None or not target.is_file():
             out.append(ref)
     return out
 
