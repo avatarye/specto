@@ -818,6 +818,9 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
     Explorer, Edit launchers...). Config: the user dir's `launchers.toml` and the
     project's `.specto/launchers.toml` (merged by id); the system default is refused for
     programs and scripts; the agent's `launchers` / `launch` tools use the same book.
+    A launcher's command (variables expanded), its cwd and every path to open pass
+    `specto_core.pathguard` before any filesystem call (SPEC-76): a network or device
+    command never runs, and such a path is refused with a fix-it and offers no launcher.
   The browsers' (role `browser`) Copy path and Copy relative path (`menu/paths.py`) copy
   one path per item, one per line, native separators; relative paths need every item
   under the project root (else the entry is disabled). A right-click is no pick: on a

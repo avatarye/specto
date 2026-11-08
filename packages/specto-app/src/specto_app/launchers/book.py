@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from specto_core.errors import InvalidArgs, NotFound, SpectoError
+from specto_core.pathguard import path_refusal
 
 from ..recents import user_data_dir
 from . import run
@@ -40,7 +41,10 @@ Item = tuple[str, bool]  # an absolute path, and whether it is a folder
 
 def file_of(path: str) -> str:
     """The file behind a target item's path: a container entry (``file.zip#inner``, the
-    gallery's) is its container."""
+    gallery's) is its container. "" for a path whose text ``specto_core.pathguard``
+    refuses (a network or device path is never looked for, SPEC-76)."""
+    if path and path_refusal(path):
+        return ""
     if not path or os.path.exists(path):
         return path
     head, sep, _ = path.partition("#")
@@ -158,7 +162,8 @@ class LauncherBook:
     # -- paths ----------------------------------------------------------------------------------
     def resolve(self, paths: Sequence[Any]) -> list[str]:
         """Absolute native paths for ``paths`` (relative ones are the project's); every
-        one must exist."""
+        one must exist. A network or device path is refused by its text before any
+        filesystem call (``specto_core.pathguard``, SPEC-76)."""
         if isinstance(paths, str):
             paths = [paths]
         if not paths:
@@ -166,6 +171,12 @@ class LauncherBook:
         out: list[str] = []
         for p in paths:
             text = str(p or "").strip()
+            why = path_refusal(text)
+            if why:
+                raise InvalidArgs(
+                    f"refused: {text} is {why}",
+                    fix="a path on this machine, relative to the project folder",
+                )
             path = Path(text)
             if not path.is_absolute() and self.root is not None:
                 path = self.root / path
@@ -180,9 +191,17 @@ class LauncherBook:
 
     # -- launching ------------------------------------------------------------------------------
     def command_path(self, launcher: Launcher) -> str:
-        """The launcher's program: its path, or the program found on PATH."""
+        """The launcher's program: its path, or the program found on PATH. A command
+        whose text (variables expanded) is a network or device path is refused before it
+        is looked for, and so never runs (``specto_core.pathguard``, SPEC-76)."""
         cmd = os.path.expandvars(os.path.expanduser(launcher.command))
         where = f"{launcher.file}:{launcher.line}" if launcher.line else launcher.file
+        why = path_refusal(cmd)
+        if why:
+            raise InvalidArgs(
+                f"the launcher {launcher.label!r} names {cmd}, {why}: not run",
+                fix=f"give a program on this machine as its command in {where} (Edit launchers...)",
+            )
         if os.path.isabs(cmd) or os.sep in cmd or "/" in cmd:
             if os.path.isfile(cmd):
                 return os.path.normpath(cmd)
@@ -230,6 +249,12 @@ class LauncherBook:
             if why:
                 raise InvalidArgs(
                     why, fix="point the launcher at the program itself, not a .bat or .cmd"
+                )
+            why = path_refusal(inv.cwd) if inv.cwd else None
+            if why:
+                raise InvalidArgs(
+                    f"the launcher {launcher.label!r} starts in {inv.cwd}, {why}",
+                    fix=f"correct its cwd in {launcher.file}:{launcher.line}",
                 )
             if inv.cwd and not os.path.isdir(inv.cwd):
                 raise NotFound(

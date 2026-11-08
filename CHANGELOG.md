@@ -15,6 +15,10 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Launchers judge a network or device path by its text before any filesystem call
+  (SPEC-76): a command in `launchers.toml` that is (or expands to) `\\host\share\x.exe`
+  never runs, a cwd like it is refused, and a path to open like it is refused with a
+  fix-it; the Open with menu offers nothing for such an item.
 - An absolute local source means the same at submit and at run time (SPEC-90). A
   drive-root glob (`C:/**/*.x`) passed the submit but the intake spec cut its root to
   `C:`, which is refused, so the intaker failed when it ran; it now starts at `C:/`. A
