@@ -28,10 +28,22 @@ class ItemResolver(Protocol):
 
     def keys(self, link_id: str) -> list[str]: ...
 
-    def root(self, link_id: str) -> str | None:
-        """The folder a part's ``@root/`` relative paths resolve under (the collection's
+    def lookup(self, link_id: str, key: str) -> tuple[ItemResolver, dict[str, str]] | None:
+        """The resolver that answers for the item and its parts, in one pass (a chain
+        asks its members in order; a single resolver answers for itself), or None. The
+        items host asks this once per request and then that resolver alone."""
+        ...
+
+    def root(self, link_id: str, key: str) -> str | None:
+        """The folder ``key``'s ``@root/`` relative paths resolve under (the collection's
         root); None: this resolver serves none."""
-        return None
+        ...
+
+    def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
+        """May ``path``, a file named under ``role``'s part (next to it, or under the
+        root), be served? Asked after the path resolved; the urdf view's meshes allow an
+        OBJ's .mtl and images only (SPEC-43)."""
+        ...
 
     def guard_root(self, link_id: str) -> str | None:
         """The folder a part's own path is judged against before anything is stat'ed
@@ -69,11 +81,17 @@ class ItemTable:
     def keys(self, link_id: str) -> list[str]:
         return list(self._cols.get(link_id, {}))
 
-    def root(self, link_id: str) -> str | None:
+    def lookup(self, link_id: str, key: str) -> tuple[ItemResolver, dict[str, str]] | None:
+        p = self.parts(link_id, key)
+        return (self, p) if p else None
+
+    def root(self, link_id: str, key: str) -> str | None:
         return None
 
     def guard_root(self, link_id: str) -> str | None:
         return self._guard_root if link_id in self._cols else None
+    def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
+        return True
 
     def cols(self) -> list[str]:
         return list(self._cols)
@@ -113,7 +131,7 @@ class LinkItems:
             return {Path(e.path).suffix.lower(): str(Path(v.root) / e.path)}
         return None
 
-    def root(self, link_id: str) -> str | None:
+    def root(self, link_id: str, key: str) -> str | None:
         """The folder the link's collection was found under (the project folder)."""
         v = self.value_of(link_id)
         return (v.root or None) if isinstance(v, Collection) else None
@@ -125,6 +143,12 @@ class LinkItems:
         if v is None:
             return None
         return v.root or getattr(self.links, "root", "") or None
+    def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
+        return True  # what resolve_relative and the root allow
+
+    def lookup(self, link_id: str, key: str) -> tuple[ItemResolver, dict[str, str]] | None:
+        p = self.parts(link_id, key)
+        return (self, p) if p else None
 
     def keys(self, link_id: str) -> list[str]:
         v = self.value_of(link_id)
@@ -141,20 +165,33 @@ class CompositeItems:
     def __init__(self, resolvers: Iterable[ItemResolver] = ()) -> None:
         self.resolvers: list[ItemResolver] = list(resolvers)
 
-    def add(self, resolver: ItemResolver) -> None:
-        if resolver not in self.resolvers:
+    def add(self, resolver: ItemResolver, *, first: bool = False) -> None:
+        """Add ``resolver`` last, or ``first`` (a view serving extra roles of an item the
+        link runtime also knows: the urdf view's meshes, SPEC-43)."""
+        if resolver in self.resolvers:
+            return
+        if first:
+            self.resolvers.insert(0, resolver)
+        else:
             self.resolvers.append(resolver)
 
     def remove(self, resolver: ItemResolver) -> None:
         if resolver in self.resolvers:
             self.resolvers.remove(resolver)
 
-    def parts(self, link_id: str, key: str) -> dict[str, str] | None:
+    def lookup(self, link_id: str, key: str) -> tuple[ItemResolver, dict[str, str]] | None:
+        """The member that answers for the item (the first whose ``parts`` do) and those
+        parts, in one pass: its root and side files are the item's, never another
+        member's."""
         for r in self.resolvers:
             p = r.parts(link_id, key)
             if p:
-                return p
+                return r, p
         return None
+
+    def parts(self, link_id: str, key: str) -> dict[str, str] | None:
+        hit = self.lookup(link_id, key)
+        return hit[1] if hit is not None else None
 
     def keys(self, link_id: str) -> list[str]:
         for r in self.resolvers:
@@ -163,13 +200,16 @@ class CompositeItems:
                 return k
         return []
 
-    def root(self, link_id: str) -> str | None:
-        """The root of the resolver that answers for the link (the one whose ``parts``
-        answer), never another resolver's."""
-        for r in self.resolvers:
-            if r.keys(link_id):
-                return r.root(link_id)
-        return None
+    def root(self, link_id: str, key: str) -> str | None:
+        """The root of the resolver that answers for the item (``lookup``)."""
+        hit = self.lookup(link_id, key)
+        return hit[0].root(link_id, key) if hit is not None else None
+
+    def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
+        """The answering resolver's word (``lookup``); yes when none answers (nothing
+        is served then anyway)."""
+        hit = self.lookup(link_id, key)
+        return hit[0].side_allowed(link_id, key, role, path) if hit is not None else True
 
     def guard_root(self, link_id: str) -> str | None:
         """The guard root of the resolver that answers for the link, never another's."""
