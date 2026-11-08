@@ -80,9 +80,19 @@ class ControlServer:
         if stdout is None:
             sys.stdout = sys.stderr  # a stray print must not corrupt the protocol
         self._lock = threading.Lock()
+        self._reader: threading.Thread | None = None
 
     def start(self) -> None:
-        threading.Thread(target=self._read, name="frame-control", daemon=True).start()
+        self._reader = threading.Thread(target=self._read, name="frame-control", daemon=True)
+        self._reader.start()
+
+    def wait_eof(self, timeout: float = 2.0) -> None:
+        """Before the source exits: wait (up to ``timeout``) for the host to close stdin
+        and the reader to end. A host may close stdin a moment after ``shutdown`` (it closes
+        in the background, SPEC-87); finalizing with the reader still blocked on a buffered
+        stdin aborts Python ("Fatal Python error: _enter_buffered_busy")."""
+        if self._reader is not None:
+            self._reader.join(timeout)
 
     def emit(self, event: str, **params: Any) -> None:
         self._write({"event": event, "params": params})
@@ -285,6 +295,17 @@ class FrameSourceProcess:
                 self.proc.kill()  # breaks the pipe under a write that hangs
                 self.proc.wait()
         return self.proc.returncode
+
+    def close_in_background(self, timeout: float = 5.0) -> threading.Thread:
+        """:meth:`close` on a thread of its own, so the caller (the GUI thread) never
+        waits for a source that finishes its step first (SPEC-87: a first frame may take
+        seconds). The thread is not a daemon: an interpreter that exits meanwhile waits
+        for it, so the source still stops or is killed and no process outlives the app."""
+        reaper = threading.Thread(
+            target=self.close, args=(timeout,), name=f"frame-source-close-{self.proc.pid}"
+        )
+        reaper.start()
+        return reaper
 
     def _send(self, msg: dict, collapsible: bool = False) -> None:
         """Queue ``msg`` for the writer; a collapsible one replaces a queued one of its

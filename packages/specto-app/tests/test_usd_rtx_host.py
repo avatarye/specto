@@ -91,3 +91,44 @@ def test_the_view_navigates_with_the_3d_views_camera_in_the_stages_frame(
         assert moved["position"] == pytest.approx(first["position"], abs=1e-6)
     finally:
         host.dispose()
+
+
+def _held_step(tmp_path: Path) -> bool:
+    log = tmp_path / "ovrtx.log"
+    return log.exists() and '"hold_step"' in log.read_text(encoding="utf-8")
+
+
+def _gone(pid: int) -> bool:
+    import subprocess
+    import sys
+
+    if sys.platform == "win32":
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True
+        ).stdout
+        return str(pid) not in out
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return True
+    return False
+
+
+@pytest.mark.parametrize(("hold", "within"), [(3, 15), (60, 20)], ids=["finishes", "killed"])
+def test_closing_mid_first_frame_never_blocks_and_leaves_no_process(
+    tmp_path: Path, qapp, spin, monkeypatch: pytest.MonkeyPatch, hold: int, within: int
+):
+    """SPEC-87: dispose with the source inside a long first-frame step returns at once;
+    the source still ends, by itself after the step (3 s) or killed after the close
+    timeout (a 60 s step)."""
+    import time
+
+    monkeypatch.setenv("FAKE_OVRTX_HOLD_STEP_S", str(hold))
+    host = open_view(engine_with(ovrtx=True), {"renderer": "rtx"})
+    host.receive("data", stages(tmp_path / "w", "valley"))
+    spin(until=lambda: _held_step(tmp_path), timeout=30)
+    pid = host.source.proc.pid
+    started = time.perf_counter()
+    host.dispose()
+    assert time.perf_counter() - started < 0.1
+    spin(until=lambda: _gone(pid), timeout=within)
