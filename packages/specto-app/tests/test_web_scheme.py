@@ -452,6 +452,8 @@ def test_locate_item_refuses_a_network_part_before_it_is_stated(part, monkeypatc
 
     monkeypatch.setattr(pathlib.Path, "stat", boom)
     monkeypatch.setattr(pathlib.Path, "is_file", boom)
+    monkeypatch.setattr(pathlib.Path, "exists", boom)
+    monkeypatch.setattr(os, "stat", boom)
     monkeypatch.setattr(os.path, "isfile", boom)
     entry: dict = {}
     try:

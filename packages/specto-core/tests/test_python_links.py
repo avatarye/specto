@@ -281,16 +281,39 @@ def test_a_scripts_relative_and_drive_paths_still_pass(tmp_path):
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "a.json").write_text("{}", encoding="utf-8")
     files = pl.as_port_value("files", ["sub/a.json", "/sub/a.json"], root=str(tmp_path))
-    assert files.paths == ["sub/a.json", "/sub/a.json"]
+    assert files.paths == ["sub/a.json", "sub/a.json"]  # a leading slash: below the root
     content = pl.as_port_value("content", {"paths": ["/sub/a.json"]}, root=str(tmp_path))
     assert [e.path for e in content.entries] == ["sub/a.json"]
     col = pl.as_port_value("collection", [str(tmp_path / "sub" / "a.json")], root=str(tmp_path))
     assert [i.key for i in col.items] == ["sub/a"]
-    assert pl.path_refused("//host/share/data/a.png", "//host/share/data") is None
-    assert pl.path_refused("//host/share/data/a.png", "//host/share") is None
-    # the project's own root, as read_contents and an absolute output root name it
-    assert pl.path_refused("//host/share/data", "//host/share/data") is None
-    assert pl.path_refused("\\\\host\\share\\data\\", "//host/share/data") is None
-    assert pl.path_refused("//host/share/database/a.png", "//host/share/data") is not None
-    assert pl.path_refused("//other/share/a.png", "//host/share/data") is not None
-    assert pl.path_refused("//host/other/a.png", "//host/share/data") is not None
+
+
+@pytest.mark.skipif(os.name != "nt", reason="a leading slash is absolute on POSIX")
+def test_a_collection_parts_leading_slash_means_below_the_root(tmp_path):
+    """SPEC-75 review: as for files and content, ``/sub/a.json`` names a file below the
+    root, never the drive's root."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "a.json").write_text("{}", encoding="utf-8")
+    col = pl.as_port_value("collection", ["/sub/a.json"], root=str(tmp_path))
+    assert [i.key for i in col.items] == ["sub/a"]
+    assert col.items[0].parts[".json"] == str(tmp_path / "sub" / "a.json")
+
+
+def test_a_content_outputs_entry_paths_are_judged(tmp_path, monkeypatch):
+    """SPEC-75 review: ``{root, entries: [{path}]}`` names paths too; a network one fails
+    the link before anything reads it."""
+    calls = _trap_fs(monkeypatch)
+    value = {"entries": [{"key": "x", "path": "//evil/s/x.png", "format": "text", "data": "x"}]}
+    try:
+        with pytest.raises(TypeError) as e:
+            pl.as_port_value("content", value, root=str(tmp_path))
+        got = str(e.value)
+    finally:
+        monkeypatch.undo()
+    assert calls == [] and "a network path" in got, got
+    ok = pl.as_port_value(
+        "content",
+        {"entries": [{"key": "a", "path": "a.txt", "format": "text", "data": "x"}]},
+        root=str(tmp_path),
+    )
+    assert [e.path for e in ok.entries] == ["a.txt"]

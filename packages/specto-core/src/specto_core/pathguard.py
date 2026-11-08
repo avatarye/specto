@@ -6,9 +6,12 @@ relative paths (``specto_app.web.scheme.resolve_relative``: a note's image, an O
 material map), the 3d reader's references out of a file (``reference_refusal``: an OBJ's
 MTL and texture names, SPEC-68; a DAE's image names on their way to trimesh's resolver,
 SPEC-69), xacro's includes (``specto_readers.xacro_expand``), an intaker's ``sources``
-(``canvas_document.IntakerParams`` and the unknown-files check, SPEC-72) and every intake
+(``canvas_document.IntakerParams`` and the unknown-files check, SPEC-72), every intake
 spec's source roots (``specto_intake.spec.SourceSpec`` and the backstop
-``specto_intake.sources.resolve_root``, SPEC-72). It never touches the disk or the
+``specto_intake.sources.resolve_root``, SPEC-72), and through ``output_refusal``
+(``unc_ok`` for a project on a share) the roots and paths a Python link's output names
+(``specto_core.python_links``) and each item part the items host is asked for
+(``specto_app.web.scheme.locate_item``), SPEC-75. It never touches the disk or the
 network, and it is an allowlist: a path is accepted only when it is
 
 - relative (no root, no drive), or
@@ -22,14 +25,16 @@ user's NTLM hash), an NT object path (``\\??\\``, ``/??/``), a device path (``\\
 ``\\\\?\\`` other than a drive), a drive-relative ``C:x`` and a drive-less ``\\x``. Inside an
 accepted path a reserved device name (``NUL``, ``COM1``, ...) and a ``:`` stream name
 (``secret.txt:x.png``) are refused too. ``file://`` URIs naming a host are network paths.
-A caller that judges network paths itself (xacro, inside its allowed folders) may let a
-plain ``\\\\host\\share`` through with ``unc_ok``; never anything else.
+A caller that judges network paths itself (xacro, inside its allowed folders;
+``output_refusal``, inside a project on a share) may let a plain ``\\\\host\\share``
+through with ``unc_ok``; never anything else.
 """
 
 from __future__ import annotations
 
 import ntpath
 import os
+import posixpath
 import re
 from collections.abc import Iterable
 from enum import StrEnum
@@ -126,6 +131,54 @@ def file_uri_path(uri: str) -> tuple[str | None, Refusal | None]:
     return (None, why) if why else (raw, None)
 
 
+def output_refusal(text: str, root: str | None = None) -> Refusal | None:
+    """Why a path an output names may not reach a filesystem call (SPEC-75): a Python
+    link's roots and paths (its code is approved, its output is agent-written text) and
+    an item part the items host is asked for. ``path_refusal`` of the text as written and
+    with its backslashes as slashes; a single leading slash means a path below ``root``
+    (an output's paths are relative POSIX paths), so that form is judged without it.
+
+    A network path is accepted only when ``root`` is itself a plain network path
+    (``\\\\host\\share\\...``, never ``//``, ``//host`` or a device form) and the
+    path, normalised, is ``root`` or lies under it; under such a root a relative path is
+    normalised against it the same way, so ``..`` never leaves it. Text only."""
+    share = _share_root(root)
+    for t in {text, text.replace("\\", "/")}:
+        why = path_refusal(t, unc_ok=share is not None)
+        below = why is Refusal.ROOTED and t[:1] in "\\/" and t[1:2] not in "\\/"
+        if below:
+            why = path_refusal(t[1:], unc_ok=share is not None)
+        if why is None and share is not None and not _in_share(t, share):
+            why = Refusal.NETWORK
+        if why is not None:
+            return why
+    return None
+
+
+def _share_root(root: str | None) -> str | None:
+    """``root`` as a normalised ``//host/share/...`` when it is a plain network path on
+    Windows (the only root that trusts network paths); None otherwise."""
+    if not root or not _windows():
+        return None
+    r = root.strip().replace("\\", "/")
+    if not _PLAIN_UNC.match(r) or path_refusal(r, unc_ok=True) is not None:
+        return None
+    r = posixpath.normpath(r)  # keeps the leading //
+    return r if _PLAIN_UNC.match(r) else None
+
+
+def _in_share(text: str, share: str) -> bool:
+    """``text`` (accepted by ``path_refusal`` with ``unc_ok``) stays in ``share``: a
+    network path or a path relative to the share root, normalised, is the root or lies
+    under it, compared as text without case; a local drive path is not the share's."""
+    t = text.replace("\\", "/")
+    if _DRIVE_ABS.match(t):
+        return True
+    full = t if t.startswith("//") else share + "/" + t.lstrip("/")
+    low, base = posixpath.normpath(full).lower(), share.lower().rstrip("/")
+    return low == base or low.startswith(base + "/")
+
+
 def under(path: str | Path, roots: Iterable[str | Path]) -> bool:
     """``path`` lies in one of ``roots`` (both already resolved): a text comparison."""
     p = Path(path)
@@ -136,6 +189,7 @@ __all__ = [
     "DEVICE_NAMES",
     "Refusal",
     "file_uri_path",
+    "output_refusal",
     "path_refusal",
     "reference_refusal",
     "strip_local_long",

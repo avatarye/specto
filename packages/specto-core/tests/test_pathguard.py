@@ -103,3 +103,58 @@ def test_the_guard_makes_no_filesystem_call(monkeypatch: pytest.MonkeyPatch):
         path_refusal(text)
     file_uri_path("file://host/share/a.stl")
     file_uri_path("file:///%3F%3F/UNC/host/a.stl")
+
+
+# -- SPEC-75: output_refusal, the guard for an output's roots and paths --------------------
+
+from specto_core.pathguard import output_refusal  # noqa: E402
+
+ON_WINDOWS = pytest.mark.skipif(os.name != "nt", reason="UNC paths are Windows'")
+
+
+@pytest.mark.parametrize("text", ["a.png", "sub/a.png", "sub\\a.png", "/sub/a.png", "\\sub\\a.png"])
+def test_output_paths_relative_or_below_the_root_pass(text):
+    assert output_refusal(text, "C:/proj" if os.name == "nt" else "/proj") is None
+
+
+@ON_WINDOWS
+@pytest.mark.parametrize(
+    "text",
+    ["//host/s/a.png", "\\\\host\\s\\a.png", "/??/UNC/host/s/a.png", "C:a.png", "a.png:x", "NUL"],
+)
+def test_output_paths_off_the_machine_are_refused_for_a_local_project(text):
+    assert output_refusal(text, "C:/proj") is not None
+
+
+@ON_WINDOWS
+def test_a_project_on_a_share_names_its_own_files_and_nothing_else():
+    root = "//host/share/data"
+    for ok in (
+        "//host/share/data/a.png",
+        "\\\\host\\share\\data\\a.png",
+        "//HOST/share/data",
+        "//host/share/data/sub/../a.png",
+        "sub/a.png",
+        "/sub/a.png",
+        "C:/local/a.png",
+    ):
+        assert output_refusal(ok, root) is None, ok
+    for bad in (
+        "//host/share/database/a.png",
+        "//other/share/a.png",
+        "//host/other/a.png",
+        "//host/share/data/../other/a.png",
+        "\\\\host\\share\\data\\..\\other\\a.png",
+        "../other/a.png",
+        "..\\..\\x.png",
+        "/../other/a.png",
+    ):
+        assert output_refusal(bad, root) is not None, bad
+
+
+@ON_WINDOWS
+@pytest.mark.parametrize(
+    "root", ["//", "\\\\", "///", "//host", "//./c:/x", "//?/UNC/host/s", None, ""]
+)
+def test_only_a_plain_share_root_trusts_network_paths(root):
+    assert output_refusal("//evil/s/a.png", root) is not None

@@ -44,7 +44,7 @@ from .clock import now_iso
 from .contents import ContentEntry, ContentValue, format_for, read_entry
 from .kinds import Item
 from .links import CameraValue, Collection, FilesValue, Selection
-from .pathguard import Refusal, path_refusal
+from .pathguard import output_refusal
 from .timebase import OWN_TIMELINE, TimeValue
 
 TRUST_FILE = "trusted-links.json"
@@ -338,57 +338,42 @@ def _scalar(v: Any) -> bool:
     return isinstance(v, str | int | float) and not isinstance(v, bool)
 
 
-def path_refused(text: str, root: str) -> Refusal | None:
-    """Why a path a script returned may not reach a filesystem call
-    (``specto_core.pathguard``; SPEC-75), judged as written and with its backslashes as
-    slashes. The script's code is approved once (ADR 0006) but agent-written, so its
-    roots and paths are untrusted text: a network path would make the machine connect
-    out when stat'ed. A single leading slash means a path below the root (``FilesValue``
-    paths are relative POSIX paths), so that form is judged without it. A network path
-    is accepted only when the project itself is on that share (``root`` a network path
-    and the path under it, as text)."""
-    unc_ok = path_refusal(root) is Refusal.NETWORK
-    for t in {text, text.replace("\\", "/")}:
-        why = path_refusal(t, unc_ok=unc_ok)
-        if why is Refusal.ROOTED and t[:1] in "\\/" and t[1:2] not in "\\/":
-            why = path_refusal(t[1:], unc_ok=unc_ok)
-        if why is None and unc_ok and path_refusal(t) is Refusal.NETWORK:
-            why = None if _within(t, root) else Refusal.NETWORK
-        if why is not None:
-            return why
-    return None
-
-
-def _within(text: str, root: str) -> bool:
-    """``text`` is ``root`` or lies under it, compared as slash-normalised text."""
-    low, base = text.replace("\\", "/").lower().rstrip("/"), root.replace("\\", "/").lower()
-    base = base.rstrip("/")
-    return low == base or low.startswith(base + "/")
-
-
-def _checked(text: str, root: str, what: str = "path") -> str:
-    why = path_refused(text, root)
+def _output_path(text: str, root: str, what: str = "path") -> str:
+    """``text`` once ``pathguard.output_refusal`` accepts it against the project ``root``
+    (SPEC-75: the script is approved, its output is agent-written text); a ValueError,
+    which fails the link with the port's fix-it, otherwise."""
+    why = output_refusal(text, root)
     if why is not None:
-        raise ValueError(f"{what} {text!r} is {why}; name a file in the project or a drive path")
+        raise ValueError(
+            f"{what} {text!r} is {why}; name a file in the project or a local absolute path"
+        )
     return text
+
+
+def _below_root(path: str) -> str:
+    """A files or content output's path as a relative POSIX path: backslashes as slashes,
+    and a single leading slash, which means a path below the root, dropped."""
+    p = path.replace("\\", "/")
+    return p[1:] if p[:1] == "/" and p[1:2] != "/" else p
 
 
 def _root_of(given: Any, root: str) -> str:
     if not given:
         return root
-    p = Path(_checked(str(given), root, "root"))
+    p = Path(_output_path(str(given), root, "root"))
     return str(p if p.is_absolute() or not root else Path(root) / p)
 
 
 def _paths_of(value: Any, root: str) -> tuple[Any, list[str]] | None:
     """``(root, paths)`` from ``{root?, paths}`` or a list of paths; None otherwise.
-    Every path passes ``path_refused`` against the project ``root``."""
+    Every path passes ``output_refusal`` against the project ``root`` and is made
+    relative (``_below_root``)."""
     if isinstance(value, list) and all(isinstance(p, str) for p in value):
-        return None, [_checked(p, root).replace("\\", "/") for p in value]
+        return None, [_below_root(_output_path(p, root)) for p in value]
     if isinstance(value, dict) and "paths" in value and set(value) <= {"root", "paths"}:
         paths = value["paths"]
         if isinstance(paths, list) and all(isinstance(p, str) for p in paths):
-            return value.get("root"), [_checked(p, root).replace("\\", "/") for p in paths]
+            return value.get("root"), [_below_root(_output_path(p, root)) for p in paths]
     return None
 
 
@@ -396,11 +381,11 @@ def read_contents(root: str, paths: list[str], formats: set[str] | None = None) 
     """The files at ``paths`` (relative to ``root``) parsed into a content value; a
     folder stands for the readable files under it (of ``formats`` only, when given: a
     map's folder is its GeoJSON files). A file named outright that is not readable
-    contents is an error. ``root`` and each path pass ``path_refused`` first."""
-    base = Path(_checked(root, root, "root"))
+    contents is an error. ``root`` and each path pass ``output_refusal`` first."""
+    base = Path(_output_path(root, root, "root"))
     entries: list[ContentEntry] = []
     for p in paths:
-        rel = _checked(p, root).strip("/")
+        rel = _output_path(p, root).strip("/")
         full = base / rel
         if full.is_dir():
             for f in sorted(full.rglob("*"), key=lambda f: f.as_posix().lower()):
@@ -474,6 +459,9 @@ def _convert(output: str, value: Any, root: str, target_type: str | None = None)
             and isinstance(value, dict)
             and isinstance(value.get("entries"), list)
         ):
+            for e in value["entries"]:  # paths the entries name are judged too
+                if isinstance(e, dict) and isinstance(e.get("path"), str):
+                    _output_path(e["path"], root, "entry path")
             return ContentValue.model_validate(
                 {"root": _root_of(value.get("root"), root), "entries": value["entries"]}
             )
@@ -544,7 +532,8 @@ def collection_of(value: Any, root: str) -> Collection:
     ``meta.stat``), so the views read it as an intaker's (a file tree lists it, an
     unchanged result is not delivered again). Keys default to the first part's path
     without extension, key fields (``meta.keys``) to ``{stem: key}``. The root and every
-    part pass ``path_refused`` before anything is stat'ed."""
+    part pass ``output_refusal`` before anything is stat'ed; a part's single leading
+    slash means a path below the root where it is no absolute path (Windows)."""
     if isinstance(value, list):
         value = {"items": value}
     if not isinstance(value, dict) or not isinstance(value.get("items", []), list):
@@ -576,7 +565,9 @@ def collection_of(value: Any, root: str) -> Collection:
         rel: dict[str, str] = {}
         stat: dict[str, list[int]] = {}
         for role, path in listed:
-            _checked(path, root, "part")
+            _output_path(path, root, "part")
+            if path[:1] in "\\/" and path[1:2] not in "\\/" and not Path(path).is_absolute():
+                path = path[1:]  # below the root, not the drive's root
             full = Path(path) if Path(path).is_absolute() else Path(base) / path
             try:
                 st = full.stat()

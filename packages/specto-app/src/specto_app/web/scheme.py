@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
 from specto_core.containers import is_virtual, open_source, real_path
-from specto_core.pathguard import Refusal, path_refusal
+from specto_core.pathguard import Refusal, output_refusal, path_refusal
 
 from .capabilities import Capabilities, tile_host_allowed
 
@@ -314,19 +314,10 @@ def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Pa
 
 
 def part_refused(part: str, root: str | None) -> Refusal | None:
-    """Why an item's part may not be looked for on disk (``specto_core.pathguard``): the
-    text as recorded, a container member judged by its archive. A network path is
-    accepted only when the collection's ``root`` is itself on that share and the part
-    lies under it (as text)."""
-    text = real_path(part) if is_virtual(part) else part
-    unc_ok = root is not None and path_refusal(root) is Refusal.NETWORK
-    why = path_refusal(text, unc_ok=unc_ok)
-    if why is None and unc_ok and path_refusal(text) is Refusal.NETWORK:
-        low = text.replace("\\", "/").lower().rstrip("/")
-        base = str(root).replace("\\", "/").lower().rstrip("/")
-        if low != base and not low.startswith(base + "/"):
-            return Refusal.NETWORK
-    return why
+    """Why an item's part may not be looked for on disk: ``pathguard.output_refusal`` of
+    the text as recorded against the collection's ``root`` (a network path only inside a
+    collection on that share), a container member judged by its archive."""
+    return output_refusal(real_path(part) if is_virtual(part) else part, root)
 
 
 def locate_item(
