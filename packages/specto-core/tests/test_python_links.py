@@ -197,3 +197,100 @@ def test_link_approve_headless_asks_no_one_and_approves_nothing(project: Project
     engine.links.approve("l9")  # TEST ONLY: the user's click (conftest approve_link)
     res = engine.call("link.approve", {"link": "l9"})
     assert res["status"] == "approved" and res["request"] is None
+
+
+# -- SPEC-75: a script's roots and paths never reach the filesystem unjudged --------------
+
+
+def _trap_fs(monkeypatch) -> list[str]:
+    """Every call that would touch the disk (or, for a network path, the network) fails
+    the test; the list records which."""
+    import pathlib
+
+    calls: list[str] = []
+
+    def boom(name):
+        def _boom(*_a, **_k):
+            calls.append(name)
+            raise AssertionError(f"a filesystem call: {name}")
+
+        return _boom
+
+    monkeypatch.setattr(pathlib.Path, "stat", boom("Path.stat"))
+    monkeypatch.setattr(pathlib.Path, "resolve", boom("Path.resolve"))
+    for name in ("stat", "lstat", "scandir", "listdir"):
+        monkeypatch.setattr(os, name, boom(f"os.{name}"))
+    for name in ("isdir", "isfile", "exists", "realpath"):
+        monkeypatch.setattr(os.path, name, boom(f"os.path.{name}"))
+    return calls
+
+
+NETWORK_OUTPUTS = {
+    "files, a network root": ("files", {"root": "//host/share", "paths": ["a.png"]}),
+    "files, a network path": ("files", ["//host/share/a.png"]),
+    "files, a backslash network path": ("files", ["\\\\host\\share\\a.png"]),
+    "content, a network path": ("content", {"paths": ["//host/share/a.geojson"]}),
+    "content, a network root": ("content", {"root": "//host/share", "entries": []}),
+    "collection, a network root": ("collection", {"root": "//host/share", "items": ["a.png"]}),
+    "collection, a network item": ("collection", ["//host/share/a.png"]),
+    "collection, a network part": (
+        "collection",
+        [{"key": "a", "parts": {".png": "//host/share/a.png"}}],
+    ),
+    "collection, an NT object part": ("collection", [{"parts": ["/??/UNC/host/share/a.png"]}]),
+}
+
+
+@pytest.mark.parametrize("case", sorted(NETWORK_OUTPUTS))
+def test_a_scripts_network_path_never_reaches_the_filesystem(case, tmp_path, monkeypatch):
+    """A Python link's output names roots and paths the agent wrote; a network or NT
+    object path among them is refused by its text (``specto_core.pathguard``) with the
+    port's fix-it, before anything is stat'ed (on Windows that stat would connect to
+    the host). Every output shape that carries paths: files, content, collection."""
+    output, value = NETWORK_OUTPUTS[case]
+    calls = _trap_fs(monkeypatch)
+    try:
+        with pytest.raises(TypeError) as e:
+            pl.as_port_value(output, value, root=str(tmp_path), where="l9")
+        got = str(e.value)
+    finally:
+        monkeypatch.undo()  # before anything reports: pytest itself stats files
+    assert calls == [], calls
+    assert "a network path" in got or "a device path" in got, got
+    assert "return" in got  # the port's shapes, as for any other bad value
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows path forms")
+@pytest.mark.parametrize(
+    "text", ["\\\\?\\UNC\\host\\share\\a.png", "\\??\\C:\\a.png", "C:a.png", "a.png:stream", "NUL"]
+)
+def test_the_other_refused_forms_are_refused_for_a_script_too(text, tmp_path, monkeypatch):
+    calls = _trap_fs(monkeypatch)
+    try:
+        with pytest.raises(TypeError):
+            pl.as_port_value("files", [text], root=str(tmp_path))
+    finally:
+        monkeypatch.undo()
+    assert calls == []
+
+
+def test_a_scripts_relative_and_drive_paths_still_pass(tmp_path):
+    """The accepted forms are unchanged: relative paths, a leading slash meaning a path
+    below the root, and an absolute local path; a network path is accepted only for a
+    project that is itself on that share, and only under it."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "a.json").write_text("{}", encoding="utf-8")
+    files = pl.as_port_value("files", ["sub/a.json", "/sub/a.json"], root=str(tmp_path))
+    assert files.paths == ["sub/a.json", "/sub/a.json"]
+    content = pl.as_port_value("content", {"paths": ["/sub/a.json"]}, root=str(tmp_path))
+    assert [e.path for e in content.entries] == ["sub/a.json"]
+    col = pl.as_port_value("collection", [str(tmp_path / "sub" / "a.json")], root=str(tmp_path))
+    assert [i.key for i in col.items] == ["sub/a"]
+    assert pl.path_refused("//host/share/data/a.png", "//host/share/data") is None
+    assert pl.path_refused("//host/share/data/a.png", "//host/share") is None
+    # the project's own root, as read_contents and an absolute output root name it
+    assert pl.path_refused("//host/share/data", "//host/share/data") is None
+    assert pl.path_refused("\\\\host\\share\\data\\", "//host/share/data") is None
+    assert pl.path_refused("//host/share/database/a.png", "//host/share/data") is not None
+    assert pl.path_refused("//other/share/a.png", "//host/share/data") is not None
+    assert pl.path_refused("//host/other/a.png", "//host/share/data") is not None

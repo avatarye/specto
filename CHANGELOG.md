@@ -25,6 +25,16 @@ the release and move on their own schedule.
   is named under `missing` and never opened. The 3d reader compares an OBJ's folder and
   the root by their resolved names, so an MTL inside a root reached through a junction,
   a symlink or an 8.3 short name is found.
+- Security fix (SPEC-75): a Python link's output can no longer make Specto connect to
+  another machine. A network path (`\\host\share\x.png`, `//host/...`), an NT object
+  path, a device or stream name among the roots and paths a script returns (files,
+  content or collection outputs) is refused by its text, with the port's usual fix-it,
+  before any file is stat'ed; on Windows that stat would have sent the user's NTLM hash
+  to the host. Relative paths, a leading slash meaning a path below the project, and
+  drive paths work as before; a project opened on a network share still serves its own
+  files. As a backstop, the items host (what the image, video, gallery, pdf, markdown,
+  map and html views fetch through) judges each item part's recorded path the same way
+  before it looks for the file, whatever produced the item.
 - The 3d reader opens an OBJ's `mtllib` only when it resolves inside the root (SPEC-70),
   the rule it already applied afterwards to decide what is servable: an absolute path, a
   `\\?\C:\` path or a `..` path that leaves the root is named under `missing` without

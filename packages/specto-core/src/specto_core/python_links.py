@@ -44,6 +44,7 @@ from .clock import now_iso
 from .contents import ContentEntry, ContentValue, format_for, read_entry
 from .kinds import Item
 from .links import CameraValue, Collection, FilesValue, Selection
+from .pathguard import Refusal, path_refusal
 from .timebase import OWN_TIMELINE, TimeValue
 
 TRUST_FILE = "trusted-links.json"
@@ -337,21 +338,57 @@ def _scalar(v: Any) -> bool:
     return isinstance(v, str | int | float) and not isinstance(v, bool)
 
 
+def path_refused(text: str, root: str) -> Refusal | None:
+    """Why a path a script returned may not reach a filesystem call
+    (``specto_core.pathguard``; SPEC-75), judged as written and with its backslashes as
+    slashes. The script's code is approved once (ADR 0006) but agent-written, so its
+    roots and paths are untrusted text: a network path would make the machine connect
+    out when stat'ed. A single leading slash means a path below the root (``FilesValue``
+    paths are relative POSIX paths), so that form is judged without it. A network path
+    is accepted only when the project itself is on that share (``root`` a network path
+    and the path under it, as text)."""
+    unc_ok = path_refusal(root) is Refusal.NETWORK
+    for t in {text, text.replace("\\", "/")}:
+        why = path_refusal(t, unc_ok=unc_ok)
+        if why is Refusal.ROOTED and t[:1] in "\\/" and t[1:2] not in "\\/":
+            why = path_refusal(t[1:], unc_ok=unc_ok)
+        if why is None and unc_ok and path_refusal(t) is Refusal.NETWORK:
+            why = None if _within(t, root) else Refusal.NETWORK
+        if why is not None:
+            return why
+    return None
+
+
+def _within(text: str, root: str) -> bool:
+    """``text`` is ``root`` or lies under it, compared as slash-normalised text."""
+    low, base = text.replace("\\", "/").lower().rstrip("/"), root.replace("\\", "/").lower()
+    base = base.rstrip("/")
+    return low == base or low.startswith(base + "/")
+
+
+def _checked(text: str, root: str, what: str = "path") -> str:
+    why = path_refused(text, root)
+    if why is not None:
+        raise ValueError(f"{what} {text!r} is {why}; name a file in the project or a drive path")
+    return text
+
+
 def _root_of(given: Any, root: str) -> str:
     if not given:
         return root
-    p = Path(str(given))
+    p = Path(_checked(str(given), root, "root"))
     return str(p if p.is_absolute() or not root else Path(root) / p)
 
 
-def _paths_of(value: Any) -> tuple[Any, list[str]] | None:
-    """``(root, paths)`` from ``{root?, paths}`` or a list of paths; None otherwise."""
+def _paths_of(value: Any, root: str) -> tuple[Any, list[str]] | None:
+    """``(root, paths)`` from ``{root?, paths}`` or a list of paths; None otherwise.
+    Every path passes ``path_refused`` against the project ``root``."""
     if isinstance(value, list) and all(isinstance(p, str) for p in value):
-        return None, [p.replace("\\", "/") for p in value]
+        return None, [_checked(p, root).replace("\\", "/") for p in value]
     if isinstance(value, dict) and "paths" in value and set(value) <= {"root", "paths"}:
         paths = value["paths"]
         if isinstance(paths, list) and all(isinstance(p, str) for p in paths):
-            return value.get("root"), [p.replace("\\", "/") for p in paths]
+            return value.get("root"), [_checked(p, root).replace("\\", "/") for p in paths]
     return None
 
 
@@ -359,11 +396,11 @@ def read_contents(root: str, paths: list[str], formats: set[str] | None = None) 
     """The files at ``paths`` (relative to ``root``) parsed into a content value; a
     folder stands for the readable files under it (of ``formats`` only, when given: a
     map's folder is its GeoJSON files). A file named outright that is not readable
-    contents is an error."""
-    base = Path(root)
+    contents is an error. ``root`` and each path pass ``path_refused`` first."""
+    base = Path(_checked(root, root, "root"))
     entries: list[ContentEntry] = []
     for p in paths:
-        rel = p.strip("/")
+        rel = _checked(p, root).strip("/")
         full = base / rel
         if full.is_dir():
             for f in sorted(full.rglob("*"), key=lambda f: f.as_posix().lower()):
@@ -424,7 +461,7 @@ def _convert(output: str, value: Any, root: str, target_type: str | None = None)
             )
         return sel
     if output in ("files", "content"):
-        found = _paths_of(value)
+        found = _paths_of(value, root)
         if found is not None:
             given, paths = found
             if output == "files":
@@ -506,7 +543,8 @@ def collection_of(value: Any, root: str) -> Collection:
     must exist, and is recorded with its relative path and stat (``meta.rel``,
     ``meta.stat``), so the views read it as an intaker's (a file tree lists it, an
     unchanged result is not delivered again). Keys default to the first part's path
-    without extension, key fields (``meta.keys``) to ``{stem: key}``."""
+    without extension, key fields (``meta.keys``) to ``{stem: key}``. The root and every
+    part pass ``path_refused`` before anything is stat'ed."""
     if isinstance(value, list):
         value = {"items": value}
     if not isinstance(value, dict) or not isinstance(value.get("items", []), list):
@@ -538,6 +576,7 @@ def collection_of(value: Any, root: str) -> Collection:
         rel: dict[str, str] = {}
         stat: dict[str, list[int]] = {}
         for role, path in listed:
+            _checked(path, root, "part")
             full = Path(path) if Path(path).is_absolute() else Path(base) / path
             try:
                 st = full.stat()

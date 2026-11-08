@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
 from specto_core.containers import is_virtual, open_source, real_path
-from specto_core.pathguard import path_refusal
+from specto_core.pathguard import Refusal, path_refusal
 
 from .capabilities import Capabilities, tile_host_allowed
 
@@ -313,6 +313,22 @@ def resolve_relative(part: Path, rel: str, root: str | Path | None = None) -> Pa
     return candidate if candidate.is_file() else None
 
 
+def part_refused(part: str, root: str | None) -> Refusal | None:
+    """Why an item's part may not be looked for on disk (``specto_core.pathguard``): the
+    text as recorded, a container member judged by its archive. A network path is
+    accepted only when the collection's ``root`` is itself on that share and the part
+    lies under it (as text)."""
+    text = real_path(part) if is_virtual(part) else part
+    unc_ok = root is not None and path_refusal(root) is Refusal.NETWORK
+    why = path_refusal(text, unc_ok=unc_ok)
+    if why is None and unc_ok and path_refusal(text) is Refusal.NETWORK:
+        low = text.replace("\\", "/").lower().rstrip("/")
+        base = str(root).replace("\\", "/").lower().rstrip("/")
+        if low != base and not low.startswith(base + "/"):
+            return Refusal.NETWORK
+    return why
+
+
 def locate_item(
     host: str,
     url_path: str,
@@ -327,7 +343,11 @@ def locate_item(
     ``initiator_host`` (None: no initiator). On ``items`` the initiator must be a page
     holding ``read:link:<link>``; on ``<view>.items`` that view's page holds the grants
     and the initiator may only be that page, its items origin, or nothing (a sandboxed
-    frame). ``entry`` gets the status and what was resolved."""
+    frame). ``entry`` gets the status and what was resolved. The part's own path passes
+    ``specto_core.pathguard`` before anything is stat'ed (``refused``; SPEC-75): the
+    backstop for every host that serves through items, whatever produced the item (a
+    Python link's collection, a resolve step's derived files). A network path is served
+    only when the collection's root is on that share and the part lies under it."""
     parsed = parse_item_rel_path(url_path)
     if parsed is None:
         entry["status"] = "bad_item_path"
@@ -349,6 +369,9 @@ def locate_item(
         entry["status"] = "not_found"
         return None
     p = Path(parts[role])
+    if part_refused(str(p), items.root(col) if items is not None else None):
+        entry["status"] = "refused"
+        return None
     if is_virtual(str(p)):  # a container member: the archive must exist
         return p if Path(real_path(str(p))).is_file() else None
     if rel is not None:

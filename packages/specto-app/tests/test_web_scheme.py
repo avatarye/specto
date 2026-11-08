@@ -419,3 +419,49 @@ def test_resolve_asset_never_hands_a_rooted_path_to_the_disk(tmp_path, monkeypat
     finally:
         monkeypatch.undo()
     assert calls == [] and got is None
+
+
+@pytest.mark.parametrize(
+    "part",
+    [
+        "//host/share/x.png",
+        "\\\\host\\share\\x.png",
+        "/??/UNC/host/share/x.png",
+        "//host/share/a.zip#/x.png",
+    ],
+)
+def test_locate_item_refuses_a_network_part_before_it_is_stated(part, monkeypatch):
+    """The backstop for every host that serves through items (SPEC-75): whatever produced
+    the item (a Python link's collection, a derived file), a part whose recorded path is
+    a network or NT object path is refused by its text before ``is_file``; a container
+    member is judged by its archive."""
+    import pathlib
+
+    from specto_app.web.scheme import locate_item, part_refused
+
+    if os.name != "nt" and "\\\\" in part:
+        pytest.skip("a backslash form is Windows only")
+    items = ItemTable()
+    items.set_items("l1", [{"key": "m", "parts": {".png": part}}])
+    caps = Capabilities.of({"read:link:l1": None})
+    calls = []
+
+    def boom(*_a, **_k):
+        calls.append(1)
+        raise AssertionError("a filesystem call")
+
+    monkeypatch.setattr(pathlib.Path, "stat", boom)
+    monkeypatch.setattr(pathlib.Path, "is_file", boom)
+    monkeypatch.setattr(os.path, "isfile", boom)
+    entry: dict = {}
+    try:
+        got = locate_item(
+            "items", "/l1/m/png", "v1.page", caps_of=lambda _p: caps, items=items, entry=entry
+        )
+    finally:
+        monkeypatch.undo()
+    assert got is None and calls == [] and entry["status"] == "refused"
+    assert part_refused(part, None) is not None
+    # a project on that share serves its own files, and nothing on another share
+    assert part_refused("//host/share/proj/x.png", "//host/share/proj") is None
+    assert part_refused("//other/share/x.png", "//host/share/proj") is not None

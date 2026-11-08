@@ -314,8 +314,13 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   the scene's `missing`. The items host serves a part's trailing path that starts with
   `@root/` from the root of the resolver that answers for the link (`ItemResolver.root`,
   None by default), never outside it, and only an MTL, a buffer or an image
-  (`scheme.ROOT_SUFFIXES`). A trailing path's text (and the text after `@root/`) passes
-  `specto_core.pathguard` before any filesystem call (SPEC-61, ADR 0006 amended): an
+  (`scheme.ROOT_SUFFIXES`). A part's own recorded path passes `specto_core.pathguard`
+  before it is stat'ed (`scheme.part_refused`, status `refused`; SPEC-75), the backstop
+  for every host that serves through items whatever produced the item; a container
+  member is judged by its archive, and a network path is served only for a collection
+  whose root is on that share, under it. A trailing path's text (and the text after
+  `@root/`) passes `specto_core.pathguard` before any filesystem call (SPEC-61, ADR 0006
+  amended): an
   allowlist, shared with the page host's asset paths (`scheme.resolve_asset`, whose
   decoded URL path may not be rooted either), the 3d reader's own look-up of the
   references it reads out of a file (`pathguard.reference_refusal`: an OBJ's MTL and
@@ -420,6 +425,12 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   3d or preview target prepared with its scenes (`links.register_preparer`, the project
   the root that bounds what an item may name, SPEC-80); None
   delivers nothing. A wrong shape fails the link with a fix-it (`python_links.SHAPES`).
+  Every root and path an output names passes `specto_core.pathguard` before any
+  filesystem call (`python_links.path_refused`, SPEC-75: the code is approved, its
+  output is agent-written text): a network or NT object path, a device or stream name
+  fails the link with the same fix-it, before it is stat'ed; a single leading slash
+  means a path below the root; a network path is accepted only for a project that is
+  itself on that share, and only under it.
   The code runs as `python -I -X utf8` (no script folder, working folder or PYTHONPATH on
   `sys.path`; files and the console are UTF-8); its prints go to stderr. What it gets
   wrong is the job's `ScriptFailed` result: the status (canvas.state) and `link.failed`
