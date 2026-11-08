@@ -102,6 +102,9 @@ def test_files_arriving_in_a_watched_folder_resolve_in_the_background_and_swap_i
     first = links.input_of("kobi", "data")
     assert keys_of(first) == ["00000", "00001", "00002"]
     assert links.watching() == ["l2"]  # the tree follows its loaded folders itself (#231)
+    # the watcher has settled: its baseline and the listing after notifications armed
+    # are behind it, so no listing catches the drip half-written (SPEC-83)
+    assert pump_until(engine, jobs, lambda: links.watch_status("l2")["polls"] >= 2)
 
     drip(project.root / "drops", 3, 2)
 
