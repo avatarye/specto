@@ -177,3 +177,81 @@ def test_the_menu_offers_nothing_for_a_network_item(tmp_path, reached, path):
     )  # fmt: skip
     assert launcher_menu.items(target) == []
     assert reached == []
+
+
+# -- SPEC-91: a project on a share opens its own files ------------------------------------------
+
+SHARE = r"\\fakehost\share\proj"
+ELSEWHERE = r"\\elsewhere\share\s.blend"
+
+
+@pytest.fixture
+def share(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Filesystem calls on the fake share answer from the test (nothing there is a
+    launcher file; every other path under it exists and ``work`` is a folder) and are
+    recorded; a launch is recorded and answers a pid. Nothing reaches the network."""
+    asked: list[str] = []
+
+    def under_share(p) -> bool:
+        return "fakehost" in str(p)
+
+    def fake(owner: object, name: str, answer) -> None:
+        orig = getattr(owner, name)
+
+        def faked(*args, **kwargs):
+            if args and under_share(args[0]):
+                asked.append(f"{name}({args[0]})")
+                return answer(str(args[0]))
+            if any("elsewhere" in str(a) for a in args):
+                raise Reached(f"{name}{args}")
+            return orig(*args, **kwargs)
+
+        monkeypatch.setattr(owner, name, faked)
+
+    def missing(_p):
+        raise FileNotFoundError(_p)
+
+    fake(Path, "stat", missing)
+    fake(Path, "read_bytes", missing)
+    fake(os.path, "exists", lambda p: not p.endswith("launchers.toml"))
+    fake(os.path, "isdir", lambda p: p.rstrip("\\/").endswith("work"))
+    fake(os.path, "isfile", lambda p: not p.endswith("launchers.toml"))
+    monkeypatch.setattr(launcher_run, "spawn_program", lambda *a, **k: asked.append("spawn") or 7)
+    return asked
+
+
+def share_book(tmp_path: Path, extra: str = "") -> LauncherBook:
+    machine = tmp_path / "user" / "launchers.toml"
+    machine.parent.mkdir(parents=True)
+    exe = Path(sys.executable).as_posix()
+    machine.write_text(f"[[launcher]]\nid = \"b\"\ncommand = '{exe}'\n{extra}", encoding="utf-8")
+    return LauncherBook(SHARE, machine_path=machine, log=lambda _m: None)
+
+
+def test_a_share_project_opens_its_own_files_and_starts_in_its_own_folder(tmp_path, share):
+    book = share_book(tmp_path, f"cwd = '{SHARE}\\work'\n")
+    inside = SHARE + "\\s.blend"
+    assert book.resolve(["s.blend", inside]) == [inside, inside]
+    done = book.launch("b", [inside])
+    assert done.pids == [7] and "spawn" in share
+    assert file_of(inside, SHARE) == inside
+    target = MenuTarget(
+        view_id="fege", view_type="gallery", role="browser", kind="items",
+        items=(MenuItemRef(key="x", path=inside),), root=SHARE,
+    )  # fmt: skip
+    assert launcher_menu.items(target) == [(inside, False)]
+
+
+def test_a_share_project_still_refuses_another_share_and_a_network_command(tmp_path, share):
+    book = share_book(tmp_path)
+    with pytest.raises(InvalidArgs):
+        book.resolve([ELSEWHERE])
+    assert file_of(ELSEWHERE, SHARE) == ""
+    machine = tmp_path / "user" / "launchers.toml"
+    machine.write_text(
+        f"[[launcher]]\nid = \"c\"\ncommand = '{SHARE}\\tool.exe'\n", encoding="utf-8"
+    )
+    book.refresh(force=True)
+    with pytest.raises(InvalidArgs) as e:
+        book.launch("c", [SHARE + "\\s.blend"])
+    assert "network" in e.value.message and "spawn" not in share

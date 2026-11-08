@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from specto_core.errors import InvalidArgs, NotFound, SpectoError
-from specto_core.pathguard import Refusal, file_uri_path, path_refusal
+from specto_core.pathguard import Refusal, file_uri_path, output_refusal, path_refusal
 
 from ..recents import user_data_dir
 from . import run
@@ -39,22 +39,28 @@ SYSTEM_LABEL = "System default"
 Item = tuple[str, bool]  # an absolute path, and whether it is a folder
 
 
-def refusal(text: str) -> Refusal | None:
+def refusal(text: str, root: str | Path | None = None) -> Refusal | None:
     """Why a launcher's command or cwd, or a path to open, may not be looked for: its text
     judged by ``specto_core.pathguard`` (SPEC-76), a ``file:`` URI by its host first (a
-    host is a network path)."""
+    host is a network path). A network path is accepted only under ``root`` when that is
+    a plain network path (a project on a share opens its own files, SPEC-91; the same
+    acceptance as ``output_refusal``); a command is always judged without one."""
     if text[:5].lower() == "file:":
         _path, why = file_uri_path(text)
         if why is not None:
             return why
-    return path_refusal(text)
+    why = path_refusal(text)
+    if why is Refusal.NETWORK and root and output_refusal(text, str(root)) is None:
+        return None
+    return why
 
 
-def file_of(path: str) -> str:
+def file_of(path: str, root: str | Path | None = None) -> str:
     """The file behind a target item's path: a container entry (``file.zip#inner``, the
     gallery's) is its container. "" for a path whose text ``specto_core.pathguard``
-    refuses (a network or device path is never looked for, SPEC-76)."""
-    if path and refusal(path):
+    refuses (a network or device path is never looked for, SPEC-76; one under a project
+    ``root`` on a share is the project's, SPEC-91)."""
+    if path and refusal(path, root):
         return ""
     if not path or os.path.exists(path):
         return path
@@ -182,7 +188,7 @@ class LauncherBook:
         out: list[str] = []
         for p in paths:
             text = str(p or "").strip()
-            why = refusal(text)
+            why = refusal(text, self.root)
             if why:
                 raise InvalidArgs(
                     f"refused: {text} is {why}",
@@ -192,7 +198,7 @@ class LauncherBook:
             path = Path(text)
             if not path.is_absolute() and self.root is not None:
                 path = self.root / path
-            full = file_of(os.path.normpath(str(path)))
+            full = file_of(os.path.normpath(str(path)), self.root)
             if not text or not os.path.exists(full):
                 raise NotFound(
                     f"no such file: {text or '(empty)'}",
@@ -262,7 +268,7 @@ class LauncherBook:
                 raise InvalidArgs(
                     why, fix="point the launcher at the program itself, not a .bat or .cmd"
                 )
-            why = refusal(inv.cwd) if inv.cwd else None
+            why = refusal(inv.cwd, self.root) if inv.cwd else None
             if why:
                 raise InvalidArgs(
                     f"the launcher {launcher.label!r} starts in {inv.cwd}, {why}",

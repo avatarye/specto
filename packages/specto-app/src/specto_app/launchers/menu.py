@@ -30,7 +30,7 @@ def items(target: MenuTarget) -> list[tuple[str, bool]]:
     """The target's files, ``(path, is_dir)``; [] when an item is no file."""
     out = []
     for i in target.items:
-        path = file_of(i.path)
+        path = file_of(i.path, target.root or None)
         if not path:
             return []
         out.append((path, i.is_dir or os.path.isdir(path)))
