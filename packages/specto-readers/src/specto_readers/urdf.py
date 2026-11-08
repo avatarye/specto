@@ -327,8 +327,10 @@ class PackageResolver:
         return str(hit[0]) if hit is not None else None
 
     def _find(self, name: str) -> tuple[Path, str] | None:
-        # 1. params.package_paths
-        if name in self.by_name:
+        # 1. params.package_paths: a mapped folder counts only when its package.xml names
+        # the package, as in the folder form, so a canvas cannot make any folder a
+        # package (SPEC-43.1)
+        if name in self.by_name and _named(self.by_name[name], name, self.budget):
             return self.by_name[name], "package_paths"
         for folder in self.folders:
             hit = _in_folder(folder, name, self.budget)
@@ -401,6 +403,10 @@ class PackageResolver:
                 target, via = Path(text), "file"
             else:
                 target, via = self.urdf.parent / text, "relative"
+        # the scope is tested on the text first (abspath is lexical), so a path outside it
+        # is never handed to the disk, then again on the resolved path (links)
+        if scope is not None and not under(os.path.abspath(target), scope):
+            return Resolution(None, OUTSIDE, via)
         target = target.resolve()
         if scope is not None and not under(target, scope):
             return Resolution(None, OUTSIDE, via)

@@ -89,6 +89,16 @@ def seed_robots(root: Path) -> dict[str, Path]:
     return {"pkg": pkg, "gripper": elsewhere}
 
 
+def map_gripper(engine: Engine) -> str:
+    """vendor/grip_pkg as the gripper package: a mapped folder needs a package.xml naming
+    it (SPEC-43.1 review 3); the search finds it only once that is written."""
+    folder = engine.project.root / "vendor" / "grip_pkg"
+    (folder / "package.xml").write_text(
+        "<package format='3'><name>gripper</name></package>", encoding="utf-8"
+    )
+    return "vendor/grip_pkg"
+
+
 @pytest.fixture
 def engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("SPECTO_CACHE_DIR", str(tmp_path / "cache"))
@@ -251,7 +261,7 @@ def test_package_paths_find_what_was_missing(engine: Engine):
     submit_robot(engine)
     ctx, host, sink = make_host(engine)
     assert sink.last("model")["model"]["missing"]
-    set_params(engine, package_paths={"gripper": "vendor/grip_pkg"})  # under the project
+    set_params(engine, package_paths={"gripper": map_gripper(engine)})  # under the project
     host.flush()
     model = sink.last("model")["model"]
     assert model["missing"] == []
@@ -427,7 +437,7 @@ def test_the_page_writes_its_view_params_itself(engine: Engine):
 
 def test_meshes_the_page_could_not_read_join_the_health_notes(engine: Engine):
     """The host owns the health dot: the page's ``loaded`` failures join the notes."""
-    submit_robot(engine, {"package_paths": {"gripper": "vendor/grip_pkg"}})
+    submit_robot(engine, {"package_paths": {"gripper": map_gripper(engine)}})
     ctx, host, _sink = make_host(engine)
     assert ctx.health_of("robo")["status"] == "ok"
     failed = [
@@ -559,7 +569,7 @@ def test_next_to_a_mesh_only_its_material_library_and_images_are_served(engine: 
     serves its .mtl and images only, and nothing next to the URDF or an STL."""
     from specto_app.web.scheme import locate_item
 
-    submit_robot(engine, {"package_paths": {"gripper": "vendor/grip_pkg"}})
+    submit_robot(engine, {"package_paths": {"gripper": map_gripper(engine)}})
     _ctx, host, _sink = make_host(engine)
     key = host.key
     meshes = Path(runtime().items.parts("l2", key)[".m1"]).parent  # cover.obj's folder

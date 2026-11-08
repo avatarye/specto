@@ -90,8 +90,9 @@ URDF_MANIFEST = ViewManifest(
     "params.package_paths, then package.xml, ROS_PACKAGE_PATH, AMENT_PREFIX_PATH; a "
     "missing one is a placeholder, health warn, in snap.",
     guide="Shows the picked item (or the first; params.selected is its key) and steps "
-    "through the rest; never edit the URDF. A click selects a link: <item key>#<link name> on selection, the link's or "
-    "joint's properties on content; the camera port is shared with the 3d view. "
+    "through the rest; never edit the URDF. A click selects a link: <item key>#<link name> "
+    "on selection, the link's or joint's properties on content; the camera port is shared "
+    "with the 3d view. "
     "camera_mode orbit: left-drag orbits the pivot, right-drag and the wheel dolly toward "
     "it. The environment is one of the 3d view's HDRIs; none keeps the default lights.",
     accepts=["urdf"],

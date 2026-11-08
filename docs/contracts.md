@@ -312,7 +312,7 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   collection), its watcher (`watch_intaker`), `read_contents` and the 3D scene buffers
   (`scene3d.attach_scenes`, for intakers feeding a `3d` view). For a `.dae` that step
   writes the converted mesh `<name>.dae.glb` beside it, or in the cache when the folder
-  cannot take it (`specto_readers.dae.prepare(src, cache_dir, key, beside=True)`, ADR
+  cannot take it (`specto_readers.dae.prepare(src, cache_dir, key, *, beside=True)`, ADR
   0028; `beside=False` keeps it in the cache only, for the urdf view's DAEs outside the
   project); a converted mesh whose DAE is in the
   same collection gets no scene, so the model shows once. `attach_scenes` takes the
@@ -332,8 +332,8 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   host that serves through items whatever produced the item; a container member is
   judged by its archive. `guard_root` is the root of what delivered the item (a
   collection's or a content value's, else the project's; an intaker table's; the
-  scratch store's project; the urdf view's robot: the project), so a project on a share serves its own parts and nothing
-  on another share (SPEC-91). A part with a bare leading slash is refused where it is
+  scratch store's project; the urdf view's robot: the project), so a project on a
+  share serves its own parts and nothing on another share (SPEC-91). A part with a bare leading slash is refused where it is
   no absolute path (Windows: the current drive's root). The one leading-slash rule is
   `pathguard.below_root`. A trailing path's text (and the text after
   `@root/`) passes `specto_core.pathguard` before any filesystem call (SPEC-61, ADR 0006
@@ -859,7 +859,10 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   answering for the item once a path resolved; the others allow any), and no `@root/`
   paths (`root` is None). Served files lie under the project (`search_roots`) or a
   package folder the parse resolved, checked again by their resolved path when served;
-  a package name matches `PACKAGE_NAME`; references pass `specto_core.pathguard`
+  a reference is tested against that scope on its text (`os.path.abspath`) before it is
+  resolved, then on its resolved path; a package name matches `PACKAGE_NAME`; a
+  `package_paths` mapping (`{name: folder}`) counts only when the folder's
+  `package.xml` names the package; references pass `specto_core.pathguard`
   before any filesystem call; per parse `MAX_REFERENCES` (2000) references,
   `MAX_DAE_CONVERSIONS` (64) DAE conversions and one `SearchBudget` (4000 folders for
   every package probe); past a cap the rest are missing with the cap named. A DAE goes

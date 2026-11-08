@@ -153,8 +153,7 @@ pad) shows many items of a collection and outputs a selection; a viewer (image, 
 html, pdf, preview, urdf) shows the one selected item in its native form; a player (video, \
 usd) is a viewer whose item has a timeline; a scene (3D, map) places many items in one space. \
 Compose by role: a browser's selection feeds a viewer or player (a gallery picks the frame, an \
-image view or \
-the video shows it), rather than asking one view to both browse and show.
+image view or the video shows it), rather than asking one view to both browse and show.
 
 For a quick look ("show me this", "open that file", what the user picks in the file tree), use one \
 preview: it renders the item by its kind (image, video, pdf, markdown, json, html, 3D model; other \
@@ -196,7 +195,8 @@ For a robot description (.urdf), use one urdf view: a viewer for one robot at a 
 read-only, never the root view, fed like the usd view (screener ["@urdf"]); a double-click on \
 a .urdf opens one. Pose it through params.joints ({joint name: value}, radians and metres, \
 clamped into the limits); never edit the URDF. Its meshes resolve through params.package_paths \
-({package name: folder} or a list of folders), then the nearest package.xml, then \
+({package name: folder}, the folder holding a package.xml naming it, or a list of folders), \
+then the nearest package.xml, then \
 ROS_PACKAGE_PATH and AMENT_PREFIX_PATH; a mesh not found draws as a placeholder and turns \
 health warn, and snap lists it with its cause, so set package_paths when snap says a package \
 was not found. Other params: view_mode (lit|unlit|wireframe|collision|visual_collision), up \
