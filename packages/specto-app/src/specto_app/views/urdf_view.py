@@ -86,12 +86,14 @@ URDF_MANIFEST = ViewManifest(
     type="urdf",
     label="URDF",
     host="web",
-    doc="One robot (.urdf), read-only: the picked item (or the first), stepping through "
-    "the rest. Pose it through params.joints; never edit the URDF. Meshes resolve through "
-    "params.package_paths, the nearest package.xml, then ROS_PACKAGE_PATH and "
-    "AMENT_PREFIX_PATH; one not found draws as a placeholder, turns health warn and is "
-    "listed by snap. A click selects a link: <item key>#<link> on selection, its "
-    "properties on content; camera is shared with the 3d view.",
+    doc="One robot (.urdf), read-only; pose it by params.joints. Meshes resolve by "
+    "params.package_paths, then package.xml, ROS_PACKAGE_PATH, AMENT_PREFIX_PATH; a "
+    "missing one is a placeholder, health warn, in snap.",
+    guide="Shows the picked item (or the first; params.selected is its key) and steps "
+    "through the rest; never edit the URDF. A click selects a link: <item key>#<link name> on selection, the link's or "
+    "joint's properties on content; the camera port is shared with the 3d view. "
+    "camera_mode orbit: left-drag orbits the pivot, right-drag and the wheel dolly toward "
+    "it. The environment is one of the 3d view's HDRIs; none keeps the default lights.",
     accepts=["urdf"],
     cost=ViewCost(web_views=1, viewports3d=1),
     defaults={
@@ -116,13 +118,13 @@ URDF_MANIFEST = ViewManifest(
                 "type": "object",
                 "additionalProperties": {"type": "number"},
                 "default": {},
-                "description": "{joint: position}, radians or metres; clamped to limits.",
+                "description": "{joint: value}, rad or m, clamped to limits.",
             },
             "package_paths": {
                 "type": ["object", "array"],
                 "additionalProperties": {"type": "string"},
                 "items": {"type": "string"},
-                "description": "{package: folder} or folders to search, tried first.",
+                "description": "{package: folder} or folders, tried first.",
             },
             "view_mode": {
                 "enum": ["lit", "unlit", "wireframe", "collision", "visual_collision"],
@@ -132,27 +134,29 @@ URDF_MANIFEST = ViewManifest(
             "environment": {
                 "enum": [ENV_NONE, *ENVIRONMENTS],
                 "default": ENV_NONE,
-                "description": "A 3d view HDRI; none: default lights.",
             },
             "environment_intensity": {
                 "type": "number",
+                "x-describe": True,
                 "minimum": 0,
                 "maximum": ENV_INTENSITY_MAX,
                 "default": 1.0,
             },
-            "environment_background": {"type": "boolean", "default": False},
+            "environment_background": {"type": "boolean", "default": False, "x-describe": True},
             "environment_rotation": {
                 "type": "number",
+                "x-describe": True,
                 "minimum": 0,
                 "maximum": 360,
                 "default": 0.0,
             },
-            "show_grid": {"type": "boolean", "default": True},
-            "show_frames": {"type": "boolean", "default": False},
-            "show_joint_axes": {"type": "boolean", "default": False},
-            "show_com": {"type": "boolean", "default": False},
+            "show_grid": {"type": "boolean", "default": True, "x-describe": True},
+            "show_frames": {"type": "boolean", "default": False, "x-describe": True},
+            "show_joint_axes": {"type": "boolean", "default": False, "x-describe": True},
+            "show_com": {"type": "boolean", "default": False, "x-describe": True},
             "camera_speed": {
                 "type": "number",
+                "x-describe": True,
                 "minimum": 0.125,
                 "maximum": 8,
                 "default": 1.0,
@@ -160,18 +164,17 @@ URDF_MANIFEST = ViewManifest(
             "camera_mode": {
                 "enum": ["free", "orbit"],
                 "default": "free",
-                "description": "orbit: left-drag orbits the pivot, right-drag and the wheel "
-                "dolly toward it.",
             },
             "selected": {
                 "type": ["string", "null"],
-                "description": "The item key of the robot shown.",
+                "x-describe": True,
             },
             "selected_links": {
                 "type": "array",
+                "x-describe": True,
                 "items": {"type": "string"},
                 "default": [],
-                "description": "The selected links by name.",
+                "description": "By name.",
             },
             "panels": {"type": "object", "additionalProperties": True},
         },
@@ -179,14 +182,6 @@ URDF_MANIFEST = ViewManifest(
     },
     example={
         "view": {"type": "urdf", "label": "Arm", "params": {"joints": {"elbow": 1.2}}},
-        "link": {
-            "kind": "intaker",
-            "scope": "selection",
-            "source": {"view": "fege", "port": "selected_files"},
-            "target": {"view": "robo", "port": "data"},
-            "params": {"screener": ["@urdf"]},
-            "summary": {"sentence": "The urdf view shows the robot picked in fege."},
-        },
     },
 )
 URDF_PLUGIN = PluginManifest(name="app-urdf", version="0.1.0", views=[URDF_MANIFEST])

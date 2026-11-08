@@ -460,15 +460,15 @@ step, nothing journaled). */
     [key: string]: unknown;
   }
   interface UrdfState {
-    /** {joint: position}, radians or metres; clamped to limits. default: {} */
+    /** {joint: value}, rad or m, clamped to limits. default: {} */
     joints?: Record<string, number>;
-    /** {package: folder} or folders to search, tried first. */
+    /** {package: folder} or folders, tried first. */
     package_paths?: Record<string, string> | string[];
     /** default: "lit" */
     view_mode?: "lit" | "unlit" | "wireframe" | "collision" | "visual_collision";
     /** default: "z" */
     up?: "x" | "y" | "z" | "-x" | "-y" | "-z";
-    /** A 3d view HDRI; none: default lights. default: "none" */
+    /** default: "none" */
     environment?: "none" | "studio" | "overcast" | "sunny" | "indoor" | "urban";
     /** default: 1.0 */
     environment_intensity?: number;
@@ -486,11 +486,10 @@ step, nothing journaled). */
     show_com?: boolean;
     /** default: 1.0 */
     camera_speed?: number;
-    /** orbit: left-drag orbits the pivot, right-drag and the wheel dolly toward it. default: "free" */
+    /** default: "free" */
     camera_mode?: "free" | "orbit";
-    /** The item key of the robot shown. */
     selected?: string | null;
-    /** The selected links by name. default: [] */
+    /** By name. default: [] */
     selected_links?: string[];
     panels?: Record<string, unknown>;
     [key: string]: unknown;

@@ -307,18 +307,11 @@ def test_the_session_prompt_carries_the_view_types_and_link_kinds_so_describe_is
     before a one-submit change. The standing reference (built from the engine: every view
     type's ports and params, every link kind's params and examples) rides in the system
     prompt, cached by the CLI; the prompt says the context's document is the state."""
-    from specto_app.hosts import HostContext, HostRegistry
     from specto_app.prompt.reference import reference_text
     from specto_app.prompt.session import SYSTEM_PROMPT
-    from specto_app.views import factories
 
-    # as the app builds it (app.py): core's view types plus the app's (3d, urdf, ...)
     engine = Engine(project=None)
-    reg = HostRegistry(HostContext(engine, None), load_entry_points=False)
-    for factory in factories():
-        reg.add_factory(factory)
     ref = reference_text(lambda n, a: engine.call(n, a, PROMPT_BAR))
-    reg.dispose_all()
 
     assert "gallery" in ref and "file_tree" in ref and "selected_files" in ref
     assert "intaker" in ref and '"scope":"selection"' in ref and '"scope":"pinned"' in ref
@@ -399,6 +392,21 @@ def test_the_real_reference_with_the_app_s_views_fits_its_budget():
     # the video's params and defaults are lines of their own; muted by default is said
     assert cards["video"]["params"]["muted"].startswith("default true. ")
     assert "muted by default" in cards["video"]["doc"] and "defaults" not in cards["video"]
+
+
+def test_a_describe_only_param_leaves_the_card_but_not_describe():
+    """SPEC-43.1 (PR 85's budget): the urdf card leaves its cosmetic params
+    (``"x-describe": true``) and their defaults to ``describe view:urdf``; the params that
+    pick and pose the robot stay on the card."""
+    ref, engine = app_reference()
+    card = cards_of(ref)["urdf"]
+    assert len(json.dumps(card)) < 1000
+    assert {"joints", "package_paths", "view_mode", "up", "environment"} <= set(card["params"])
+    for name in ("show_grid", "show_com", "camera_speed", "environment_rotation", "selected"):
+        assert name not in card["params"] and name not in card.get("defaults", {})
+    info = engine.call("describe", {"target": "view:urdf"}, PROMPT_BAR)["info"]
+    assert "show_grid" in info["state_schema"]["properties"]
+    assert "params.selected" in info["guide"] and "orbit" in info["guide"]
 
 
 def test_the_session_prompt_explains_view_roles_and_the_reference_gives_each_type_its_role():
