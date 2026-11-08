@@ -210,5 +210,8 @@ class Renderer:
     def reset(self, time: float = 0.0) -> None:
         log("reset", time=time)
 
+    def reset_stage(self) -> None:
+        log("reset_stage")
+
     def destroy(self) -> None:
         log("Renderer.destroy")

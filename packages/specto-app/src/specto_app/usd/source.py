@@ -14,9 +14,10 @@ The renderer logs to ``specto-usd-source-<pid>.log`` in the temp folder, removed
 clean exit; crash-dump uploads are off.
 
 #155: ``--texture-streaming`` picks ovrtx's texture streaming mode (``async``, its
-default; ``sync``: feedback processed synchronously; ``off``), and ``--fresh-renderer``
-starts a new renderer for each stage after the first instead of attaching the new stage
-to the running one.
+default; ``sync``: feedback processed synchronously; ``off``). By default one rtx
+renderer takes the stages in turn and clears its runtime stage between two of them
+(SPEC-64, ADR 0031); ``--fresh-renderer`` starts a new renderer for each stage after the
+first instead, 1.0-1.4 s more a switch.
 
 It speaks the frame-source protocol (:mod:`specto_app.frames.control`) with the stub USD
 source's methods (#139), so the usd host drives either one:

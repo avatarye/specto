@@ -355,7 +355,7 @@ def test_the_source_command_picks_the_renderer_process_for_a_view(monkeypatch):
     argv = source_command(view("auto"), caps(ovrtx=True, storm=False), 64, 48).argv
     assert module(argv) == "specto_app.usd.source" and renderer(argv) == "rtx"
     assert argv[argv.index("--width") + 1] == "64" and argv[argv.index("--height") + 1] == "48"
-    assert "--fresh-renderer" in argv  # no second stage in a running ovrtx renderer (#155)
+    assert "--fresh-renderer" not in argv  # one renderer, cleared between stages (SPEC-64)
     assert renderer(source_command(view("rtx"), never, 64, 48).argv) == "rtx"
     for asked in ("auto", "storm"):
         argv = source_command(view(asked), caps(ovrtx=False), 64, 48).argv

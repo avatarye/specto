@@ -1,7 +1,9 @@
-"""``specto-usd-source`` rtx flavour against the fake ovrtx (#155): the two levers on a
-stage switch. ``--fresh-renderer`` gives each stage after the first its own renderer
-(the running one is closed, never handed a second stage); ``--texture-streaming`` sets
-ovrtx's texture streaming mode at renderer creation."""
+"""``specto-usd-source`` rtx flavour against the fake ovrtx (#155): the levers on a stage
+switch. By default one renderer takes the stages in turn and clears its runtime stage
+(``reset_stage``) between two of them (SPEC-64); ``--fresh-renderer`` gives each stage
+after the first its own renderer instead (the running one is closed, never handed a
+second stage); ``--texture-streaming`` sets ovrtx's texture streaming mode at renderer
+creation."""
 
 from __future__ import annotations
 
@@ -71,9 +73,14 @@ def test_a_fresh_renderer_takes_each_new_stage(tmp_path: Path, worlds: list[Path
         assert src.close() == 0
     assert len(calls(log, "Renderer")) == 3  # one per stage
     assert len(calls(log, "attach_ovstage")) == 3
+    assert calls(log, "reset_stage") == []  # a renderer that had no stage has none to clear
 
 
-def test_by_default_one_renderer_takes_the_stages_in_turn(tmp_path: Path, worlds: list[Path]):
+def test_by_default_one_renderer_takes_the_stages_in_turn_cleared_between_them(
+    tmp_path: Path, worlds: list[Path]
+):
+    """SPEC-64: the runtime stage is cleared before the second and third stage, after the
+    old ovstage is detached and before the new one is attached; never before the first."""
     log = tmp_path / "ovrtx.log"
     src = spawn(log)
     try:
@@ -83,6 +90,11 @@ def test_by_default_one_renderer_takes_the_stages_in_turn(tmp_path: Path, worlds
     finally:
         src.close()
     assert len(calls(log, "Renderer")) == 1 and len(calls(log, "attach_ovstage")) == 3
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    stage_calls = ("attach_ovstage", "detach_ovstage", "reset_stage")
+    order = [r["call"] for r in rows if r["call"] in stage_calls]
+    switch = ["detach_ovstage", "reset_stage", "attach_ovstage"]
+    assert order == ["attach_ovstage", *switch, *switch, "detach_ovstage"]  # the close detaches
 
 
 @pytest.mark.parametrize(("flag", "mode"), [("sync", 1), ("off", 0), ("async", None)])

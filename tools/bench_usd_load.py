@@ -3,12 +3,13 @@ between picking a world and its first frame go.
 
     uv run --no-sync --with psutil python tools/gpu_guard.py --log <guard.log> -- \\
         uv run --no-sync python tools/bench_usd_load.py --work <scratch> STAGE [STAGE ...]
-        [--renderer rtx] [--fresh-renderer | --reuse-renderer] [--repeat 2]
+        [--renderer rtx] [--fresh-renderer] [--repeat 2]
         [--size 1280x720] [--py-spy [--py-spy-idle]]
 
 Runs ``specto_app.usd.source`` with the command line the usd view uses
-(``views.usd_view.rtx_launcher``, ``--fresh-renderer`` unless ``--reuse-renderer``, or
-``storm_launcher``), with no app and no window, and loads each STAGE in turn,
+(``views.usd_view.rtx_launcher`` or ``storm_launcher``; ``--fresh-renderer`` adds the
+source's flag of that name, a new renderer per stage instead of one cleared between
+stages, SPEC-64), with no app and no window, and loads each STAGE in turn,
 ``--repeat`` times over (the second round reloads worlds the process has seen). Every
 event the source sends is stamped on arrival; each load's row has the time from its
 ``load`` request to its phases (``composing``: the stage opens with usd-core; ``loaded``:
@@ -58,8 +59,8 @@ class Run:
         self.log_file = self.work / "ovrtx.log"
         w, h = (int(v) for v in ns.size.split("x"))
         argv = (rtx_launcher if ns.renderer == "rtx" else storm_launcher)(w, h)
-        if ns.reuse_renderer:
-            argv = [a for a in argv if a != "--fresh-renderer"]
+        if ns.fresh_renderer:
+            argv.append("--fresh-renderer")
         argv += ["--log-file", str(self.log_file)]
         self.t0 = time.monotonic()
         # the source's stderr (its own and the renderer's lines) goes whole to a file
@@ -173,7 +174,7 @@ def main() -> int:
     ap.add_argument("stages", nargs="+")
     ap.add_argument("--work", required=True, type=Path)
     ap.add_argument("--renderer", default="rtx", choices=("rtx", "storm"))
-    ap.add_argument("--reuse-renderer", action="store_true", help="no --fresh-renderer (#155)")
+    ap.add_argument("--fresh-renderer", action="store_true", help="a new renderer per stage")
     ap.add_argument("--repeat", type=int, default=2, help="rounds over the stages")
     ap.add_argument("--size", default="1280x720")
     ap.add_argument("--timeout", type=float, default=600.0, help="seconds a load may take")

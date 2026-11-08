@@ -52,6 +52,7 @@ sky and the HDRI dome are on Kit's scale. Both go back with the Stage choice.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -232,7 +233,10 @@ class RtxRenderer:
         time_codes: tuple[float, float, float] | None = None,
         lighting: Lighting | None = None,
     ) -> None:
+        had_stage = self.stage is not None
         self._drop_stage()
+        if had_stage:
+            self._clear_runtime_stage()  # a second stage in this renderer (#155, SPEC-64)
         self._size = (int(width), int(height))
         self._meters_per_unit = float(meters_per_unit) or 1.0
         self._outlined = []
@@ -272,6 +276,18 @@ class RtxRenderer:
         self.renderer.detach_ovstage()
         self.stage.destroy()
         self.stage = None
+
+    def _clear_runtime_stage(self) -> None:
+        """Clear the renderer's runtime stage between two stages (SPEC-64). A stage
+        attached to a renderer that had already shown one crashed with GPU page faults
+        a few seconds in (#155), which is why each stage got a fresh renderer, 1.0-1.4 s
+        a switch; with the runtime stage cleared first, 59 switches of mixed stages ran
+        clean (SPEC-64's soak). ovrtx 0.6 marks ``reset_stage`` deprecated in favour of
+        the ovstage path, which is the path this is (detach, destroy, attach a new
+        ovstage); the clear is what that path lacks, so the warning is not news here."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            self.renderer.reset_stage()
 
     @staticmethod
     def stage_note(lighting: Lighting, environment: str = "stage") -> str:

@@ -508,13 +508,22 @@ uv run --no-sync python tools/bench_usd_load.py --work <scratch>/run --repeat 3 
 The numbers behind the SPEC-27 decisions (one Windows machine, RTX 4070 Ti, ovrtx 0.6.0,
 warm caches, three rounds): a warehouse reload takes 7-10 s with a fresh renderer, 5-7 s
 of it the first frame, and the 1x1-texture copy takes the same; a reused renderer saves
-the 1.0-1.4 s swap, `Renderer.reset_stage` on a reused one costs the same as plain reuse;
-without `keep_system_alive` (ovrtx's default) the swap is 3-4 s; `datastore_cache
+the 1.0-1.4 s swap, and `Renderer.reset_stage` on a reused one costs the same as plain
+reuse; without `keep_system_alive` (ovrtx's default) the swap is 3-4 s; `datastore_cache
 local://` relocates the DerivedDataCache (1.5 GB for this world) and is no faster warm;
 `enable_profiling` writes nothing a user can read, and the ovrtx log, at `log_level`
 verbose too, is silent inside the first frame between "RT pipeline ready" and the
 `RangeAllocator` growth that ends it.
 py-spy samples only the Python threads, so it sees the main thread wait on the frame.
+
+SPEC-64 (ADR 0031) then soaked the cleared, reused renderer: 60 loads of four public
+stages (the warehouse, its 1x1-texture copy, a forklift prop, a one-cube stage) in one
+process, 59 switches, under `tools/gpu_guard.py`. Every load reached its first complete
+frame, with no fault or error in the source or the ovrtx log, in 395 s of wall time;
+warehouse reloads took 5.5-9.0 s, drifting upward across rounds the way a fresh renderer
+did, and the small stages held steady (forklift 1.2-1.4 s, cube 0.8-1.0 s). The view
+reuses its renderer since; `--fresh-renderer` on the bench and on the source brings the
+swap back.
 
 ## Common failures
 

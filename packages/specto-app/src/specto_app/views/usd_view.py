@@ -285,13 +285,15 @@ def stub_launcher(width: int, height: int) -> list[str]:
 
 
 def rtx_launcher(width: int, height: int) -> list[str]:
-    """``specto-usd-source`` with the RTX renderer (#137), a fresh renderer for each stage
-    after the first: both #155 crashes were GPU page faults about 3 s after a stage was
-    attached to a running renderer. A fresh one costs 1.0-1.4 s more per switch (SPEC-27,
-    tools/bench_usd_load.py; 3-4 s if ovrtx's ``keep_system_alive`` were off), next to
-    the 5-7 s the first frame of a large world takes either way."""
+    """``specto-usd-source`` with the RTX renderer (#137). One renderer takes the stages
+    in turn and clears its runtime stage between two of them (SPEC-64, ADR 0031): both
+    #155 crashes were GPU page faults a few seconds after a second stage was attached to
+    a renderer that had not been cleared, which is why each stage got a fresh renderer
+    until SPEC-64, 1.0-1.4 s a switch (SPEC-27, tools/bench_usd_load.py).
+    ``--fresh-renderer`` still does that, for a machine where the cleared renderer
+    fails."""
     argv = [sys.executable, "-m", "specto_app.usd.source", "--renderer", "rtx"]
-    return [*argv, "--width", str(width), "--height", str(height), "--fresh-renderer"]
+    return [*argv, "--width", str(width), "--height", str(height)]
 
 
 def storm_launcher(width: int, height: int) -> list[str]:
