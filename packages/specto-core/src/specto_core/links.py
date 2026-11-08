@@ -876,6 +876,8 @@ class LinkRuntime:
         self.receivers: dict[str, Receiver] = {}
         self._status: dict[str, dict[str, Any]] = {}
         self._inflight: dict[str, str] = {}  # link id -> job id
+        #: link id -> the target view's type the running resolve was given (SPEC-48)
+        self._inflight_type: dict[str, str] = {}
         self._pending: set[str] = set()  # links whose input changed while resolving
         self._fresh: set[str] = set()  # links refreshed: their next resolve stats afresh
         #: two-way links whose target end spoke last (resolve them target -> source)
@@ -1019,16 +1021,30 @@ class LinkRuntime:
         for the old type is forgotten, so a host attaching now is handed nothing stale,
         and every link into it resolves again, since resolution depends on the target
         type (an intaker feeding a 3d view prepares scene buffers; one feeding a
-        gallery does not). Returns the link ids resolved."""
+        gallery does not). The links are marked fresh, so a Python link's cached table
+        (keyed without the target type) is rebuilt; a resolve already running for the
+        old type never lands (``_on_done``). What the old host emitted goes too, so
+        links fed from the view drop their old-type values. Returns the link ids resolved."""
         for key in [k for k in self.inputs if k[0] == view_id]:
-            if isinstance(self.inputs.pop(key), Collection):
-                self.global_clock.forget(view_id)
+            self._clear_input(key)  # the old host is detached: nothing hears the None
+        for key in [k for k in self.outputs if k[0] == view_id]:
+            del self.outputs[key]
         lids = [
             lid for lid, ln in self.live.data["links"].items() if ln["target"]["view"] == view_id
         ]
         for lid in lids:
+            self._fresh.add(lid)
             self.resolve(lid)
         return lids
+
+    def _type_moved(self, link_id: str, link: dict[str, Any]) -> bool:
+        """True when the resolve that just ended was given a target type the view no
+        longer has (its type changed meanwhile, SPEC-48): the result was prepared for
+        the old type and must not land."""
+        ran_for = self._inflight_type.pop(link_id, "")
+        view = self.live.data["views"].get(link["target"]["view"]) or {}
+        now = str(view.get("type") or "")
+        return bool(ran_for) and bool(now) and ran_for != now
 
     def _oriented(self, link_id: str, link: dict[str, Any]) -> dict[str, Any]:
         """The link as the resolver sees it: source and target swapped when its target
@@ -1086,6 +1102,7 @@ class LinkRuntime:
             job_link["target_type"] = target_view["type"]
         # marked before the submit: a synchronous manager delivers (and pops) inside it
         self._inflight[link_id] = ""
+        self._inflight_type[link_id] = str(job_link.get("target_type") or "")
         job = self.jobs.submit(
             LINK_JOB_KIND,
             resolver,
@@ -1139,10 +1156,15 @@ class LinkRuntime:
         self._inflight.pop(link_id, None)
         link = self.live.data["links"].get(link_id)
         if link is None:  # removed while resolving
+            self._inflight_type.pop(link_id, None)
             self._pending.discard(link_id)
             return
         link = self._oriented(link_id, link)
-        if job.state == "done":
+        if self._type_moved(link_id, link):
+            # the view changed type while this ran (SPEC-48): a result prepared for the
+            # old type never lands; the link resolves again below
+            self._pending.add(link_id)
+        elif job.state == "done":
             self._set_status(link_id, "resolved", "")
             self._deliver(link_id, link, job.result)
         else:
@@ -1373,6 +1395,7 @@ class LinkRuntime:
             else None
         )
         self._inflight[link_id] = ""
+        self._inflight_type[link_id] = str(job_link.get("target_type") or "")
         job = self.jobs.submit(
             LINK_JOB_KIND,
             fn,
@@ -1394,13 +1417,15 @@ class LinkRuntime:
         self._inflight.pop(link_id, None)
         link = self.live.data["links"].get(link_id)
         if link is None:
+            self._inflight_type.pop(link_id, None)
             self._pending.discard(link_id)
             return
         py = link["python"]
         stale = py["resolves_to"] == "value" and key != self._python_value_key(link, key[0])
-        if stale:
-            # the source moved on while this ran: its result never lands; the latest
-            # value runs next (now, or when its debounce window closes)
+        if self._type_moved(link_id, link) or stale:
+            # the target's type changed (SPEC-48: the table was built and prepared for
+            # the old one) or the source moved on while this ran: the result never
+            # lands; the link runs again next (now, or when its debounce window closes)
             if link_id not in self._due:
                 self._pending.add(link_id)
         elif job.state == "done" and isinstance(job.result, ScriptFailed):

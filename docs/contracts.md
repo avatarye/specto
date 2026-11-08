@@ -274,7 +274,9 @@ links.approval_request(link_id) -> {link, path, hash, target, approved}  # what 
 links.approve(link_id)                  # Python links (ADR 0006): the USER's gesture only (the view's
                                         # Approve, the approval card; never a command, #203)
 links.refresh(view_id=None) -> [link ids]  # rescan: the project's links, or a view's (stat afresh), #102
-links.retarget(view_id) -> [link ids]   # the view's type changed: forget its inputs, resolve its links again (SPEC-48)
+links.retarget(view_id) -> [link ids]   # the view's type changed: its inputs and outputs forgotten, its links
+                                        # resolved again, fresh (a Python table is rebuilt); a resolve in flight
+                                        # for the old type never lands (SPEC-48)
 links.poll() -> [link ids]              # the app's 8 ms timer: delivers job results, watch arrivals
 links.watching(); links.watch_status(link_id)
 links.global_clock: GlobalClock         # section 7

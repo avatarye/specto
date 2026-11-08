@@ -1,7 +1,8 @@
 """SPEC-48: a submit that keeps a view's id but changes its type gets the new type's
 host. The registry handed the patch to the old host (a MissingHost for a type with no
 host here, or the previous type's host) and never built the new one. The new host's
-links resolve again for the new type (an intaker feeding a 3d view prepares scenes), and
+links resolve again for the new type (an intaker feeding a 3d view prepares scenes, a
+Python link's table is rebuilt, a resolve in flight for the old type never lands), and
 a paused view comes back paused with the reason it had."""
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import test_shell
 from app_doc_helpers import pin
 from gallery_helpers import FakeGallery, needs_testdata
 from scene3d_helpers import write_cloud_ply
+from test_ports_hosts import HeldJobs
 from test_shell import submit
 
 import specto_intake  # noqa: F401  (registers the intaker resolver)
@@ -23,10 +25,18 @@ from specto_app.hosts.registry import MissingHost
 from specto_app.views.gallery import GalleryFactory, GalleryHost
 from specto_core import Engine, Project
 from specto_core.jobs import InlineJobManager
-from specto_core.links import Collection
+from specto_core.links import LINK_JOB_KIND, Collection, Selection
+from specto_core.python_links import TrustStore, sha256_of
 
 frames_project = test_shell.frames_project
 app = test_shell.app
+
+LINK_FILE = ".specto/links/scene.py"
+#: a per-pick link that hands its target the cloud, whatever was picked
+SCENE_LINK = (
+    "def resolve(value, items, params, root):\n"
+    '    return [{"parts": {".ply": "scans/cloud.ply"}}]\n'
+)
 
 
 class ScenesHost(QuickViewHost):
@@ -49,14 +59,17 @@ class ScenesHost(QuickViewHost):
     def snapshot(self) -> dict[str, Any]:
         return {}
 
+    def collections(self) -> list[Collection]:
+        return [v for p, v in self.received if p == "data" and isinstance(v, Collection)]
 
-@pytest.fixture
-def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+
+def _world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jobs):
     monkeypatch.setenv("SPECTO_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("SPECTO_USER_DIR", str(tmp_path / "user"))  # the trust store
     proj = Project.init(tmp_path / "proj", "scans")
     (proj.root / "scans").mkdir(parents=True, exist_ok=True)
     write_cloud_ply(proj.root / "scans" / "cloud.ply")
-    engine = Engine(project=proj, jobs=InlineJobManager())
+    engine = Engine(project=proj, jobs=jobs)
     clear_pending()
     fakes: list[FakeGallery] = []
 
@@ -68,19 +81,57 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     ctx = HostContext(engine, None)
     reg = HostRegistry(ctx, load_entry_points=False)  # no host for "3d" unless a test adds one
     reg.add_factory(Factory())
+    ctx.links  # noqa: B018  (the runtime starts now, not at the first host)
+    return engine, ctx, reg
+
+
+@pytest.fixture
+def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    engine, ctx, reg = _world(tmp_path, monkeypatch, InlineJobManager())
     yield engine, ctx, reg
     reg.dispose_all()
     engine.close()
 
 
-def _submit(engine: Engine, vtype: str, label: str = "kobi") -> None:
+@pytest.fixture
+def held(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """The same world, every resolve held until the test runs it."""
+    jobs = HeldJobs()
+    engine, ctx, reg = _world(tmp_path, monkeypatch, jobs)
+    yield engine, ctx, reg, jobs
+    reg.dispose_all()
+    engine.close()
+
+
+def _submit(
+    engine: Engine,
+    vtype: str,
+    label: str = "kobi",
+    *,
+    linked: bool = True,
+    origin: str = "agent:s1",
+) -> None:
     doc = engine.live.document()
     view = doc["views"].get("kobi")
     doc["views"]["kobi"] = {**(view or {"layout": {"size": [600, 400]}}), "type": vtype}
     doc["views"]["kobi"]["label"] = label
-    if view is None:
+    if view is None and linked:
         pin(doc, "kobi", sources=["scans"])  # the project's scans feed it, once
-    engine.live.submit(doc, origin="agent:s1", label=f"kobi as {vtype}")
+    engine.live.submit(doc, origin=origin, label=f"kobi as {vtype}")
+
+
+def _run_link_job(jobs: HeldJobs) -> None:
+    """Run the oldest held link resolve (a gallery's thumbnail batch may be held too)."""
+    i = next(i for i, (job, *_r) in enumerate(jobs.held) if job.kind == LINK_JOB_KIND)
+    job, fn, args, kwargs, on_done = jobs.held.pop(i)
+    result = fn(*args, progress=lambda p, m="": None, **kwargs)
+    jobs._finish(job, result=result)
+    if on_done is not None:
+        on_done(job)
+
+
+def _link_jobs(jobs: HeldJobs) -> int:
+    return sum(1 for job, *_r in jobs.held if job.kind == LINK_JOB_KIND)
 
 
 def test_a_type_change_builds_the_new_types_host(setup):
@@ -120,10 +171,85 @@ def test_a_type_change_resolves_the_views_links_again_for_the_new_type(setup):
     _submit(engine, "3d")
     scenes = reg.host("kobi")
     assert isinstance(scenes, ScenesHost) and gallery.disposed
-    cols = [v for p, v in scenes.received if p == "data" and isinstance(v, Collection)]
+    cols = scenes.collections()
     assert len(cols) == 1, scenes.received  # the fresh resolve alone, nothing stale replayed
     assert cols[0].items[0].meta["scene"]["kind"] == "pointcloud"
     assert ctx.links.input_of("kobi", "data") is cols[0]
+
+
+def test_a_python_links_table_is_rebuilt_for_the_new_type(setup):
+    """A Python link caches its table under a key without the target type, so without
+    the fresh mark the new host would get the table built (and prepared) for the old
+    type."""
+    engine, ctx, reg = setup
+    reg.add_factory(SimpleFactory("3d", ScenesHost))
+    (engine.project.root / LINK_FILE).parent.mkdir(parents=True, exist_ok=True)
+    (engine.project.root / LINK_FILE).write_text(SCENE_LINK, encoding="utf-8")
+    TrustStore().approve(sha256_of((engine.project.root / LINK_FILE).read_bytes()), path=LINK_FILE)
+    doc = engine.live.document()
+    doc["views"]["kobi"] = {"type": "gallery", "label": "kobi", "layout": {"size": [600, 400]}}
+    doc["views"]["lami"] = {"type": "gallery", "label": "lami", "layout": {"size": [600, 400]}}
+    pin(doc, "lami", sources=["scans"])
+    doc["links"]["l9"] = {
+        "kind": "python",
+        "source": {"view": "lami", "port": "selection"},
+        "target": {"view": "kobi", "port": "data"},
+        "python": {"path": LINK_FILE, "resolves_to": "value", "output": "collection"},
+        "summary": {"sentence": "A pick in lami hands kobi the cloud."},
+    }
+    engine.live.submit(doc, origin="agent:s1", label="python")
+    gallery = reg.host("kobi")
+    ctx.links.emit("lami", "selection", Selection(keys=["cloud"], last="cloud"))
+    assert ctx.links.status("l9")["state"] == "resolved", ctx.links.status("l9")
+    assert [it.key for it in gallery.collection.items] == ["scans/cloud"]
+    assert "scene" not in gallery.collection.items[0].meta
+
+    _submit(engine, "3d")  # the same pick, run again for a 3d view: scenes prepared
+    scenes = reg.host("kobi")
+    assert isinstance(scenes, ScenesHost)
+    cols = scenes.collections()
+    assert len(cols) == 1, scenes.received
+    assert cols[0].items[0].meta["scene"]["kind"] == "pointcloud"
+
+
+def test_a_resolve_in_flight_across_the_type_change_never_lands(held):
+    """A resolve running for the old type when the type changes: its result is dropped
+    (it was prepared for the old type) and the link resolves again for the new one."""
+    engine, ctx, reg, jobs = held
+    reg.add_factory(SimpleFactory("3d", ScenesHost))
+    _submit(engine, "gallery")
+    while _link_jobs(jobs):
+        _run_link_job(jobs)
+    gallery = reg.host("kobi")
+    assert [it.key for it in gallery.collection.items] == ["cloud"]
+
+    (lid,) = ctx.links.refresh("kobi")  # a rescan for the gallery, held open
+    assert _link_jobs(jobs) == 1 and ctx.links.resolving(lid)
+    _submit(engine, "3d")  # the type changes under it
+    scenes = reg.host("kobi")
+    assert isinstance(scenes, ScenesHost) and scenes.collections() == []
+
+    _run_link_job(jobs)  # the gallery's rescan lands: dropped, and the link resolves again
+    assert scenes.collections() == [] and ctx.links.input_of("kobi", "data") is None
+    assert _link_jobs(jobs) == 1 and ctx.links.resolving(lid)
+    _run_link_job(jobs)
+    cols = scenes.collections()
+    assert len(cols) == 1 and cols[0].items[0].meta["scene"]["kind"] == "pointcloud"
+    assert ctx.links.input_of("kobi", "data") is cols[0]
+
+
+def test_a_view_with_no_incoming_links_changes_type_too(setup):
+    engine, ctx, reg = setup
+    reg.add_factory(SimpleFactory("3d", ScenesHost))
+    _submit(engine, "gallery", linked=False, origin="user")  # a user may leave a view unlinked
+    gallery = reg.host("kobi")
+    assert isinstance(gallery, GalleryHost) and ctx.links.inputs_of("kobi") == {}
+
+    _submit(engine, "3d", origin="user")
+    scenes = reg.host("kobi")
+    assert isinstance(scenes, ScenesHost) and gallery.disposed
+    assert scenes.received == [] and ctx.links.inputs_of("kobi") == {}
+    assert ctx.health_of("kobi")["status"] != "error"
 
 
 def test_a_paused_view_comes_back_paused(setup):

@@ -35,6 +35,8 @@ from specto_core.links import Collection, ContentValue
 from .base import HostContext, QuickViewHost, ViewHostFactory
 
 ENTRY_POINT_GROUP = "specto.view_hosts"
+#: the pause reason of a view outside the window frame (a collapsed one says so instead)
+OFF_SCREEN = "off-screen"
 #: the empty-state line of a view that follows the file tree's picks (glossary: selection
 #: intaker) while nothing is picked
 PICK_HINT = "Pick files in the file tree"
@@ -359,7 +361,7 @@ class HostRegistry(QObject):
         and, off screen or collapsed, stays paused with the reason it had."""
         slot = self._slots.get(view_id)
         paused = view_id in self._paused
-        why = self.ctx.health_of(view_id).get("message") or "off-screen"
+        why = self.ctx.health_of(view_id).get("message") or OFF_SCREEN
         self.dispose(view_id)
         self.ctx.links.retarget(view_id)
         if self.host(view_id) is None:
@@ -412,7 +414,7 @@ class HostRegistry(QObject):
             return {"error": f"{type(e).__name__}: {e}"}
 
     # -- pause / resume (contracts sections 11, 12) -------------------------------------------
-    def pause(self, view_id: str, why: str = "off-screen") -> bool:
+    def pause(self, view_id: str, why: str = OFF_SCREEN) -> bool:
         """Tell a live host its view is off-screen (or collapsed, #114: ``why`` is the
         health message); health becomes ``paused`` (the previous health is kept for
         ``resume``). True when it was running."""
