@@ -511,10 +511,10 @@ of it the first frame, and the 1x1-texture copy takes the same; a reused rendere
 the 1.0-1.4 s swap, and `Renderer.reset_stage` on a reused one costs the same as plain
 reuse; without `keep_system_alive` (ovrtx's default) the swap is 3-4 s; `datastore_cache
 local://` relocates the DerivedDataCache (1.5 GB for this world) and is no faster warm;
-`enable_profiling` writes nothing a user can read, and the ovrtx log, at `log_level`
-verbose too, is silent inside the first frame between "RT pipeline ready" and the
-`RangeAllocator` growth that ends it.
-py-spy samples only the Python threads, so it sees the main thread wait on the frame.
+the ovrtx log, at `log_level` verbose too, is silent inside the first frame between "RT
+pipeline ready" and the `RangeAllocator` growth that ends it. py-spy samples only the
+Python threads, so it sees the main thread wait on the frame. What the first frame does
+inside ovrtx needs its carb profiler (below).
 
 SPEC-64 (ADR 0031) then soaked the cleared, reused renderer: 60 loads of four public
 stages (the warehouse, its 1x1-texture copy, a forklift prop, a one-cube stage) in one
@@ -526,6 +526,69 @@ reuses its renderer since; `--fresh-renderer` on the bench and on the source bri
 swap back, and `SPECTO_USD_FRESH_RENDERER=1` in the app's environment makes every usd view
 start its source that way (the fallback for a GPU that faults on the cleared renderer; `0`
 or unset keeps the one renderer).
+
+### Inside the first frame: ovrtx's carb profiler
+
+ovrtx 0.6 ships Carbonite's CPU profiler (`carb.profiler-cpu.plugin`, a Chrome trace) but
+has no public way to set the carb settings it reads. Two dev-only tools fill the gap
+(SPEC-65); nothing in `packages/` imports them:
+
+- `tools/ovrtx_probe/sitecustomize.py`: with its folder first on `PYTHONPATH`, in the usd
+  source process alone it hands ovrtx the carb settings in `SPECTO_PROBE_CARB_SETTINGS`
+  (a `--/path=value ...` string) before the first renderer, and adds the
+  `RendererConfig` fields in `SPECTO_PROBE_CONFIG` (JSON). It goes through
+  `ovrtx.settings.apply_settings`, an internal ovrtx extension (vtable slot 0) that may
+  change on any ovrtx upgrade; its header says how to check it.
+- `tools/ovrtx_trace_top.py`: summarises the trace (hundreds of MB for one warehouse load):
+  the zones with the most time, the first-frame step loop by loop with what the worker
+  threads did meanwhile, and the counters.
+
+`OVRTX_PROFILER_BACKEND=cpu` picks the backend. Leave `enable_profiling` off: it registers
+ovrtx's static NVTX profiler, whose zones only Nsight Systems reads, and a profiler once
+loaded refuses another backend, which is why that flag alone "writes nothing". One round
+of the warehouse (run the bench on the GPU tier, under `tools/gpu_guard.py` and the
+heavy-run slot, as above):
+
+```text
+export PYTHONPATH=<repo>/tools/ovrtx_probe OVRTX_PROFILER_BACKEND=cpu
+P=--/plugins/carb.profiler-cpu.plugin
+export SPECTO_PROBE_CARB_SETTINGS="--/app/profilerBackend=cpu --/app/profileFromStart=true
+  $P/saveProfile=true $P/compressProfile=false $P/filePath=<scratch>/profile.json"
+uv run --no-sync python tools/bench_usd_load.py --work <scratch>/run --repeat 1 \
+    <scratch>/full/Isaac/Environments/Simple_Warehouse/full_warehouse.usd
+python -I tools/ovrtx_trace_top.py <scratch>/profile.json
+```
+
+`SPECTO_PROBE_CARB_SETTINGS="--/rtx-transient/gpu/streamingStatusManager/verbose=true"`
+with `SPECTO_PROBE_CONFIG='{"log_level": "verbose"}'` instead writes, to the ovrtx log,
+each streaming system's busy and idle changes by name; that log is the cheaper second
+look, with no profiler.
+
+What one machine showed (RTX 4070 Ti, ovrtx 0.6.0, warm caches; the warehouse's first
+frame 5.6-6 s): the first frame is one `ovrtx_step_with_stage_execute`, in which ovrtx
+renders until every streaming system is idle (`/rtx/hydra/multiTickRate`,
+`waitForInitialStreamingDone`). Four "streaming" render-quality loops take 5.0 s of it,
+the 78 that follow 0.6 s, and in the four the step thread spends 90-97 % waiting:
+
+1. 0.66 s: geometry, 3,284 meshes uploaded (vertex copies, ray-tracing records), MDL
+   modules loaded.
+2. 1.88 s: 159 textures, about 1.25 s each in parallel, read through UJITSO from the local
+   DerivedDataCache (13.4k requests, all cache hits), and the materials' shader variants.
+3. 1.21 s: the ray-tracing pipeline rebuilt for the new materials (151 shader groups);
+   no cache traffic, the CPU mostly idle.
+4. 1.24 s: the CPU nearly idle while the streaming systems drain.
+
+The ovrtx log names what holds it: `omni.rtx.MaterialDb` and `rtx.hydra.MaterialHandoff`
+are busy the whole frame (4.7 s), `rtx.hydra.MaterialStreaming` 3.3 s,
+`omni.rtx.PSORaytracing` 1.4 s after the materials, `gpu.resourceManager` 1.5 s, and
+`gpu.foundation.TextureStreaming`, which starts 0.5 s in, is the last to go idle. The
+materials are the long pole, which is why the 1x1-texture copy is no faster. None of it
+is Specto's code. A second round in the same process (the renderer reused, cleared with
+`reset_stage`) took 7.3 s against 5.9 s: every material and texture system runs again in
+full after the clear, and longer (MaterialStreaming 6.1 s, resourceManager 3.5 s,
+TextureStreaming 5.6 s), so nothing carries over inside the renderer; the old stage's
+teardown (thousands of textures and material instances destroyed per frame in the trace)
+running beside the new load is a likely reason, not yet proven.
 
 ## Common failures
 

@@ -82,6 +82,10 @@ the release and move on their own schedule.
   clears the runtime stage between two stages instead of starting a fresh renderer, which
   saves 1.0-1.4 s and the "starting" phase on every pick. A 59-switch soak of mixed
   public stages ran clean. `SPECTO_USD_FRESH_RENDERER=1` brings back a renderer per stage.
+- Developers can now see inside the RTX first frame (SPEC-65, developer.md "Profiling a
+  usd load"): `tools/ovrtx_probe` hands ovrtx carb settings for its CPU profiler or its
+  streaming log, and `tools/ovrtx_trace_top.py` summarises the trace. The warehouse's
+  5-6 s is ovrtx's material compile and handoff, then texture streaming, not Specto code.
 - Security fix (SPEC-61): a path in a note's image (relative, or a page asset's), an
   OBJ's material map or a xacro include can no longer make Specto connect to another
   machine. On Windows a network path there (`\\host\share\x.png`, or the `\??\UNC\...`
