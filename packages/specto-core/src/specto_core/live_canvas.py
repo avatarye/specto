@@ -134,7 +134,9 @@ class Mark:
     (``found``) and advances with each accepted agent submit (``LiveCanvas._advance_mark``):
     one entry per submit, keyed by its txn. When the agent undoes, the copies of submits
     no longer applied (undone by anyone, in any order) are set aside, so the copy never
-    holds a write the canvas lost; its redo brings a copy back."""
+    holds a write the canvas lost; its redo brings a copy back. A new submit drops the
+    undo stack's redo tail, and those submits' copies with it (``forget``), before its
+    own copy is built on what remains."""
 
     def __init__(self, start: int, found: Objects) -> None:
         self.start = start
@@ -159,6 +161,12 @@ class Mark:
         undo cursor); the rest wait for a redo."""
         self.undone += [c for c in self.copies if c[0] not in applied]
         self.copies = [c for c in self.copies if c[0] in applied]
+
+    def forget(self, txns: set[str]) -> None:
+        """The redo tail ``txns`` is gone for good (a new submit dropped it): so are its
+        copies, applied or set aside."""
+        self.copies = [c for c in self.copies if c[0] not in txns]
+        self.undone = [c for c in self.undone if c[0] not in txns]
 
     def forward(self, txn: str) -> None:
         """The agent redid ``txn``: its copy is the newest again."""
@@ -648,6 +656,10 @@ class LiveCanvas:
         dropped = {r.id for r in self.history[self.cursor :]}
         del self.history[self.cursor :]
         self.log = [r for r in self.log if r.id not in dropped]
+        if dropped:
+            # the marks' copies of those submits go too, before this one's copy is built
+            for mark in self._marks.values():
+                mark.forget(dropped)
         self.history.append(rec)
         self.cursor = len(self.history)
         self.log.append(rec)

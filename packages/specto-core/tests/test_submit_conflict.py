@@ -587,6 +587,29 @@ def test_undos_out_of_order_leave_no_stale_copy(live: LiveCanvas):
     assert position(live, "kobi") == [700.0, 300.0]
 
 
+def test_a_dropped_redo_tail_drops_its_copies_too(live: LiveCanvas):
+    """Agent t2 (kobi) and t3 (tamu); the user undoes t3; the agent's next edit t4 drops
+    the redo tail (t3). Its copy of t3 goes with it, before t4's copy is built on it, so
+    the copy's tamu is the live one: the agent's edit relabelling tamu lands, and so does
+    its document that echoes the user's later relabel of kobi and changes tamu."""
+    since = live.mark()
+    live.submit(edits={"views": {"kobi": {"label": "a"}}}, origin=AGENT, since=since)
+    live.submit(edits={"views": {"tamu": {"label": "b"}}}, origin=AGENT, since=since)
+    live.undo(origin="user")  # t3: tamu is "tamu" again, a user change
+    live.submit(
+        edits={"views": {"kobi": {"params": {"selected": ["x.png"]}}}}, origin=AGENT, since=since
+    )  # t4 drops the redo tail
+    live.submit(edits={"views": {"kobi": {"label": "mine"}}}, origin="user")
+
+    doc = live.document()  # echoes kobi "mine" and tamu "tamu"
+    doc["views"]["tamu"]["label"] = "c"
+    live.submit(doc, origin=AGENT, since=since)
+    assert live.data["views"]["tamu"]["label"] == "c"
+    assert live.data["views"]["kobi"]["label"] == "mine"
+    live.submit(edits={"views": {"tamu": {"label": "d"}}}, origin=AGENT, since=since)
+    assert live.data["views"]["tamu"]["label"] == "d"
+
+
 def test_a_whole_document_advances_only_the_fields_it_changed(live: LiveCanvas):
     """The user drags tamu; the agent's fresh document (read after the drag) relabels
     kobi and lands. It echoed tamu's new position without changing it, so the copy
