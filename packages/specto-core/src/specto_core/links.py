@@ -106,6 +106,42 @@ def arrival_entry(source: int, rel: str) -> str:
     return f"{source}:{rel.split('#/', 1)[0]}"
 
 
+class TableChange(NamedTuple):
+    """How a watcher's table changed: entries added, removed and changed, and the added
+    entries (``arrival_entry`` names, at most ``ARRIVALS_CAP``)."""
+
+    added: int
+    removed: int
+    changed: int
+    arrived: list[str]
+
+
+def table_change(before: dict[str, str], table: dict[str, str]) -> TableChange:
+    """Compare two listings of a watcher. An entry that is gone and an added one whose
+    names differ only by case and whose stamps are equal are one file renamed in case
+    (SPEC-81): a change, never an arrival and a removal."""
+    arrived = [k for k in table if k not in before]
+    gone = [k for k in before if k not in table]
+    changed = sum(1 for k, v in table.items() if k in before and before[k] != v)
+    removed = len(gone)
+    if arrived and gone:
+        old: dict[tuple[str, str], int] = {}
+        for k in gone:
+            fold = (k.lower(), before[k])
+            old[fold] = old.get(fold, 0) + 1
+        kept = []
+        for k in arrived:
+            fold = (k.lower(), table[k])
+            if old.get(fold):
+                old[fold] -= 1
+                removed -= 1
+                changed += 1
+            else:
+                kept.append(k)
+        arrived = kept
+    return TableChange(len(arrived), removed, changed, arrived[:ARRIVALS_CAP])
+
+
 class WatchChange(NamedTuple):
     """What a watcher posts on ``changes`` when its listing changed."""
 
@@ -210,13 +246,10 @@ class WatchListing(Protocol):
         """A full listing replaced the table: rebuild any index over it."""
         ...
 
-    def apply(
-        self, table: dict[str, str], paths: list[str]
-    ) -> tuple[int, int, int, list[str]] | None:
-        """Update ``table`` in place for the changed ``paths`` (absolute, native):
-        ``(added, removed, changed, arrived)``, ``arrived`` the added entries (at most
-        ``ARRIVALS_CAP``), or None when only a full listing can tell (a source root
-        itself changed)."""
+    def apply(self, table: dict[str, str], paths: list[str]) -> TableChange | None:
+        """Update ``table`` in place for the changed ``paths`` (absolute, native, in
+        any order): what changed, or None when only a full listing can tell (a source
+        root itself changed)."""
         ...
 
     def source_missing(self, table: dict[str, str]) -> bool:
@@ -487,16 +520,14 @@ class LinkWatch:
             listing.reset(table)
         if before is None:
             return False
-        arrived = [k for k in table if k not in before]
-        added = len(arrived)
-        removed = sum(1 for k in before if k not in table)
-        changed = sum(1 for k, v in table.items() if k in before and before[k] != v)
-        return self._post(added, removed, changed, arrived)
+        return self._post(table_change(before, table))
 
-    def _post(self, added: int, removed: int, changed: int, arrived: list[str]) -> bool:
-        if not (added or removed or changed):
+    def _post(self, c: TableChange) -> bool:
+        if not (c.added or c.removed or c.changed):
             return False
-        self.changes.put(WatchChange(self.link_id, added, removed, changed, arrived[:ARRIVALS_CAP]))
+        self.changes.put(
+            WatchChange(self.link_id, c.added, c.removed, c.changed, c.arrived[:ARRIVALS_CAP])
+        )
         return True
 
     def _orphaned(self) -> bool:
@@ -735,7 +766,7 @@ class LinkWatch:
             self._mark_dirty(now)
             self._settle_at = now  # only a full listing can tell: as soon as allowed
         else:
-            self._post(*counts)
+            self._post(counts)
 
 
 def _field_of(item: Item, name: str) -> str | None:

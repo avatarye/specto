@@ -596,6 +596,9 @@ class _Hub:
             if not final:  # reopen, bounded like the rest: the lock may be held for good
                 got = self.lock.acquire(timeout=max(0.05, deadline - time.monotonic()))
                 try:
+                    # written even when the lock was not got (held for good by a wedged
+                    # call): a stuck hub must not stay closed to every later subscriber,
+                    # and a bool store is atomic; whoever holds the lock reads it next
                     self.closed = False
                 finally:
                     if got:

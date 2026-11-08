@@ -49,3 +49,20 @@ def test_the_named_entries_are_capped_but_the_count_is_not():
     _lid, added, _removed, _changed, arrived = q.get_nowait()
     assert added == ARRIVALS_CAP + 200 and len(arrived) == ARRIVALS_CAP
     assert arrived[0] == "0:0.jpg"
+
+
+def test_a_listing_that_only_changed_a_names_case_reports_a_change():
+    """SPEC-81: a listing that finds ``0:A.txt`` where ``0:a.txt`` was, with the same
+    stamp, saw a case-only rename: a change, never an arrival and a removal."""
+    w, q = _watch(
+        [
+            {"0:a.txt": "1:1", "0:b.txt": "2:2"},
+            {"0:A.txt": "1:1", "0:b.txt": "2:2"},
+            {"0:A.txt": "1:1", "0:B.txt": "3:3"},
+        ]
+    )
+    w._check_now()
+    assert w._check_now() is True
+    assert q.get_nowait() == ("l2", 0, 0, 1, [])
+    assert w._check_now() is True  # new content under another case: a new file
+    assert q.get_nowait() == ("l2", 1, 1, 0, ["0:B.txt"])

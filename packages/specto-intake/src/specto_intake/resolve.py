@@ -138,7 +138,7 @@ def _found_from_paths(
 
 
 def _found_from_walk(spec: IntakeSpec, base: Path) -> list[FoundFile]:
-    base_posix = str(base).replace("\\", "/").rstrip("/") + "/"
+    base_posix = posix(base).rstrip("/") + "/"
     out: list[FoundFile] = []
     for i, src in enumerate(spec.sources):
         for f in walk_source(i, src, base):
@@ -206,7 +206,7 @@ def resolve_read_contents(
     if progress:
         progress(0.0, "finding files")
     base, found = _found(spec, files, root)
-    base_posix = str(base).replace("\\", "/").rstrip("/") + "/"
+    base_posix = posix(base).rstrip("/") + "/"
     todo = []
     for f in found:
         kind = format_for(f.rel, fmt)

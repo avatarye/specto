@@ -35,7 +35,7 @@ from typing import Any
 
 from specto_core.errors import SpectoError
 from specto_core.fswatch import NotifyUnavailable, Unavailable, case_insensitive
-from specto_core.links import ARRIVALS_CAP, FilesValue, arrival_entry
+from specto_core.links import ARRIVALS_CAP, FilesValue, TableChange, arrival_entry
 
 from .screener import glob_to_regex
 from .sources import hidden, posix, resolve_root, walk_dir, walk_source
@@ -64,7 +64,7 @@ def _spec_and_base(link: dict[str, Any], value: Any, root: str) -> tuple[IntakeS
 def watch_table(spec: IntakeSpec, base: Path, links: list[str] | None = None) -> dict[str, str]:
     """One ``scandir`` pass over the sources: the watcher's table. ``links`` collects the
     folders reached through a symbolic link or a junction."""
-    base_posix = str(base).replace("\\", "/").rstrip("/") + "/"
+    base_posix = posix(base).rstrip("/") + "/"
     table: dict[str, str] = {}
     for i, src in enumerate(spec.sources):
         try:
@@ -79,7 +79,7 @@ def watch_table(spec: IntakeSpec, base: Path, links: list[str] | None = None) ->
                     continue
                 table[arrival_entry(i, f.rel)] = f"{f.size}:{f.mtime_ns}"
         except SpectoError as e:  # a source that is not there (yet) is an entry too
-            table[f"{i}:"] = f"missing:{e.message}"
+            table[arrival_entry(i, "")] = f"missing:{e.message}"
     return table
 
 
@@ -147,6 +147,8 @@ class IntakerListing:
         self._dirs: dict[str, set[str]] = {}
         #: folders reached through links at the last full listing
         self.link_dirs: list[str] = []
+        #: lower-cased key -> the table's key: a case-only rename finds its old entry
+        self._folded: dict[str, str] = {}
         #: one batch's folder listings (actual entry names by folded name)
         self._names: dict[str, dict[str, str]] = {}
 
@@ -169,6 +171,7 @@ class IntakerListing:
 
     def reset(self, table: dict[str, str]) -> None:
         self._dirs = {}
+        self._folded = {}
         for key in table:
             self._index(key)
 
@@ -182,9 +185,7 @@ class IntakerListing:
         what = "folder" if n == 1 else "folders"
         return f"{n} {what} reached through links covered by the periodic listing only"
 
-    def apply(
-        self, table: dict[str, str], paths: list[str]
-    ) -> tuple[int, int, int, list[str]] | None:
+    def apply(self, table: dict[str, str], paths: list[str]) -> TableChange | None:
         counts = _Counts()
         self._names = {}
         for raw in paths:
@@ -206,15 +207,14 @@ class IntakerListing:
                         return None  # gone: the full listing says it is missing
                     if not stat.S_ISREG(st.st_mode):
                         return None
-                    self._set(
-                        table, f"{s.index}:{s.root.name}", f"{st.st_size}:{st.st_mtime_ns}", counts
-                    )
+                    stamp = f"{st.st_size}:{st.st_mtime_ns}"
+                    self._set(table, arrival_entry(s.index, s.root.name), stamp, counts)
                 elif rel == "":
                     return None  # a source folder itself: only a full listing can tell
                 else:
                     self._apply_named(table, s, rel, raw, counts)
         self._names = {}
-        return counts.added, counts.removed, counts.changed, counts.arrived
+        return TableChange(counts.added, counts.removed, counts.changed, counts.arrived)
 
     # -- one path ------------------------------------------------------------------------
     def _actual_name(self, s: _Source, path: str) -> str | None:
@@ -237,27 +237,30 @@ class IntakerListing:
         if s.ci:
             name = os.path.basename(path)
             actual = self._actual_name(s, path)
-            if actual is not None and actual != name:
-                # the notice names an old case of an entry that is there under another
-                # (a rename that only changed case): the entry moves to the folder's own
-                # name, a change rather than an arrival and a removal
-                new_rel = rel[: len(rel) - len(name)] + actual
-                old_key, new_key = f"{s.index}:{rel}", f"{s.index}:{new_rel}"
-                if old_key in table and new_key not in table:
-                    stamp = table[old_key]
-                    self._drop(table, old_key, _Counts())
-                    self._set(table, new_key, stamp, _Counts())
-                    counts.changed += 1
-                else:
-                    self._gone(table, s, rel, counts)
-                rel, path = new_rel, os.path.join(os.path.dirname(path), actual)
-            elif actual is None:
+            if actual is None:
                 self._gone(table, s, rel, counts)
                 return
+            if actual != name:
+                # the notice names an old case of what the folder holds under another
+                new_rel = rel[: len(rel) - len(name)] + actual
+                old_key = arrival_entry(s.index, rel)
+                if old_key not in table:
+                    self._gone(table, s, rel, counts)  # a folder under its old case
+                rel, path = new_rel, os.path.join(os.path.dirname(path), actual)
+            # a rename that only changed case, whichever of its two notices comes first:
+            # the entry moves to the folder's own name, a change rather than an arrival
+            # and a removal (SPEC-81)
+            key = arrival_entry(s.index, rel)
+            old = self._folded.get(key.lower())
+            if key not in table and old is not None and old != key and old in table:
+                stamp = table[old]
+                self._drop(table, old, _Counts())
+                self._set(table, key, stamp, _Counts())
+                counts.changed += 1
         self._apply_one(table, s, rel, path, counts)
 
     def _gone(self, table: dict[str, str], s: _Source, rel: str, counts: _Counts) -> None:
-        key = f"{s.index}:{rel}"
+        key = arrival_entry(s.index, rel)
         if key in table:
             self._drop(table, key, counts)
         else:  # not a file the table held: a folder, maybe
@@ -266,7 +269,7 @@ class IntakerListing:
     def _apply_one(
         self, table: dict[str, str], s: _Source, rel: str, path: str, counts: _Counts
     ) -> None:
-        key = f"{s.index}:{rel}"
+        key = arrival_entry(s.index, rel)
         try:
             st = os.stat(path)
         except OSError:
@@ -303,7 +306,7 @@ class IntakerListing:
     ) -> None:
         """A folder now: list it as the walk would, and drop what was under it before
         but is not now."""
-        prefix = f"{s.index}:{rel}/"
+        prefix = arrival_entry(s.index, rel) + "/"
         if not s.src.follow_links and os.path.islink(path):
             self._drop_under(table, prefix, counts)
             return
@@ -327,7 +330,7 @@ class IntakerListing:
             full = f"{f.root}/{f.rel}"
             if full.lower().startswith(self.base_low) and hidden(full[len(self.base_low) :]):
                 continue
-            k = f"{s.index}:{f.rel}"
+            k = arrival_entry(s.index, f.rel)
             seen.add(k)
             self._set(table, k, f"{f.size}:{f.mtime_ns}", counts)
         for k in self._keys_under(prefix):
@@ -342,6 +345,7 @@ class IntakerListing:
 
     def _index(self, key: str) -> None:
         self._dirs.setdefault(self._folder_of(key), set()).add(key)
+        self._folded[key.lower()] = key
 
     def _set(self, table: dict[str, str], key: str, stamp: str, counts: _Counts) -> None:
         before = table.get(key)
@@ -360,6 +364,8 @@ class IntakerListing:
         if table.pop(key, None) is None:
             return
         counts.removed += 1
+        if self._folded.get(key.lower()) == key:
+            del self._folded[key.lower()]
         folder = self._dirs.get(self._folder_of(key))
         if folder is not None:
             folder.discard(key)

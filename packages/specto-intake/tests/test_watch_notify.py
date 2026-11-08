@@ -975,3 +975,54 @@ def test_two_watched_links_on_a_folder_renamed_away_both_follow_the_new_one(
     assert pump_until(engine, jobs, lambda: counts() == [3, 3], timeout=10)
     engine.close()
     jobs.shutdown()
+
+
+# -- SPEC-81: a case-only rename is a change in either order, notify or poll ---------------
+
+
+def test_a_case_only_rename_is_a_change_whatever_the_order_of_the_notices(tmp_path: Path):
+    root = make_tree(tmp_path, {"data/a.txt": "1", "data/b.txt": "2"})
+    if not fswatch.case_insensitive(str(root / "data")):
+        pytest.skip("a case-sensitive file system: two names, two files")
+    listing, link, table = listing_for(root, {"sources": ["data"]})
+    os.rename(root / "data" / "a.txt", root / "data" / "A.txt")
+    named = [str(root / "data" / "a.txt"), str(root / "data" / "A.txt")]
+
+    counts = listing.apply(table, sorted(named))  # "A.txt" first, as the watcher sorts
+
+    assert tuple(counts) == (0, 0, 1, [])
+    assert table == fresh(root, link)
+
+
+@needs_testdata
+@pytest.mark.parametrize("mode", ["notify", "poll"])
+def test_a_case_only_rename_on_disk_is_a_change_never_an_arrival(
+    project: Project, monkeypatch, mode: str
+):
+    """Real events (or a real listing): the rename lands as a change, with no arrival."""
+    if not fswatch.case_insensitive(str(project.root / "drops")):
+        pytest.skip("a case-sensitive file system: two names, two files")
+    if mode == "poll":
+        monkeypatch.setenv("SPECTO_WATCH", "poll")
+    else:
+        monkeypatch.delenv("SPECTO_WATCH", raising=False)
+    engine, jobs = start_watching(project)
+    links = engine.links
+    arrivals: list = []
+    links.events.subscribe(
+        lambda ev: arrivals.append(ev.payload) if ev.kind == "link.arrivals" else None
+    )
+    assert pump_until(engine, jobs, lambda: (links.watch_status("l2") or {}).get("polls", 0) >= 1)
+    assert links.watch_status("l2")["mode"] == mode
+    old = sorted((project.root / "drops").glob("*.json"))[0]
+    os.rename(old, old.with_name(old.name.upper()))
+
+    assert pump_until(engine, jobs, lambda: bool(arrivals), timeout=10)
+    try:
+        assert sum(a["added"] for a in arrivals) == 0, arrivals
+        assert sum(a["removed"] for a in arrivals) == 0, arrivals
+        assert sum(a["changed"] for a in arrivals) >= 1, arrivals
+        assert all(a["arrived"] == [] for a in arrivals), arrivals
+    finally:
+        engine.close()
+        jobs.shutdown()

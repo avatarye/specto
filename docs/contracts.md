@@ -360,7 +360,7 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   hold; an archive is one entry, `0:drive.zip`, and its members' items go by it:
   `links.arrival_entry`), at most `ARRIVALS_CAP` (1000) of them; `added` counts them
   all (SPEC-59), whether a listing or a change notice found them (`WatchListing.apply`
-  returns them beside its counts). The resolve re-runs the whole intaker (ADR 0016
+  returns a `links.TableChange`, as a full listing's `links.table_change` does; a case-only rename with an unchanged stamp is a change in both, SPEC-81). The resolve re-runs the whole intaker (ADR 0016
   note). `engine.close()` stops and joins
   the watchers. ADR 0027 (SPEC-8): a kind that registers a `WatchListing` beside its
   watcher (`register_watcher(kind, fn, listing=...)`; the intaker's is
