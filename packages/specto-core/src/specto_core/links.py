@@ -533,11 +533,15 @@ class LinkWatch:
 
     # -- the loop ------------------------------------------------------------------------
     def _run(self) -> None:
-        # notifications first, so nothing between the baseline and them is lost; then
-        # notices (or one listing per interval) until stopped or orphaned
+        # the baseline at once, as close to the resolve's own listing as can be (SPEC-83:
+        # arming can take a while, the observer starts on first use, and a baseline taken
+        # after it would swallow what landed meanwhile); then notifications, and one more
+        # listing once they are armed for what changed while they armed; then notices
+        # (or one listing per interval) until stopped or orphaned
         try:
-            self._start_notify()
             self._list()
+            if self._start_notify():
+                self._list()
             while not self._stop.is_set() and not self._orphaned():
                 if self._notifier is not None:
                     self._notify_step()
