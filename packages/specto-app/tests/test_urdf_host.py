@@ -718,3 +718,16 @@ def test_one_items_request_asks_the_robot_resolver_once(engine: Engine):
         is not None
     )
     assert len(calls) == 1
+
+
+def test_the_robot_s_guard_root_is_the_project(engine: Engine):
+    """SPEC-91 on main judges a part's own path against the delivering resolver's
+    ``guard_root``; the robot resolver answers with the project (its scope's first
+    folder), so a project on a share serves its own robot, and nothing for another link."""
+    submit_robot(engine)
+    _ctx, host, _sink = make_host(engine)
+    meshes = host._meshes
+    assert meshes.guard_root("l2") == meshes.scope[0]
+    assert Path(meshes.scope[0]) == Path(engine.project.root).resolve()
+    assert meshes.guard_root("elsewhere") is None
+    assert runtime().items.guard_root("l2") == meshes.scope[0]
