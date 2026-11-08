@@ -9,12 +9,18 @@ Containers (zip, tar; ``specto_core.containers``) expand lazily into virtual ent
 the archive's directory without extracting anything. A source whose root *is* an
 archive yields its members relative to the archive's folder. ``expand_containers=False``
 lists the archive as one file instead (the watcher's cheap snapshot).
+
+A ``WalkBudget`` bounds a walk (SPEC-94): past ``WALK_MAX_FILES`` files or
+``WALK_SECONDS`` seconds it stops, and its ``note`` says which source was cut short and
+how to narrow it. The run-time intake and the watcher's listing walk under one each; an
+agent-written ``C:/**`` would otherwise walk the whole drive on every rescan.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +32,53 @@ from specto_core.project import SPECTO_DIR
 
 from .screener import glob_to_regex
 from .spec import SourceSpec, root_refused
+
+#: a run-time intake walk or watcher listing stops past this many files (SPEC-94)
+WALK_MAX_FILES = 100_000
+#: ... or past this many seconds (read per folder, so a glob that matches nothing stops too)
+WALK_SECONDS = 10.0
+TRUNCATED_FIX = "narrow the source's folder or glob so it names fewer files"
+
+
+class WalkBudget:
+    """How far one walk may go: ``max_files`` files and ``seconds`` seconds over all its
+    sources (defaults: ``WALK_MAX_FILES``, ``WALK_SECONDS``). The walker asks ``folder``
+    before listing a folder and ``file`` before yielding a file; once either says no,
+    ``source`` and ``reason`` say where and why, and the walk stops."""
+
+    def __init__(self, max_files: int | None = None, seconds: float | None = None) -> None:
+        self.max_files = WALK_MAX_FILES if max_files is None else max_files
+        self.seconds = WALK_SECONDS if seconds is None else seconds
+        self.files = 0
+        self.source: int | None = None
+        self.reason = ""
+        self._t0 = time.monotonic()
+
+    def folder(self, index: int) -> bool:
+        if self.reason:
+            return False
+        if time.monotonic() - self._t0 >= self.seconds:
+            self._stop(index, f"still walking after {self.seconds:g} s")
+        return not self.reason
+
+    def file(self, index: int) -> bool:
+        if self.reason:
+            return False
+        if self.files >= self.max_files:
+            self._stop(index, f"more than {self.max_files:,} files")
+            return False
+        self.files += 1
+        return True
+
+    def _stop(self, index: int, reason: str) -> None:
+        self.source, self.reason = index, reason
+
+    @property
+    def note(self) -> str:
+        """``''`` for a whole walk, else what was cut short, with its fix-it."""
+        if not self.reason:
+            return ""
+        return f"source {self.source} truncated: {self.reason}. Fix: {TRUNCATED_FIX}"
 
 
 @dataclass(frozen=True)
@@ -70,6 +123,7 @@ def walk_source(
     expand_containers: bool = True,
     links: list[str] | None = None,
     skip: Callable[[str], bool] | None = None,
+    budget: WalkBudget | None = None,
 ) -> Iterator[FoundFile]:
     root = resolve_root(src, base)
     if not root.exists():
@@ -87,10 +141,15 @@ def walk_source(
         found = FoundFile(
             index, posix(root.parent), root.name, str(root), st.st_size, st.st_mtime_ns
         )
-        if expand_containers and is_container(root.name):
-            yield from _expand(found, pattern)
-        else:
-            yield found
+        members = (
+            _expand(found, pattern)
+            if expand_containers and is_container(root.name)
+            else iter([found])
+        )
+        for f in members:
+            if budget is not None and not budget.file(index):
+                return
+            yield f
         return
     root_posix = posix(root)
     yield from walk_dir(
@@ -104,6 +163,7 @@ def walk_source(
         expand_containers=expand_containers,
         links=links,
         skip=skip,
+        budget=budget,
     )
 
 
@@ -141,11 +201,14 @@ def walk_dir(
     expand_containers: bool = True,
     links: list[str] | None = None,
     skip: Callable[[str], bool] | None = None,
+    budget: WalkBudget | None = None,
 ) -> Iterator[FoundFile]:
     """The files under ``directory`` (``prefix`` its path below the source root,
     ``depth`` its depth), as ``walk_source`` finds them. ``links`` collects the folders
     descended into through a symbolic link or a junction (no change notices come from
-    inside them); ``skip(name)`` leaves files out by name."""
+    inside them); ``skip(name)`` leaves files out by name; ``budget`` stops the walk."""
+    if budget is not None and not budget.folder(index):
+        return
     try:
         with os.scandir(directory) as it:
             entries = sorted(it, key=lambda e: e.name)
@@ -172,10 +235,10 @@ def walk_dir(
         except OSError:
             continue
         found = FoundFile(index, root_posix, rel, e.path, st.st_size, st.st_mtime_ns)
-        if container:
-            yield from _expand(found, pattern)
-        else:
-            yield found
+        for f in _expand(found, pattern) if container else (found,):
+            if budget is not None and not budget.file(index):
+                return
+            yield f
     for sub_prefix, sub in subdirs:
         yield from walk_dir(
             index,
@@ -188,7 +251,10 @@ def walk_dir(
             expand_containers=expand_containers,
             links=links,
             skip=skip,
+            budget=budget,
         )
+        if budget is not None and budget.reason:
+            return
 
 
 def relative_to_source(path: Path, sources: list[SourceSpec], base: Path) -> tuple[int, str] | None:

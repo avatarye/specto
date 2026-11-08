@@ -40,7 +40,15 @@ from specto_core.links import (
 from .keys import group_items
 from .scene3d import attach_scenes
 from .screener import Screener, glob_to_regex
-from .sources import FoundFile, hidden, posix, relative_to_source, resolve_root, walk_source
+from .sources import (
+    FoundFile,
+    WalkBudget,
+    hidden,
+    posix,
+    relative_to_source,
+    resolve_root,
+    walk_source,
+)
 from .spec import IntakeSpec, intake_spec
 from .watch_listing import intaker_listing, watch_intaker
 
@@ -137,11 +145,15 @@ def _found_from_paths(
     return out
 
 
-def _found_from_walk(spec: IntakeSpec, base: Path) -> list[FoundFile]:
+def _found_from_walk(spec: IntakeSpec, base: Path, budget: WalkBudget) -> list[FoundFile]:
+    """The files the sources hold, walked under ``budget`` (SPEC-94): past it the walk
+    stops and ``budget.note`` says so."""
     base_posix = posix(base).rstrip("/") + "/"
     out: list[FoundFile] = []
     for i, src in enumerate(spec.sources):
-        for f in walk_source(i, src, base):
+        if budget.reason:
+            break
+        for f in walk_source(i, src, base, budget=budget):
             full = f"{f.root}/{f.rel}"
             rel_proj = (
                 full[len(base_posix) :] if full.lower().startswith(base_posix.lower()) else ""
@@ -162,8 +174,9 @@ def resolve_intaker(
         base = Path(files.root)
     if progress:
         progress(0.0, "finding files")
+    budget = WalkBudget()
     found = (
-        _found_from_walk(spec, base)
+        _found_from_walk(spec, base, budget)
         if files.paths is None
         else _found_from_paths(spec, base, files.paths, files.stats)
     )
@@ -176,7 +189,7 @@ def resolve_intaker(
         attach_scenes(items, progress=progress, root=base)
     if progress:
         progress(1.0, f"{len(items)} items")
-    return Collection(items=items, root=str(base))
+    return Collection(items=items, root=str(base), truncated=budget.note)
 
 
 register_resolver("intaker", resolve_intaker)
@@ -186,10 +199,12 @@ register_watcher("intaker", watch_intaker, listing=intaker_listing)
 register_preparer(SCENE_VIEWS, attach_scenes)
 
 
-def _found(spec: IntakeSpec, files: FilesValue, root: str) -> tuple[Path, list[FoundFile]]:
+def _found(
+    spec: IntakeSpec, files: FilesValue, root: str, budget: WalkBudget
+) -> tuple[Path, list[FoundFile]]:
     base = Path(files.root) if files.root else (Path(root) if root else Path.cwd())
     found = (
-        _found_from_walk(spec, base)
+        _found_from_walk(spec, base, budget)
         if files.paths is None
         else _found_from_paths(spec, base, files.paths, files.stats)
     )
@@ -205,7 +220,8 @@ def resolve_read_contents(
     fmt = params.get("format") or None
     if progress:
         progress(0.0, "finding files")
-    base, found = _found(spec, files, root)
+    budget = WalkBudget()
+    base, found = _found(spec, files, root, budget)
     base_posix = posix(base).rstrip("/") + "/"
     todo = []
     for f in found:
@@ -223,7 +239,7 @@ def resolve_read_contents(
         entries.append(read_entry(path, rel, kind))
     if progress:
         progress(1.0, f"{len(entries)} files")
-    return ContentValue(root=str(base), entries=entries)
+    return ContentValue(root=str(base), entries=entries, truncated=budget.note)
 
 
 register_resolver("read_contents", resolve_read_contents)

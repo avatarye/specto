@@ -177,6 +177,8 @@ class Collection(BaseModel):
     root: str = ""
     generation: int = 0
     link: str = ""
+    #: '' for a whole walk; else which source the walk cut short and its fix-it (SPEC-94)
+    truncated: str = ""
 
 
 class Selection(BaseModel):
@@ -1181,8 +1183,17 @@ class LinkRuntime:
                 "link.failed", {"link": link_id, "target": dict(link["target"]), "error": first}
             )
             return
-        self._set_status(link_id, "resolved", "")
+        self._resolved(link_id, result)
         self._deliver(link_id, link, result)
+
+    def _resolved(self, link_id: str, result: Any) -> None:
+        """Resolved; a result whose walk was cut short (``truncated``, SPEC-94) says so in
+        the status message, with ``truncated: true``."""
+        note = getattr(result, "truncated", "") if isinstance(result, BaseModel) else ""
+        if note:
+            self._set_status(link_id, "resolved", note, truncated=True)
+        else:
+            self._set_status(link_id, "resolved", "")
 
     def _needs_of(self, link: dict[str, Any]) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -1214,7 +1225,7 @@ class LinkRuntime:
             # old type never lands; the link resolves again below
             self._pending.add(link_id)
         elif job.state == "done":
-            self._set_status(link_id, "resolved", "")
+            self._resolved(link_id, job.result)
             self._deliver(link_id, link, job.result)
         else:
             first = (job.error or job.state).splitlines()[0]

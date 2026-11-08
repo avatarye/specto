@@ -23,7 +23,7 @@ from specto_core.errors import SpectoError
 
 from .keys import Skipped, ext_of, group_items, strip_ext
 from .screener import Screener
-from .sources import FoundFile, resolve_root, walk_source
+from .sources import FoundFile, WalkBudget, resolve_root, walk_source
 from .spec import IntakeSpec
 
 ProgressFn = Callable[[float, str], None]
@@ -109,15 +109,13 @@ def preview(
     excluded: list[dict[str, str]] = []
     n_matched = n_excluded = 0
     per_source: list[dict[str, Any]] = []
-    stop = False
+    # the run-time intake's budget, with the preview's own file cap (SPEC-94)
+    budget = WalkBudget(max_files=max_files)
     for i, src in enumerate(spec.sources):
         if progress:
             progress(i / len(spec.sources), f"scanning {src.root}")
         found = 0
-        for f in walk_source(i, src, base):
-            if files >= max_files:
-                stop = True
-                break
+        for f in walk_source(i, src, base, budget=budget):
             found += 1
             files += 1
             if screener.accepts(f.rel):
@@ -139,7 +137,7 @@ def preview(
             if progress and files % 2000 == 0:
                 progress(i / len(spec.sources), f"{files} files seen")
         per_source.append({"index": i, "root": src.root, "files": found})
-        if stop:
+        if budget.reason:
             break
     if progress:
         progress(0.9, "grouping")
@@ -156,7 +154,7 @@ def preview(
     out.update(
         ok=True,
         files=files,
-        truncated=stop,
+        truncated=bool(budget.reason),
         matched_count=n_matched,
         excluded_count=n_excluded,
         matched=matched,
