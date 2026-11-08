@@ -28,6 +28,12 @@ the release and move on their own schedule.
   reference naming a network or device path, in any spelling (`\\host\x`, `//host/x`,
   `\??\UNC\host\x`, `%5C%5Chost%5Cx`), is listed as unservable and never looked for
   on disk. It kept the drive before, so nothing reached out; the guard makes that a rule.
+- The agent's standing reference of view types is a third shorter (SPEC-56): the usd and
+  3d cards, in particular, now say what picks the view and one clause per param (with
+  its default on the same line), and the controls and the long form of the params moved
+  to `describe view:<type>` (a manifest's new `guide` field). The test now measures the
+  reference the app builds (core plus the app's views): 24.3k characters before, under
+  19.5k now.
 - Security fix (SPEC-61): a path in a note's image (relative, or a page asset's), an
   OBJ's material map or a xacro include can no longer make Specto connect to another
   machine. On Windows a network path there (`\\host\share\x.png`, or the `\??\UNC\...`

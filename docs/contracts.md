@@ -430,8 +430,8 @@ before. Thumbnails and posters never open an audio device.
 - Readers (`specto_core.kinds`, `specto-readers`): `Locator.can_handle(path) -> priority`,
   `locate(item) -> DataRef`; `Decoder.decode(ref, DecodeRequest) -> TypedBuffer`
   (`uint8 HWC` thumbnails, bytes for text/json) in a worker; manifests
-  (`LocatorManifest`, `DecoderManifest`, `ViewManifest {type, label, doc, accepts, host,
-  cost, defaults, state_schema, example, uses}`) in a `PluginManifest` so `describe` and
+  (`LocatorManifest`, `DecoderManifest`, `ViewManifest {type, label, doc, guide, accepts,
+  host, cost, defaults, state_schema, example, uses}`) in a `PluginManifest` so `describe` and
   aliases (`@images`, `@json`, `@geo`, `@markdown`, `@pointclouds`, `@usd`) work without
   reader code. `usd_info` (purpose `meta`) returns a USD file's root-layer header as JSON
   without pxr (default prim, up axis, metres per unit, time codes, Kit's camera,
@@ -441,6 +441,11 @@ before. Thumbnails and posters never open an audio device.
   `SPECTO_THREAD_CHECK` (read by the app and the tests: `warn` by default, `raise`
   under the suite, `off`) says what a change of the canvas off its owner thread and off
   its `serial_lock` does (`LiveCanvas.check_thread`, SPEC-18).
+  `doc` says what the view shows and what picks it, and each param's `description` is one
+  clause: both ride in the agent's standing reference (`specto_app.prompt.reference`,
+  under 19.5k characters for core plus the app's views, tested); `guide` holds the
+  controls and the long form of the params, which only `describe view:<type>` shows
+  (SPEC-56).
   Test-only: `SPECTO_DISABLE_CAPABILITIES` (comma-separated) makes capabilities absent
   without detecting them, `SPECTO_FAKE_CAPABILITIES` present (the usd view then runs the
   stub USD source in the faked renderer's place); a name in both is disabled. A usd view

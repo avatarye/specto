@@ -99,11 +99,12 @@ VIDEO_MANIFEST = ViewManifest(
     type="video",
     label="Video",
     host="quick",
-    doc="mpv video (libmpv render API): play/pause, frame step, scrub, 0.25x-4x speed, "
-    "sound (muted by default; one view with sound per window); emits time on its "
-    "timeline (sidecar <name>.timeline.json maps frames to stamps) and itself as a "
-    "selection; follows a received time. params: speed, loop [a, b] seconds or null, "
-    "hwdec, selected (item key), timeline, muted (bool), volume (0..1).",
+    doc="mpv video: emits time on its timeline (sidecar <name>.timeline.json maps frames "
+    "to stamps) and itself as a selection; follows a received time. params: speed, loop "
+    "[a, b] seconds or null, hwdec, selected (item key), timeline, muted (bool), volume "
+    "(0..1).",
+    guide="libmpv render API: play/pause, frame step, scrub, 0.25x-4x speed, sound (muted "
+    "by default; one view with sound per window).",
     accepts=["video_ref"],
     cost=ViewCost(video_decoders=1),
     example={"type": "video", "label": "Cam-a video", "params": {"speed": 1.0, "loop": None}},

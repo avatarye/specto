@@ -37,10 +37,9 @@ HTML_MANIFEST = ViewManifest(
     label="HTML",
     host="web",
     doc="A local HTML file of the project (a deck, a report, a generated page) rendered "
-    "in a sandboxed frame with the stylesheets, scripts and images it references "
-    "relative to itself, and its remote images and embeds over the network (params."
-    "network, default true; false keeps the page offline). Shows the selected html file "
-    "of its collection, or the first; a file stepped to goes out as the selection.",
+    "in a sandboxed frame with the files it references relative to itself. Shows the "
+    "selected html file of its collection, or the first; a file stepped to goes out as "
+    "the selection.",
     accepts=["html"],
     cost=ViewCost(web_views=1),
     defaults={NETWORK_PARAM: True},
@@ -50,8 +49,8 @@ HTML_MANIFEST = ViewManifest(
             NETWORK_PARAM: {
                 "type": "boolean",
                 "default": True,
-                "description": "Let the page load over the network: http(s) images, "
-                "scripts and frames (a map embed). false: its own files only.",
+                "description": "Let the page load http(s) images, scripts and frames; "
+                "false: its own files only.",
             }
         },
         "additionalProperties": True,

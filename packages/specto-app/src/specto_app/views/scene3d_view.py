@@ -92,10 +92,8 @@ STATE_SCHEMA: dict[str, Any] = {
         "up": {
             "enum": ["y", "z"],
             "default": "y",
-            "description": "The up axis of the data that does not say: z for most LiDAR, "
-            "photogrammetry and robot meshes (STL, OBJ, PLY, points, splats). glTF/GLB (Y "
-            "up by its spec) and DAE (converted to Y up from its up_axis) keep their own "
-            "and are not turned by this.",
+            "description": "z stands Z-up data (LiDAR, robot meshes, points, splats) "
+            "upright; glTF and DAE keep their own Y up.",
         },
         "camera_speed": {
             "type": "number",
@@ -107,17 +105,12 @@ STATE_SCHEMA: dict[str, Any] = {
         "view_mode": {
             "enum": list(VIEW_MODES),
             "default": "lit",
-            "description": "lit, unlit, wireframe, or collision when an item carries Unreal "
-            "collision meshes (UCX_/UBX_/USP_/UCP_ names).",
+            "description": "collision shows an item's Unreal collision meshes.",
         },
         "environment": {
             "enum": [ENV_NONE, *ENVIRONMENTS],
             "default": ENV_NONE,
-            "description": "Image-based lighting from a bundled HDRI (Poly Haven, CC0): "
-            "studio (softbox product look), overcast and sunny (outdoor), indoor (a room), "
-            "urban (a city square); it lights glTF/PLY meshes' PBR materials in place of "
-            "the two default lights. none: the default lights. Points and splats draw "
-            "as they are.",
+            "description": "A bundled HDRI lighting PBR meshes; none: the two default lights.",
         },
         "environment_intensity": {
             "type": "number",
@@ -136,13 +129,12 @@ STATE_SCHEMA: dict[str, Any] = {
             "minimum": 0,
             "maximum": 360,
             "default": 0.0,
-            "description": "Turns the environment about the up axis, in degrees.",
+            "description": "Turns the environment about up, in degrees.",
         },
         "mesh_unit": {
             "enum": list(MESH_UNITS),
             "default": "m",
-            "description": "What one unit of an STL or OBJ file is: m (default), cm, mm or in "
-            "(robot STLs are often millimetres). Other formats carry their own scale.",
+            "description": "What one STL or OBJ unit is (robot STLs are often mm).",
         },
         "panels": {
             "type": "object",
@@ -158,23 +150,26 @@ SCENE3D_MANIFEST = ViewManifest(
     type="3d",
     label="3D",
     host="web",
-    doc="Babylon.js scene of every 3D item on its data input: point clouds (decoded at "
-    "resolve, up to about 20 M points), glTF/GLB, PLY, STL and OBJ meshes (an OBJ's MTL "
-    "and textures next to it), COLLADA .dae (converted to <name>.dae.glb beside it, its "
-    "unit and up_axis applied), Gaussian splats (up to about 2 M). mesh_unit (m, cm, mm, "
-    "in) is what an STL or OBJ unit is; up: z stands Z-up data upright (glTF and DAE "
-    "keep their own Y up). Unreal Editor "
-    "viewport controls: drag turns "
-    "and walks, right-drag looks (W A S D Q E fly, the wheel sets the speed), middle-drag "
-    "pans, the wheel dollies, "
-    "Alt+drag orbits the selection, F frames the selection or the scene; click a point "
-    "or a mesh to select it. camera_speed (1 = default, 1/8 to 8) scales flying, "
-    "walking, panning and dollying. view_mode: lit (default), unlit, wireframe, or "
-    "collision when an item carries Unreal collision meshes (UCX_/UBX_/USP_/UCP_ names). "
-    "environment: none (two default lights) or a bundled HDRI lighting PBR meshes "
-    "(studio, overcast, sunny, indoor, urban), with environment_intensity, "
-    "environment_rotation (degrees) and environment_background (draw it behind). "
-    "Outputs camera and selection.",
+    doc="Babylon.js scene of every 3D item on its data input: point clouds (up to about "
+    "20 M points), glTF/GLB, PLY, STL and OBJ meshes (an OBJ's MTL and textures beside "
+    "it), COLLADA .dae (converted to .dae.glb beside it) and Gaussian splats (up to about "
+    "2 M). Click a point or a mesh to select it; outputs camera and selection.",
+    guide="Unreal Editor viewport controls: drag turns and walks, right-drag looks (W A S "
+    "D Q E fly, the wheel sets the speed), middle-drag pans, the wheel dollies, Alt+drag "
+    "orbits the selection, F frames the selection or the scene; camera_speed (1/8 to 8) "
+    "scales flying, walking, panning and dollying. Points are decoded at resolve. "
+    "mesh_unit is what one unit of an STL or OBJ file is (neither format says; robot "
+    "STLs are often millimetres); other formats carry their own scale. up: z stands Z-up "
+    "data upright (most LiDAR, photogrammetry and robot meshes: STL, OBJ, PLY, points, "
+    "splats); glTF/GLB (Y up by its spec) and DAE (converted to Y up from its up_axis, "
+    "its unit applied) keep their own and are not turned. view_mode: lit, unlit, "
+    "wireframe, or collision when an item carries Unreal collision meshes (UCX_/UBX_/USP_/"
+    "UCP_ names). environment: none (two default lights) or a bundled Poly Haven HDRI "
+    "(CC0) lighting glTF/PLY meshes' PBR materials: studio (softbox product look), "
+    "overcast and sunny (outdoor), indoor (a room), urban (a city square); points and "
+    "splats draw as they are; environment_intensity scales it, environment_rotation "
+    "turns it about up in degrees, environment_background draws it behind the scene "
+    "(not in wireframe).",
     accepts=["pointcloud", "mesh", "splat"],
     cost=ViewCost(web_views=1, viewports3d=1),
     defaults=dict(DEFAULT_PARAMS),

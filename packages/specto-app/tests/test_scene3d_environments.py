@@ -275,16 +275,17 @@ def test_describe_view_3d_names_the_environments_and_their_params(engine: Engine
         360,
     )
     assert props["environment_background"]["type"] == "boolean"
-    assert "environment" in SCENE3D_MANIFEST.doc
+    assert "environment" in SCENE3D_MANIFEST.guide  # the long form is describe's (SPEC-56)
 
 
 def test_the_session_reference_gives_the_agent_the_environment_choices(engine: Engine):
     register_3d(engine)
     line = next(x for x in reference_text(engine.call).splitlines() if x.startswith("- 3d: "))
     card = json.loads(line[len("- 3d: ") :])
-    assert card["params"]["environment"].startswith("none|studio|overcast|sunny|indoor|urban. ")
-    assert card["params"]["environment_intensity"].startswith("0..4. ")
-    assert card["params"]["environment_rotation"].startswith("0..360. ")
+    choices = "none|studio|overcast|sunny|indoor|urban, default none. "
+    assert card["params"]["environment"].startswith(choices)
+    assert card["params"]["environment_intensity"].startswith("0..4, default 1.0. ")
+    assert card["params"]["environment_rotation"].startswith("0..360, default 0.0. ")
 
 
 def test_an_agents_environment_params_resolve_into_the_document(engine: Engine):

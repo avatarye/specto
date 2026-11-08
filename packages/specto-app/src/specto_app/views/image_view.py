@@ -52,9 +52,10 @@ IMAGE_MANIFEST = ViewManifest(
     type="image",
     label="Image",
     host="quick",
-    doc="Full-size image of the selected item of its collection: wheel zoom around the "
-    "cursor, drag pan, fit / 1:1, next / previous, R G B A channel toggles (params."
-    "channels); shows the selection it receives and emits the item it steps to.",
+    doc="Full-size image of the selected item of its collection, with channel toggles "
+    "(params.channels); shows the selection it receives and emits the item it steps to.",
+    guide="Wheel zoom around the cursor, drag pan, fit / 1:1, next / previous; the "
+    "footer's R G B A toggles (L A for grey with alpha) write params.channels.",
     accepts=["image2d"],
     state_schema={
         "type": "object",

@@ -33,9 +33,7 @@ _HDRI_DEFAULT = "sunny" if "sunny" in _HDRI_NAMES else (_HDRI_NAMES[0] if _HDRI_
 _HDRI_SCHEMA: dict[str, Any] = {
     **({"enum": _HDRI_NAMES} if _HDRI_NAMES else {"type": ["string", "null"]}),
     "default": _HDRI_DEFAULT,
-    "description": "The HDRI when environment is hdri (and what stands in for the sky "
-    "under Storm or while the sky is fetched): one of the 3d view's Poly Haven "
-    "environments (web/3d/environments.json).",
+    "description": "The HDRI when environment is hdri (and Storm's stand-in for a sky).",
 }
 
 DATA_KINDS: tuple[str, ...] = (
@@ -195,7 +193,12 @@ class ViewManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: str
     label: str = ""
+    #: what the view shows and what picks it: the agent's reference card carries it, so
+    #: it stays short (SPEC-56)
     doc: str = ""
+    #: the longer guidance (controls, how the params play together, what happens on
+    #: this machine): ``describe view:<type>`` shows it, the reference leaves it out
+    guide: str = ""
     accepts: list[DataKind] = Field(default_factory=list)
     host: HostKind = "quick"
     cost: ViewCost = Field(default_factory=ViewCost)
@@ -352,9 +355,9 @@ BUILTIN_VIEWS: list[ViewManifest] = [
         type="gallery",
         label="Gallery",
         host="quick",
-        doc="Drag-to-pan, wheel-zoom tile gallery of a collection of any kind (images; "
-        "video poster frames, first pdf pages, text excerpts, 3D kind icons); native Qt "
-        "Quick item.",
+        doc="Tile gallery of a collection of any kind (images; video poster frames, first "
+        "pdf pages, text excerpts, 3D kind icons).",
+        guide="Drag to pan, wheel to zoom; a native Qt Quick item.",
         accepts=[
             "image2d",
             "image_seq",
@@ -391,14 +394,32 @@ BUILTIN_VIEWS: list[ViewManifest] = [
         doc="One OpenUSD stage (.usd, .usda, .usdc, .usdz), read-only: the picked item "
         "of its collection (or the first), stepping through the rest. Rendered out of "
         "process: RTX (ovrtx) when this machine has the ovrtx capability, otherwise Hydra "
-        "Storm. Navigation as in the 3d view: camera_mode free (Unreal Editor's: drag "
-        "turns and walks, right-drag looks and WASD flies, middle-drag pans, wheel "
-        "dollies, Alt+drag orbits) or orbit (drag orbits the selection or the point under "
-        "it, middle-drag pans, right-drag and wheel dolly toward it); F frames the "
-        "selected prims' whole subtrees, else everything; a click selects the prim under "
-        "the cursor and sends <item key>#<prim path> out; content is the selected prim's "
-        "properties. Time is the stage's timecodes in seconds; camera is shared with the "
-        "3d view. Nothing is written to the file.",
+        "Storm. A click selects the prim under the cursor and sends <item key>#<prim "
+        "path> out; content is the selected prim's properties. Time is the stage's "
+        "timecodes in seconds; the camera is shared with the 3d view. Nothing is written "
+        "to the file.",
+        guide="Navigation as in the 3d view. camera_mode free is Unreal Editor's camera: "
+        "drag turns and walks, right-drag looks and WASD flies, middle-drag pans, the "
+        "wheel dollies, Alt+drag orbits the selection; orbit: drag orbits the selection's "
+        "centre, else the point under the press, else the focus point, middle-drag pans, "
+        "right-drag and the wheel dolly toward it; switching keeps the camera where it is. "
+        "F frames the selected prims' whole subtrees, else everything. look_through takes "
+        "a camera prim; orbiting drops back to the free camera. renderer auto is rtx on "
+        "Windows and Linux when this machine has ovrtx, else storm (any GPU, no RTX look); "
+        "on macOS always storm; renderer_auto below says what auto runs here. mode is "
+        "RTX's: rt real-time path tracing, pt accumulating path tracing (spp samples per "
+        "pixel per frame), minimal; storm ignores it. view_mode collision shows only the "
+        "prims with UsdPhysics CollisionAPI, as their collision shapes in a flat tint (a "
+        "stage without colliders shows lit); wireframe draws edges over black. environment "
+        "is composed over the stage in the viewer, never written, and kept across stages: "
+        "stage uses its own lights (a stage without any gets a plain dome); sky is one of "
+        "NVIDIA's dynamic procedural skies with a sun (RTX only: Storm shows the HDRI "
+        "instead), whose time_of_day, cloudiness and haze move it live (null: the sky's "
+        "own) and whose ground is the skies' preview floor (10 x 20 m, top at 0, in the "
+        "stage's units); hdri is one of the 3d view's Poly Haven environments. The skies "
+        "(CloudySky's textures are 67 MB, fetched last) and the HDRIs are fetched on first "
+        "use into the user's Specto folder; snap reports what shows, the fetch's progress "
+        "and a note when the choice is not what shows yet.",
         accepts=["usd_stage_ref"],
         # rtx_views counts only where the renderer resolves to rtx: not storm, nor auto
         # on macOS or without ovrtx (quotas.view_cost_of, SPEC-36)
@@ -427,59 +448,45 @@ BUILTIN_VIEWS: list[ViewManifest] = [
                 "renderer": {
                     "enum": ["auto", "rtx", "storm"],
                     "default": "auto",
-                    "description": "auto: on Windows and Linux, rtx when this machine "
-                    "has the ovrtx capability, otherwise storm (Hydra Storm, any GPU, no "
-                    "RTX look); on macOS always storm. describe view:usd reports "
-                    "renderer_auto, what auto runs here.",
+                    "description": "auto is rtx where this machine has ovrtx, else storm "
+                    "(describe view:usd reports renderer_auto).",
                 },
                 "mode": {
                     "enum": ["rt", "pt", "minimal"],
                     "default": "rt",
-                    "description": "RTX render mode: rt real-time path tracing, pt path "
-                    "tracing (accumulates while nothing moves), minimal. Ignored by storm.",
+                    "description": "RTX render mode (rt real-time, pt accumulating path "
+                    "tracing); storm ignores it.",
                 },
                 "look_through": {
                     "type": ["string", "null"],
                     "default": None,
-                    "description": "A camera prim path of the stage to look through, or "
-                    "null for the free camera. Orbiting drops back to the free camera.",
+                    "description": "A camera prim path to look through; null: the free camera.",
                 },
                 "camera_speed": {
                     "type": "number",
                     "minimum": 0.125,
                     "maximum": 8,
                     "default": 1.0,
-                    "description": "Scales flying, zooming and panning, as in the 3d view.",
+                    "description": "Scales flying, zooming and panning.",
                 },
                 "camera_mode": {
                     "enum": ["free", "orbit"],
                     "default": "free",
-                    "description": "free: Unreal Editor's camera (drag turns and walks, "
-                    "right-drag looks, WASD flies, Alt+drag orbits). orbit: drag orbits "
-                    "the selection's centre, else the point under the press, else the "
-                    "focus point; middle-drag pans; right-drag and the wheel dolly toward "
-                    "it. Switching keeps the camera where it is.",
+                    "description": "free: Unreal Editor's camera; orbit: drag turns around "
+                    "the selection.",
                 },
                 "view_mode": {
                     "enum": ["lit", "unlit", "wireframe", "collision"],
                     "default": "lit",
-                    "description": "What the picture shows: lit (the render), unlit (base "
-                    "colour, no lighting), wireframe (edges over black), collision (only "
-                    "the prims with UsdPhysics CollisionAPI, as their collision shapes, in "
-                    "a flat tint). A stage without colliders shows lit.",
+                    "description": "What the picture shows; collision: only the "
+                    "UsdPhysics colliders.",
                 },
                 "environment": {
                     "enum": ["stage", "sky", "hdri"],
                     "default": "stage",
-                    "description": "What lights the stage beyond its own lights: stage "
-                    "(its own lights; a stage without any gets a plain dome), sky (one "
-                    "of NVIDIA's dynamic procedural skies with a sun, named by sky; RTX "
-                    "only: Storm shows the HDRI instead) or hdri (an image-based light, "
-                    "one of the 3d view's HDRIs, named by hdri). Composed over the stage "
-                    "in the viewer, never written to the file; kept across stages. The "
-                    "skies and the HDRIs are fetched on first use into the user's Specto "
-                    "folder; snap reports what shows, the fetch's progress and a note "
-                    "when it is not the choice (the sky or the HDRI not fetched yet).",
+                    "description": "stage: its own lights; sky: an NVIDIA dynamic sky "
+                    "named by sky (RTX only); hdri: one of the 3d view's HDRIs named by "
+                    "hdri.",
                 },
                 "sky": {
                     "enum": [
@@ -492,58 +499,51 @@ BUILTIN_VIEWS: list[ViewManifest] = [
                         "CloudySky",
                     ],
                     "default": "ClearSky",
-                    "description": "The dynamic sky when environment is sky: clear, cirrus, "
-                    "light or heavy cumulus, overcast, night, or the textured cloudy sky "
-                    "(67 MB of textures, fetched last).",
+                    "description": "The dynamic sky when environment is sky.",
                 },
                 "hdri": _HDRI_SCHEMA,
                 "ground": {
                     "type": "boolean",
                     "default": False,
-                    "description": "With a sky: the floor of the preview scene the skies "
-                    "ship with (10 x 20 m, its top at height 0, in the stage's units), "
-                    "under the stage. Off by default.",
+                    "description": "With a sky: the skies' preview floor under the stage.",
                 },
                 "time_of_day": {
                     "type": ["number", "null"],
                     "minimum": 0,
                     "maximum": 24,
                     "default": None,
-                    "description": "The sky's time of day in hours (0-24): moves its sun "
-                    "and the light of the viewer's sun with it, live. null: the sky's own.",
+                    "description": "The sky's hour, moving its sun live; null: the sky's own.",
                 },
                 "cloudiness": {
                     "type": ["number", "null"],
                     "minimum": 0,
                     "maximum": 1,
                     "default": None,
-                    "description": "The sky's cumulus cover, 0 (none) to 1 (solid), live. "
-                    "null: the sky's own.",
+                    "description": "The sky's cumulus cover, live; null: the sky's own.",
                 },
                 "haze": {
                     "type": ["number", "null"],
                     "minimum": 0,
                     "maximum": 1,
                     "default": None,
-                    "description": "The sky's atmospheric haze, 0 (clear) to 1 (milky), "
-                    "live. null: the sky's own.",
+                    "description": "The sky's haze, live; null: the sky's own.",
                 },
                 "selected": {
                     "type": ["string", "null"],
-                    "description": "The item key of the stage shown (default: the picked "
-                    "item, else the first).",
+                    "description": "The item key of the stage shown; unset: the pick, "
+                    "else the first.",
                 },
                 "max_pixels": {
                     "type": "integer",
                     "minimum": 1,
                     "default": 1920 * 1080,
-                    "description": "Cap on rendered pixels (view size x device pixel ratio).",
+                    "description": "Cap on rendered pixels.",
                 },
                 "spp": {
                     "type": "integer",
                     "minimum": 1,
                     "default": 1,
-                    "description": "Samples per pixel per frame in path-tracing mode.",
+                    "description": "Samples per pixel per frame in pt mode.",
                 },
                 "panels": {
                     "type": "object",
@@ -581,24 +581,25 @@ BUILTIN_VIEWS: list[ViewManifest] = [
         host="web",
         doc="The project's scratch pad, at most one per canvas: named pages (tabs) of "
         "markdown, each one file .specto/scratch/<page>.md, rendered like the markdown view "
-        "(outline, zoom) and editable in place (a rendered / source toggle, autosaved). "
-        "What the user drops or pastes (Ctrl+V) from any view or another app is appended "
-        "as markdown: text as text, pictures embedded from <page>.assets/, files and prims "
-        "as links relative to the page, an item from a view as a short quote with its "
-        "source. You read and edit pages with scratch_read, scratch_append and "
-        "scratch_write. Every change is an undo step. A source of its own: it needs no "
-        "input link and counts as reachable from the project. The page shown (params.page) "
-        "goes out on items (the page's markdown, then the files and pictures it links: a "
-        "gallery or preview can follow it); a link the user clicks goes out on selection "
-        "and shows in the pad's preview beside it.",
+        "and editable in place. You read and edit pages with scratch_read, scratch_append "
+        "and scratch_write. A source of its own: it needs no input link and counts as "
+        "reachable from the project. The page shown (params.page) goes out on items (the "
+        "page's markdown, then the files and pictures it links: a gallery or preview can "
+        "follow it); a link the user clicks goes out on selection.",
+        guide="A rendered / source toggle, autosaved, with the markdown view's outline and "
+        "zoom. What the user drops or pastes (Ctrl+V) from any view or another app is "
+        "appended as markdown: text as text, pictures embedded from <page>.assets/, files "
+        "and prims as links relative to the page, an item from a view as a short quote "
+        "with its source. Every change is an undo step. A clicked link shows in the pad's "
+        "preview beside it.",
         cost=ViewCost(web_views=1),
         state_schema={
             "type": "object",
             "properties": {
                 "page": {
                     "type": "string",
-                    "description": "The page shown and sent out on items, by id (p2) or name; "
-                    "the pad's active page when left out. Clicking a tab sets it.",
+                    "description": "The page shown and sent out on items, by id (p2) or "
+                    "name; unset: the pad's active page.",
                 }
             },
             "additionalProperties": True,

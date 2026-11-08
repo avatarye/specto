@@ -1,10 +1,12 @@
 """The standing reference the session's system prompt ends with (#73 round trips): every
-view type (role, doc, accepted data kinds, params with defaults and choices, ports) and
-every link kind (doc, params, an example; the intaker's one example per scope), built
-from the running engine through its ``vocabulary`` and ``describe`` commands, so the
-agent composes a simple change from the turn's context in one ``submit_canvas`` without
-calling ``describe`` or ``schema`` first. It is static for the session, so the CLI's
-prompt cache carries it after the first turn. Compact JSON, one line per entry.
+view type (role, doc, accepted data kinds, params as one line each with choices, default
+and a clause, ports) and every link kind (doc, params, an example; the intaker's one
+example per scope), built from the running engine through its ``vocabulary`` and
+``describe`` commands, so the agent composes a simple change from the turn's context in
+one ``submit_canvas`` without calling ``describe`` or ``schema`` first. It is static for
+the session, so the CLI's prompt cache carries it after the first turn. Compact JSON, one
+line per entry. It carries what picks and sets up a view; a manifest's ``guide`` (the
+controls, the long form of the params) is ``describe view:<type>``'s alone (SPEC-56).
 """
 
 from __future__ import annotations
@@ -16,8 +18,22 @@ from typing import Any
 from specto_core.ports import VIEW_PORTS
 
 CallFn = Callable[[str, dict[str, Any]], dict[str, Any]]
-#: manifest fields the agent does not compose with
-_VIEW_SKIP = ("host", "cost", "hidden", "plugin", "state_schema", "label", "type")
+#: manifest and describe fields the agent does not compose with: ``guide``, ``uses`` and
+#: ``machine`` are describe's (``renderer_auto`` says what the usd view runs here);
+#: ``defaults`` ride on the param lines
+_VIEW_SKIP = (
+    "host",
+    "cost",
+    "hidden",
+    "plugin",
+    "state_schema",
+    "label",
+    "type",
+    "guide",
+    "uses",
+    "machine",
+    "defaults",
+)
 
 
 def _one_line(text: str) -> str:
@@ -35,11 +51,26 @@ def _choices(prop: dict[str, Any]) -> str:
     return f"<={high:g}" if high is not None else ""
 
 
-def _param_lines(schema: dict[str, Any]) -> dict[str, str]:
-    """``state_schema`` as one line per param: its choices or range, then its doc."""
+def _default(value: Any) -> str:
+    """A default as the line says it: ``default auto``, ``default null``, ``default 1.0``."""
+    return "default " + (value if isinstance(value, str) else json.dumps(value))
+
+
+def _param_lines(schema: dict[str, Any], defaults: dict[str, Any]) -> dict[str, str]:
+    """``state_schema`` as one line per param: its choices or range with its default
+    (the schema's, else the manifest's), then its doc."""
     out: dict[str, str] = {}
     for name, prop in (schema.get("properties") or {}).items():
-        line = ". ".join(p for p in (_choices(prop), _one_line(prop.get("description", ""))) if p)
+        default = prop["default"] if "default" in prop else defaults.get(name)
+        head = ", ".join(
+            p
+            for p in (
+                _choices(prop),
+                _default(default) if default is not None or name in defaults else "",
+            )
+            if p
+        )
+        line = ". ".join(p for p in (head, _one_line(prop.get("description", ""))) if p)
         if line:
             out[name] = line
     return out
@@ -51,12 +82,21 @@ def _view_card(info: dict[str, Any]) -> dict[str, Any]:
         card["role"] = info["role"]
     if info.get("doc"):
         card["doc"] = _one_line(info["doc"])
-    for key in ("accepts", "defaults", "example", "ports"):
+    for key in ("accepts", "example"):
         if info.get(key):
             card[key] = info[key]
-    params = _param_lines(info.get("state_schema") or {})
+    if info.get("ports"):
+        # inputs and outputs are what a link needs; which input feeds which output
+        # (``propagates``) is the shell's reach rule, describe's to tell
+        card["ports"] = {k: v for k, v in info["ports"].items() if k != "propagates"}
+    defaults = info.get("defaults") or {}
+    params = _param_lines(info.get("state_schema") or {}, defaults)
     if params:
         card["params"] = params
+    # defaults ride on their param lines; only the ones no param line names stay here
+    rest = {k: v for k, v in defaults.items() if k not in params}
+    if rest:
+        card["defaults"] = rest
     for key, value in info.items():
         if key not in card and key not in _VIEW_SKIP and value not in (None, {}, []):
             card[key] = value
@@ -75,8 +115,7 @@ def _link_card(info: dict[str, Any]) -> dict[str, Any]:
             name: _one_line(prop.get("description") or prop.get("type") or "")
             for name, prop in (params.get("properties") or {}).items()
         }
-    if info.get("scopes"):
-        card["scopes"] = info["scopes"]
+    # ``scopes`` (the intaker's) is told by its doc and shown by its examples
     if info.get("examples"):
         card["examples"] = info["examples"]
     elif info.get("example"):

@@ -41,9 +41,10 @@ PDF_MANIFEST = ViewManifest(
     type="pdf",
     label="PDF",
     host="quick",
-    doc="Pages of the selected pdf of its collection (or the first), rendered by QtPdf: "
-    "scroll or page through, zoom with Ctrl+wheel or +/-, fit width (F) or fit page (P), "
-    "a page counter; shows the selection it receives and emits nothing.",
+    doc="Pages of the selected pdf of its collection (or the first), rendered by QtPdf; "
+    "shows the selection it receives and emits nothing.",
+    guide="Scroll or page through, zoom with Ctrl+wheel or +/-, fit width (F) or fit page "
+    "(P); a page counter.",
     accepts=["pdf"],
     example={
         "view": {"type": "pdf", "label": "Report"},

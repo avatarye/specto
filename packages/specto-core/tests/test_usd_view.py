@@ -86,7 +86,8 @@ def test_the_agent_schema_names_each_param_with_its_choices(engine: Engine):
     assert props["camera_mode"]["enum"] == ["free", "orbit"]  # #39
     assert props["environment"]["enum"] == ["stage", "sky", "hdri"]  # SPEC-31
     assert props["environment"]["default"] == "stage"
-    assert "Storm shows the HDRI" in props["environment"]["description"]
+    assert "RTX only" in props["environment"]["description"]  # one clause (SPEC-56)
+    assert "Storm shows the HDRI instead" in info["guide"]  # the long form is describe's
     assert props["sky"]["enum"][0] == "ClearSky" and len(props["sky"]["enum"]) == 7
     import specto_web  # the enum is the 3d view's manifest, in its order
 

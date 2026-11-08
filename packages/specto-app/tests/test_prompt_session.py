@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from specto_app.prompt.reference import reference_text
 from specto_app.prompt.session import (
     agent_options,
     claude_md_excludes,
@@ -316,24 +317,83 @@ def test_the_session_prompt_carries_the_view_types_and_link_kinds_so_describe_is
     assert "intaker" in ref and '"scope":"selection"' in ref and '"scope":"pinned"' in ref
     assert "follow" in ref and "time_map" in ref and "read_contents" in ref
     assert "tile" in ref  # a view type's params with their defaults
-    assert len(ref) < 16000  # a few thousand tokens, read from the cache after turn one
+    assert len(ref) < 12500  # core only; the app's views come on top (the real budget below)
     opts = agent_options(Path("."), server=None, reference=ref)
     assert opts.system_prompt.startswith(SYSTEM_PROMPT) and opts.system_prompt.endswith(ref)
     assert "do not call state" in SYSTEM_PROMPT and "do not call describe" in SYSTEM_PROMPT
     assert "one submit_canvas" in SYSTEM_PROMPT
 
 
+def app_reference() -> tuple[str, Engine]:
+    """The reference as the app builds it: core's manifests plus the app's view plugins,
+    registered the way the shell registers them (``HostRegistry.add_factory``)."""
+    from specto_app.views import factories
+
+    engine = Engine(project=None)
+    for factory in factories():
+        plugin = getattr(factory, "plugin", None)
+        if plugin is not None and plugin.name not in engine.plugins.plugins:
+            engine.plugins.register(plugin)
+    return reference_text(lambda n, a: engine.call(n, a, PROMPT_BAR)), engine
+
+
+def cards_of(ref: str) -> dict[str, dict]:
+    return {
+        line[2:].split(": ", 1)[0]: json.loads(line[2:].split(": ", 1)[1])
+        for line in ref.splitlines()
+        if line.startswith("- ")
+    }
+
+
+#: the real reference's budget in characters (SPEC-56): under 5k tokens, read from the
+#: prompt cache after turn one. On main it was 24.3k; the slimmed cards (one clause per
+#: param, the guidance in describe), the defaults folded into the param lines and the
+#: ports without their propagation bring it to about 17.5k, leaving room for the URDF
+#: view's card (about 1.8k) and little else
+REFERENCE_BUDGET = 19500
+
+
+def test_the_real_reference_with_the_app_s_views_fits_its_budget():
+    """SPEC-56: the 16000 budget only ever measured core's manifests; the reference the
+    app builds (core plus the app's view plugins) was 24.3k. The usd and 3d cards say
+    what picks the view (role, what it shows, accepted kinds, one clause per param with
+    its default); the controls and the long guidance live in ``describe view:<type>``."""
+    ref, engine = app_reference()
+    assert len(ref) < REFERENCE_BUDGET, len(ref)
+    cards = cards_of(ref)
+    usd, scene = cards["usd"], cards["3d"]
+    assert len(json.dumps(usd)) < 3200 and len(json.dumps(scene)) < 2000  # were 5.4k and 3.3k
+    assert "propagates" not in usd["ports"] and set(usd["ports"]) == {"inputs", "outputs"}
+    # what the agent needs to pick and set up the view is still there
+    assert usd["role"] == "player" and usd["accepts"] == ["usd_stage_ref"]
+    assert usd["renderer_auto"] in ("rtx", "storm") and "machine" not in usd
+    assert "OpenUSD" in usd["doc"] and "RTX" in usd["doc"] and "storm" in usd["doc"].lower()
+    assert set(usd["params"]) >= {"renderer", "camera_mode", "environment", "sky", "hdri"}
+    assert usd["params"]["renderer"].startswith("auto|rtx|storm")
+    assert "default auto" in usd["params"]["renderer"]  # the default rides on the param line
+    assert "defaults" not in usd  # nothing left to say twice
+    assert scene["role"] == "scene" and "point clouds" in scene["doc"] and "splats" in scene["doc"]
+    assert set(scene["params"]) >= {"up", "mesh_unit", "environment", "view_mode"}
+    # the controls moved out of the cards into describe
+    for card in (usd, scene):
+        assert "Alt+drag" not in json.dumps(card) and "guide" not in card
+    for name in ("usd", "3d"):
+        info = engine.call("describe", {"target": f"view:{name}"}, PROMPT_BAR)["info"]
+        assert "Alt+drag orbits" in info["guide"] and "F frames" in info["guide"]
+    assert "UCX_" in engine.call("describe", {"target": "view:3d"}, PROMPT_BAR)["info"]["guide"]
+    # a view without a state schema keeps its defaults block
+    assert cards["gallery"]["defaults"] == {"tile": 192, "zoom": 1.0}
+
+
 def test_the_session_prompt_explains_view_roles_and_the_reference_gives_each_type_its_role():
     """ADR 0020: the agent composes by role, a browser feeding a viewer or player, rather
     than reaching for one view per data type."""
-    from specto_app.prompt.reference import reference_text
     from specto_app.prompt.session import SYSTEM_PROMPT
 
-    engine = Engine(project=None)
-    ref = reference_text(lambda n, a: engine.call(n, a, PROMPT_BAR))
-    cards = dict(line[2:].split(": ", 1) for line in ref.splitlines() if line.startswith("- "))
+    ref, _ = app_reference()
+    cards = cards_of(ref)
     picked = ("file_tree", "gallery", "video", "pdf", "3d")
-    assert {name: json.loads(cards[name])["role"] for name in picked} == {
+    assert {name: cards[name]["role"] for name in picked} == {
         "file_tree": "browser",
         "gallery": "browser",
         "video": "player",

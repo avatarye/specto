@@ -42,9 +42,8 @@ COLOUR = "rgbl"
 CHANNELS_SCHEMA: dict[str, Any] = {
     "type": "string",
     "default": "",
-    "description": "Shown channels of an image, letters of r g b a (l: a grey image's "
-    "luminance): one colour channel shows as greyscale, a alone the alpha as greyscale, "
-    "several in colour, a with colour over a checkerboard; empty: all the image has.",
+    "description": "Shown channels of an image, letters of r g b a (l: luminance); empty: "
+    "all. One channel shows as greyscale, a with colour over a checkerboard.",
 }
 _PNG = b"\x89PNG\r\n\x1a\n"
 _HEAD = 256 * 1024  # a container member is read this far for its header

@@ -335,7 +335,7 @@ def test_html_view_holds_the_network_by_default_and_network_false_turns_it_off(t
     info = engine.call("describe", {"target": "view:html"})
     info = info["info"] if isinstance(info, dict) else info.info
     assert info["defaults"]["network"] is True
-    assert "network" in info["state_schema"]["properties"]["network"]["description"]
+    assert "http(s)" in info["state_schema"]["properties"]["network"]["description"]
     caps_of = runtime().caps_of
 
     def net(initiator, host, *, scheme="https", first_party="kobi.page", main_frame=False):

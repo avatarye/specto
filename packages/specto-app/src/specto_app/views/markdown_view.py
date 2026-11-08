@@ -58,10 +58,9 @@ MARKDOWN_MANIFEST = ViewManifest(
     type="markdown",
     label="Markdown",
     host="web",
-    doc="Rendered markdown note (markdown-it, GitHub style, Mermaid, KaTeX, Obsidian "
-    "callouts and wikilinks) of the selected item of its collection; wikilinks navigate "
-    "within the collection and go out as the selection; read-only. params.zoom is the "
-    "note's reading zoom (0.5 to 3, default 1), kept per view.",
+    doc="Rendered markdown note (GitHub style, Mermaid, KaTeX, Obsidian callouts and "
+    "wikilinks) of the selected item of its collection; wikilinks navigate within the "
+    "collection and go out as the selection; read-only.",
     accepts=["markdown"],
     cost=ViewCost(web_views=1),
     state_schema={
@@ -72,8 +71,7 @@ MARKDOWN_MANIFEST = ViewManifest(
                 "minimum": ZOOM_MIN,
                 "maximum": ZOOM_MAX,
                 "default": 1,
-                "description": "The note's reading zoom (the outline and footer keep "
-                "their size); the reader's Ctrl+wheel writes it too.",
+                "description": "The note's reading zoom (Ctrl+wheel writes it too).",
             }
         },
         "additionalProperties": True,

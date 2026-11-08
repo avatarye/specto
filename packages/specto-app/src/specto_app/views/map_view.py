@@ -64,12 +64,14 @@ MAP_MANIFEST = ViewManifest(
     type="map",
     label="Map",
     host="web",
-    doc="MapLibre map: one layer per GeoJSON file on its features input (toggle, colour, "
-    "fit); a raster basemap when online (net:tiles): none, osm (streets) or satellite "
-    "(Esri World Imagery), params.basemap; feature properties on hover, click to select "
-    "(emitted as the selection). Frames the data on every reload. Loads the first "
-    "params.limit files (default params.batch, 200); over a batch the footer shows "
-    "loaded / total and Load more adds a batch.",
+    doc="MapLibre map: one layer per GeoJSON file on its features input, over a raster "
+    "basemap when online; click a feature to select it (emitted as the selection).",
+    guide="Each layer can be toggled, coloured and fitted; feature properties show on "
+    "hover; the map frames the data on every reload. The basemap needs the network "
+    "(net:tiles): none, osm (OpenStreetMap streets) or satellite (Esri World Imagery with "
+    "place labels); offline the map shows none. The first limit files load (unset: batch, "
+    "200); over a batch the footer shows loaded / total and Load more raises limit by a "
+    "batch (a user submit).",
     accepts=["geojson"],
     cost=ViewCost(web_views=1),
     defaults={"layers": {}, "basemap": basemaps.DEFAULT},
@@ -80,15 +82,13 @@ MAP_MANIFEST = ViewManifest(
                 "type": "object",
                 "additionalProperties": True,
                 "default": {},
-                "description": "Per layer (its entry key): {visible, color}. The page "
-                "writes them as the user toggles and colours layers.",
+                "description": "Per layer (its entry key): {visible, color}.",
             },
             "basemap": {
                 "enum": list(basemaps.NAMES),
                 "default": basemaps.DEFAULT,
-                "description": "The tiles under the layers: none, osm (OpenStreetMap "
-                "streets) or satellite (Esri World Imagery with place labels). Needs the "
-                "network; offline the map shows none.",
+                "description": "The tiles under the layers (osm: streets, satellite: "
+                "imagery); needs the network.",
             },
             "panels": {
                 "type": "object",

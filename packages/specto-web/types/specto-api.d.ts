@@ -382,21 +382,21 @@ step, nothing journaled). */
   interface _3dState {
     /** Point cloud point size in pixels. default: 2 */
     point_size?: number;
-    /** The up axis of the data that does not say: z for most LiDAR, photogrammetry and robot meshes (STL, OBJ, PLY, points, splats). glTF/GLB (Y up by its spec) and DAE (converted to Y up from its up_axis) keep their own and are not turned by this. default: "y" */
+    /** z stands Z-up data (LiDAR, robot meshes, points, splats) upright; glTF and DAE keep their own Y up. default: "y" */
     up?: "y" | "z";
     /** Scales flying, walking, panning and dollying. default: 1.0 */
     camera_speed?: number;
-    /** lit, unlit, wireframe, or collision when an item carries Unreal collision meshes (UCX_/UBX_/USP_/UCP_ names). default: "lit" */
+    /** collision shows an item's Unreal collision meshes. default: "lit" */
     view_mode?: "lit" | "unlit" | "wireframe" | "collision";
-    /** Image-based lighting from a bundled HDRI (Poly Haven, CC0): studio (softbox product look), overcast and sunny (outdoor), indoor (a room), urban (a city square); it lights glTF/PLY meshes' PBR materials in place of the two default lights. none: the default lights. Points and splats draw as they are. default: "none" */
+    /** A bundled HDRI lighting PBR meshes; none: the two default lights. default: "none" */
     environment?: "none" | "studio" | "overcast" | "sunny" | "indoor" | "urban";
     /** How strongly the environment lights the scene. default: 1.0 */
     environment_intensity?: number;
     /** Draw the environment behind the scene (not in wireframe). default: false */
     environment_background?: boolean;
-    /** Turns the environment about the up axis, in degrees. default: 0.0 */
+    /** Turns the environment about up, in degrees. default: 0.0 */
     environment_rotation?: number;
-    /** What one unit of an STL or OBJ file is: m (default), cm, mm or in (robot STLs are often millimetres). Other formats carry their own scale. default: "m" */
+    /** What one STL or OBJ unit is (robot STLs are often mm). default: "m" */
     mesh_unit?: "m" | "cm" | "mm" | "in";
     /** The VIEW and ITEMS side panels' {collapsed, width} by name. */
     panels?: Record<string, unknown>;
@@ -409,12 +409,12 @@ step, nothing journaled). */
     [key: string]: unknown;
   }
   interface HtmlState {
-    /** Let the page load over the network: http(s) images, scripts and frames (a map embed). false: its own files only. default: true */
+    /** Let the page load http(s) images, scripts and frames; false: its own files only. default: true */
     network?: boolean;
     [key: string]: unknown;
   }
   interface ImageState {
-    /** Shown channels of an image, letters of r g b a (l: a grey image's luminance): one colour channel shows as greyscale, a alone the alpha as greyscale, several in colour, a with colour over a checkerboard; empty: all the image has. default: "" */
+    /** Shown channels of an image, letters of r g b a (l: luminance); empty: all. One channel shows as greyscale, a with colour over a checkerboard. default: "" */
     channels?: string;
     [key: string]: unknown;
   }
@@ -424,9 +424,9 @@ step, nothing journaled). */
     [key: string]: unknown;
   }
   interface MapState {
-    /** Per layer (its entry key): {visible, color}. The page writes them as the user toggles and colours layers. default: {} */
+    /** Per layer (its entry key): {visible, color}. default: {} */
     layers?: Record<string, unknown>;
-    /** The tiles under the layers: none, osm (OpenStreetMap streets) or satellite (Esri World Imagery with place labels). Needs the network; offline the map shows none. default: "osm" */
+    /** The tiles under the layers (osm: streets, satellite: imagery); needs the network. default: "osm" */
     basemap?: "none" | "osm" | "satellite";
     /** The LAYERS side panel's {collapsed, width}, under layers. */
     panels?: Record<string, unknown>;
@@ -437,7 +437,7 @@ step, nothing journaled). */
     [key: string]: unknown;
   }
   interface MarkdownState {
-    /** The note's reading zoom (the outline and footer keep their size); the reader's Ctrl+wheel writes it too. default: 1 */
+    /** The note's reading zoom (Ctrl+wheel writes it too). default: 1 */
     zoom?: number;
     [key: string]: unknown;
   }
@@ -445,12 +445,12 @@ step, nothing journaled). */
     [key: string]: unknown;
   }
   interface PreviewState {
-    /** Shown channels of an image, letters of r g b a (l: a grey image's luminance): one colour channel shows as greyscale, a alone the alpha as greyscale, several in colour, a with colour over a checkerboard; empty: all the image has. default: "" */
+    /** Shown channels of an image, letters of r g b a (l: luminance); empty: all. One channel shows as greyscale, a with colour over a checkerboard. default: "" */
     channels?: string;
     [key: string]: unknown;
   }
   interface ScratchState {
-    /** The page shown and sent out on items, by id (p2) or name; the pad's active page when left out. Clicking a tab sets it. */
+    /** The page shown and sent out on items, by id (p2) or name; unset: the pad's active page. */
     page?: string;
     [key: string]: unknown;
   }
@@ -460,37 +460,37 @@ step, nothing journaled). */
     [key: string]: unknown;
   }
   interface UsdState {
-    /** auto: on Windows and Linux, rtx when this machine has the ovrtx capability, otherwise storm (Hydra Storm, any GPU, no RTX look); on macOS always storm. describe view:usd reports renderer_auto, what auto runs here. default: "auto" */
+    /** auto is rtx where this machine has ovrtx, else storm (describe view:usd reports renderer_auto). default: "auto" */
     renderer?: "auto" | "rtx" | "storm";
-    /** RTX render mode: rt real-time path tracing, pt path tracing (accumulates while nothing moves), minimal. Ignored by storm. default: "rt" */
+    /** RTX render mode (rt real-time, pt accumulating path tracing); storm ignores it. default: "rt" */
     mode?: "rt" | "pt" | "minimal";
-    /** A camera prim path of the stage to look through, or null for the free camera. Orbiting drops back to the free camera. default: null */
+    /** A camera prim path to look through; null: the free camera. default: null */
     look_through?: string | null;
-    /** Scales flying, zooming and panning, as in the 3d view. default: 1.0 */
+    /** Scales flying, zooming and panning. default: 1.0 */
     camera_speed?: number;
-    /** free: Unreal Editor's camera (drag turns and walks, right-drag looks, WASD flies, Alt+drag orbits). orbit: drag orbits the selection's centre, else the point under the press, else the focus point; middle-drag pans; right-drag and the wheel dolly toward it. Switching keeps the camera where it is. default: "free" */
+    /** free: Unreal Editor's camera; orbit: drag turns around the selection. default: "free" */
     camera_mode?: "free" | "orbit";
-    /** What the picture shows: lit (the render), unlit (base colour, no lighting), wireframe (edges over black), collision (only the prims with UsdPhysics CollisionAPI, as their collision shapes, in a flat tint). A stage without colliders shows lit. default: "lit" */
+    /** What the picture shows; collision: only the UsdPhysics colliders. default: "lit" */
     view_mode?: "lit" | "unlit" | "wireframe" | "collision";
-    /** What lights the stage beyond its own lights: stage (its own lights; a stage without any gets a plain dome), sky (one of NVIDIA's dynamic procedural skies with a sun, named by sky; RTX only: Storm shows the HDRI instead) or hdri (an image-based light, one of the 3d view's HDRIs, named by hdri). Composed over the stage in the viewer, never written to the file; kept across stages. The skies and the HDRIs are fetched on first use into the user's Specto folder; snap reports what shows, the fetch's progress and a note when it is not the choice (the sky or the HDRI not fetched yet). default: "stage" */
+    /** stage: its own lights; sky: an NVIDIA dynamic sky named by sky (RTX only); hdri: one of the 3d view's HDRIs named by hdri. default: "stage" */
     environment?: "stage" | "sky" | "hdri";
-    /** The dynamic sky when environment is sky: clear, cirrus, light or heavy cumulus, overcast, night, or the textured cloudy sky (67 MB of textures, fetched last). default: "ClearSky" */
+    /** The dynamic sky when environment is sky. default: "ClearSky" */
     sky?: "ClearSky" | "Cirrus" | "CumulusLight" | "CumulusHeavy" | "Overcast" | "NightSky" | "CloudySky";
-    /** The HDRI when environment is hdri (and what stands in for the sky under Storm or while the sky is fetched): one of the 3d view's Poly Haven environments (web/3d/environments.json). default: "sunny" */
+    /** The HDRI when environment is hdri (and Storm's stand-in for a sky). default: "sunny" */
     hdri?: "studio" | "overcast" | "sunny" | "indoor" | "urban";
-    /** With a sky: the floor of the preview scene the skies ship with (10 x 20 m, its top at height 0, in the stage's units), under the stage. Off by default. default: false */
+    /** With a sky: the skies' preview floor under the stage. default: false */
     ground?: boolean;
-    /** The sky's time of day in hours (0-24): moves its sun and the light of the viewer's sun with it, live. null: the sky's own. default: null */
+    /** The sky's hour, moving its sun live; null: the sky's own. default: null */
     time_of_day?: number | null;
-    /** The sky's cumulus cover, 0 (none) to 1 (solid), live. null: the sky's own. default: null */
+    /** The sky's cumulus cover, live; null: the sky's own. default: null */
     cloudiness?: number | null;
-    /** The sky's atmospheric haze, 0 (clear) to 1 (milky), live. null: the sky's own. default: null */
+    /** The sky's haze, live; null: the sky's own. default: null */
     haze?: number | null;
-    /** The item key of the stage shown (default: the picked item, else the first). */
+    /** The item key of the stage shown; unset: the pick, else the first. */
     selected?: string | null;
-    /** Cap on rendered pixels (view size x device pixel ratio). default: 2073600 */
+    /** Cap on rendered pixels. default: 2073600 */
     max_pixels?: number;
-    /** Samples per pixel per frame in path-tracing mode. default: 1 */
+    /** Samples per pixel per frame in pt mode. default: 1 */
     spp?: number;
     /** The side panels' {collapsed, width} by name (VIEW, PRIMS). */
     panels?: Record<string, unknown>;
