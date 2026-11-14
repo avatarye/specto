@@ -953,9 +953,12 @@ class UsdHost(Stepping, QuickViewHost):
         #: the source died on its own (#155): {reason, cause, errors, log, retry, storm}
         self.failure: dict[str, Any] | None = None
         self._renderer_kind = ""  # the renderer the source runs, from its command line
+        self._renderer_initialized = False
         # why the source is the stub (no renderer on this machine, SPEC-26): the hint health
         # carries while the view shows the test pattern; told once in a notice
         self.fallback = ""
+        self._initialization_fallback = ""
+        self._initialization_note = ""
         self._fallback_told = False
         # where the shown stage's load spent its time (the source's ``load_timings``,
         # SPEC-27); cleared when a load starts or fails
@@ -1164,23 +1167,36 @@ class UsdHost(Stepping, QuickViewHost):
     # -- the source process ------------------------------------------------------------
     def _spawn(self) -> None:
         self.killed = False
+        self._renderer_initialized = False
         self.ready = None
         self.shown_seq = None  # a new ring counts from 1
         self._set_failure(None)
         self._begin_cover(COVER_PHASES["starting"])
         try:
-            choice = self.source_command(
-                self.view, lambda: self.ctx.engine.capabilities, *self.size
-            )
+            view = self.view
+            if self._initialization_fallback == "stub":
+                choice = SourceChoice(stub_launcher(*self.size))
+            else:
+                if self._initialization_fallback:
+                    view = {
+                        **view,
+                        "params": {
+                            **(view.get("params") or {}),
+                            "renderer": self._initialization_fallback,
+                        },
+                    }
+                choice = self.source_command(view, lambda: self.ctx.engine.capabilities, *self.size)
             argv = choice.argv
             self._renderer_kind = argv[argv.index("--renderer") + 1] if "--renderer" in argv else ""
-            self.fallback = choice.fallback_reason
+            self.fallback = self._initialization_note or choice.fallback_reason
             if self.fallback and not self._fallback_told:
                 self._fallback_told = True
                 self.ctx.inform(f"{self.view_id}: {self.fallback}")
             self.source = FrameSourceProcess.spawn(argv)
         except OSError as e:
             self.source = None
+            if self._fallback_after_initialization(f"cannot start the renderer: {e}"):
+                return
             self._uncover()
             self.set_health("error", f"cannot start the renderer: {e}")
             return
@@ -1268,6 +1284,8 @@ class UsdHost(Stepping, QuickViewHost):
             if self._last_camera is not None:
                 self._send("set_camera", **self._last_camera)
             self._load()
+        elif name == "renderer_ready":
+            self._renderer_initialized = True
         elif name == "ring":
             if self.frame_item is not None:
                 self.frame_item.setProperty("ring", params.get("name", ""))
@@ -1277,6 +1295,12 @@ class UsdHost(Stepping, QuickViewHost):
                     LoadTimings, {k: v for k, v in params.items() if k != "path"}
                 )
         elif name == "health":
+            if params.get("state") == "ok":
+                self._renderer_initialized = True
+            if params.get("initialization_failed") and self._fallback_after_initialization(
+                str(params.get("message", "renderer initialization failed"))
+            ):
+                return
             seq = params.get("seq")
             self._on_phase(
                 str(params.get("state", "")),
@@ -1677,6 +1701,10 @@ class UsdHost(Stepping, QuickViewHost):
     # -- a source that died (#155) -------------------------------------------------------
     def _failed(self, src: FrameSourceProcess, code: int | None) -> None:
         """The source exited on its own: why, in words, over the picture."""
+        if not self._renderer_initialized and self._fallback_after_initialization(
+            f"{exit_reason(code)} during renderer initialization"
+        ):
+            return
         lines = src.stderr_tail()
         cause = GPU_LOST_WORDS if any(GPU_LOST.search(line) for line in lines) else ""
         log = Path(tempfile.gettempdir()) / f"specto-usd-source-{src.proc.pid}.log"
@@ -1697,6 +1725,24 @@ class UsdHost(Stepping, QuickViewHost):
         except Exception:
             return False
         return storm is not None and bool(storm.present)
+
+    def _fallback_after_initialization(self, reason: str) -> bool:
+        """Auto tries each safer renderer once, without rewriting the canvas choice."""
+        if (self._params.get("renderer") or "auto") != "auto":
+            return False
+        if self._initialization_fallback == "stub":
+            return False
+        next_renderer = "storm" if self._renderer_kind == "rtx" and self._has_storm() else "stub"
+        showing = (
+            "Storm" if next_renderer == "storm" else "the test pattern (no usable USD renderer)"
+        )
+        note = f"{reason}; showing {showing}"
+        self._initialization_note = "; ".join(filter(None, (self._initialization_note, note)))
+        self._initialization_fallback = next_renderer
+        self.ctx.inform(f"{self.view_id}: {note}")
+        self._close_source()
+        self._spawn()
+        return True
 
     def _set_failure(self, failure: dict[str, Any] | None) -> None:
         if failure != self.failure:
@@ -2354,6 +2400,8 @@ class UsdHost(Stepping, QuickViewHost):
         except SpectoError:
             return
         before, self._params = self._params, p
+        if p.get("renderer") != before.get("renderer"):
+            self._initialization_fallback = self._initialization_note = ""
         speed = speed_of(p.get("camera_speed", 1.0))
         if speed != self.camera_speed:
             self.camera_speed = speed

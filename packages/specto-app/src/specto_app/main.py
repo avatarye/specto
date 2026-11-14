@@ -35,9 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--offscreen", action="store_true", help="offscreen platform (tests)")
     ap.add_argument(
         "--agent",
-        default="claude",
+        default="copilot",
         metavar="SPEC",
-        help="the window's agent (the S icon): claude (Claude Code over the Agent SDK, default) or "
+        help="the window's agent (the S icon): copilot (default), claude (legacy), or "
         "scripted:<script.json> (a scripted agent, GUI flows)",
     )
     ap.add_argument(
@@ -84,7 +84,7 @@ def passthrough_flags(args: argparse.Namespace) -> list[str]:
         out.append("--no-serve")
     if args.offscreen:
         out.append("--offscreen")
-    if args.agent != "claude":
+    if args.agent != "copilot":
         out += ["--agent", args.agent]
     if args.test_driver:
         out.append("--test-driver")

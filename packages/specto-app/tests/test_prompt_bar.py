@@ -365,30 +365,30 @@ def test_the_detailed_diff_of_a_turn_is_there_on_request(app, aspin, spin):
     assert bar.turnDiff == ""
 
 
-def test_the_model_chip_switches_the_model_for_the_next_turn_and_is_remembered(app, aspin, spin):
-    """#73: Opus / Sonnet / Haiku in the prompt bar; the choice reaches the session before
-    its next turn and is kept per user in the app settings, not in the canvas."""
-    from specto_app.prompt.bar import saved_model
+def test_the_model_chip_uses_copilot_and_keeps_legacy_provider_settings_separate(app, aspin, spin):
+    """The provider's model reaches the session, never the canvas or another provider."""
+    from specto_app.prompt.bar import save_model, saved_model
 
     bar = app.prompt_bar
-    assert bar.model == "sonnet" and bar.modelLabel == "Sonnet"  # the default (#73)
-    assert [m["name"] for m in bar.models] == ["opus", "sonnet", "haiku"]
+    assert bar.model == "auto" and bar.modelLabel == "Copilot"
+    assert [m["name"] for m in bar.models] == ["auto"]
 
     bar.submit("add front and rear galleries")
     aspin(until=lambda: not bar.busy)
     bar.panel.summon()
     spin(until=lambda: app.engine.call("shell.locate", {"name": "modelChip"})["visible"])
-    assert app.sessions[0].models == ["sonnet"]  # the session was told before it started
+    assert app.sessions[0].models == ["auto"]
 
-    assert bar.setModel("opus") is True and bar.model == "opus" and bar.modelLabel == "Opus"
-    assert bar.setModel("gpt") is False and bar.model == "opus"  # not one of the three
+    assert bar.setModel("auto") is True
+    assert bar.setModel("opus") is False and bar.model == "auto"
     bar.submit("what is under my mouse?")
     aspin(until=lambda: not bar.busy)
-    assert app.sessions[0].models == ["sonnet", "opus"]  # applied on the next turn
+    assert app.sessions[0].models == ["auto"]
     assert len(app.sessions) == 1  # the live session was not replaced
-    assert saved_model() == "opus"  # per user, in the app settings
+    save_model("opus", "claude")
+    assert saved_model("claude") == "opus" and saved_model() == "auto"
     assert "model" not in json.dumps(app.live.document())  # not in the canvas document
-    bar.setModel("sonnet")
+    save_model("sonnet", "claude")
 
 
 def test_the_app_s_claude_session_gets_the_reference_built_from_its_own_engine(app):

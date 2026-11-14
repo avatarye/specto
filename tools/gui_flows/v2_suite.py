@@ -21,7 +21,7 @@ audio, fake launchers); the mouse tier through ``gui_session.py`` / ``gui_drive.
 (a real mouse and keyboard). Each entry seeds a project folder under ``--work``, launches
 one app process per session (killed afterwards) and drives one or more flow files.
 ``--heavy`` adds the 20 M-point 3D flow (GPU tier); ``--live`` the one short run against
-the real Claude Code agent (your Claude login; billed to it); ``--net`` the html view on
+the real Copilot agent (your Copilot sign-in; uses its plan); ``--net`` the html view on
 a page with live remote map frames (#93). The report (one line per flow) lands in
 ``<out>/suite-<tier>.txt``.
 """
@@ -794,15 +794,15 @@ NET = {
 }
 LIVE = {
     "live": {
-        # one short run against the real agent (the user's Claude Code login)
+        # one short run against the real agent (the user's Copilot sign-in)
         "seed": seed("v2-39-seed.py", "{project}"),
-        "sessions": [{"flows": ["v2-49-live.txt"], "extra": "--agent claude"}],
+        "sessions": [{"flows": ["v2-49-live.txt"], "extra": "--agent copilot"}],
     },
     "fix-select-live": {
         # the fix-select user test against the real agent: one plain request, the agent
         # must wire a selection-scoped intaker so the gallery follows the picks
         "seed": seed("v2-42-seed.py", "{project}"),
-        "sessions": [{"flows": ["v2-fix-select-live.txt"], "extra": "--agent claude"}],
+        "sessions": [{"flows": ["v2-fix-select-live.txt"], "extra": "--agent copilot"}],
     },
 }
 

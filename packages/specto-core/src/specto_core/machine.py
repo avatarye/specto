@@ -3,8 +3,9 @@
 cleanly where it is missing"). Not the glossary's capability, which is a grant a web view
 holds.
 
-``ovrtx`` (#132): NVIDIA's RTX renderer and its scene store, ``ovrtx`` and ``ovstage``,
-both import. They are imported in a child Python, so the app's own process never loads
+``ovrtx`` (#132): an RTX-capable NVIDIA GPU is confirmed, and NVIDIA's RTX renderer
+and its scene store, ``ovrtx`` and ``ovstage``, both import. They are imported in a
+child Python only after the hardware gate, so the app's own process never loads
 them (ovrtx ships its own USD runtime); importing creates no renderer and so no GPU
 context, and ovrtx loads its native library only when a renderer is made. On Windows and
 Linux an ``auto`` usd view renders with RTX where it is present and with Hydra Storm
@@ -21,6 +22,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -37,6 +39,7 @@ STORM_HINT = (
     "an install; PyOpenGL comes with specto-app"
 )
 DETECT_TIMEOUT_S = 30.0
+HARDWARE_TIMEOUT_S = 5.0
 
 _PROBE = """
 import json
@@ -65,6 +68,37 @@ class MachineCapability(BaseModel):
     reason: str = ""
 
 
+def rtx_hardware(*, env: Mapping[str, str] | None = None) -> tuple[bool, str]:
+    """Conservative driver inventory, without creating an RTX/Vulkan context.
+
+    Compute capability alone is insufficient: GTX Turing and A100 have no RT cores.
+    Unknown devices or an unavailable driver inventory fail closed to Storm.
+    """
+    try:
+        run = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,compute_cap", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=HARDWARE_TIMEOUT_S,
+            env=dict(env) if env is not None else None,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, f"no NVIDIA RTX-capable GPU detected ({type(error).__name__})"
+    if run.returncode:
+        return False, "NVIDIA driver inventory failed; no RTX-capable GPU confirmed"
+    for line in run.stdout.splitlines():
+        name, _, compute = line.rpartition(",")
+        try:
+            modern = float(compute.strip()) >= 7.5
+        except ValueError:
+            continue
+        graphics = re.search(r"\bRTX\b|\b(?:T4|A10G?|A16|A40|L4|L40S?)\b", name, re.I)
+        if modern and graphics:
+            return True, name.strip()
+    return False, "no NVIDIA RTX-capable GPU in the driver inventory"
+
+
 def detect_ovrtx(
     python: str | None = None,
     *,
@@ -79,6 +113,9 @@ def detect_ovrtx(
 
     if python is None and env is None and importlib.util.find_spec("ovrtx") is None:
         return absent(f"ovrtx is not installed: {INSTALL_HINT}")
+    capable, hardware = rtx_hardware(env=env)
+    if not capable:
+        return absent(hardware)
     try:
         run = subprocess.run(
             [python or sys.executable, "-P", "-c", _PROBE],
@@ -101,7 +138,7 @@ def detect_ovrtx(
         name="ovrtx",
         present=True,
         version=out["ovrtx"],
-        reason=f"ovrtx {out['ovrtx']} and ovstage {out.get('ovstage')} import",
+        reason=f"{hardware}; ovrtx {out['ovrtx']} and ovstage {out.get('ovstage')} import",
     )
 
 

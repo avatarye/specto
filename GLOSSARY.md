@@ -38,6 +38,9 @@ _Avoid_: instance id, window name, session name
 
 **Peer request**:
 A message from another agent of the user's fleet to this Specto's agent (the endpoint's `message {from, text, reply_to?}`): a peer row in the agent thread that runs as a turn labelled with its sender. A request, never the user's approval; the user's Peer requests setting runs it (auto), asks first (ask) or refuses it (off).
+Opted-in local Copilot sessions, including terminals, can also send one over Copilot's
+live session transport; it enters the same policy with an unverified sender, never as
+the user's approval (ADR 0032).
 _Avoid_: peer command, remote prompt
 
 **Identicon**:

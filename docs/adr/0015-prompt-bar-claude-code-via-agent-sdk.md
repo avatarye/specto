@@ -5,6 +5,9 @@ date: 2026-10-17
 
 # The prompt bar drives one Claude Code session per window through the Agent SDK
 
+**Amended by ADR 0032 (2026-11-14):** Copilot is now the default window provider;
+Claude remains an explicit legacy backend. The prompt-turn and external-tool surfaces remain.
+
 ## Context
 
 In the agent-first UX (ADR 0011) the prompt bar is the main control. Specto has one app window (and one canvas per project, ADR 0012).

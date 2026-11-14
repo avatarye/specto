@@ -9,6 +9,7 @@ from __future__ import annotations
 import signal
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from app_doc_helpers import pin
@@ -189,6 +190,40 @@ def test_a_source_closed_on_purpose_is_no_failure(host: UsdHost, tmp_path: Path,
     assert host.failure is None and health(host)["status"] == "paused"
 
 
+def test_auto_renderer_initialization_failure_reports_and_falls_back_once(
+    host,
+    monkeypatch,
+):
+    launched = []
+    monkeypatch.setattr(host, "_spawn", lambda: launched.append(host._initialization_fallback))
+    host._renderer_kind = "rtx"
+    host._on_event(
+        "health",
+        {
+            "state": "error",
+            "message": "RTX device initialization failed",
+            "initialization_failed": True,
+        },
+    )
+    assert launched == ["storm"]
+    assert "RTX device initialization failed" in host._initialization_note
+    assert host.ctx.live.document()["views"]["kobi"]["params"].get("renderer", "auto") == "auto"
+    host._renderer_kind = "storm"
+    host._on_event(
+        "health",
+        {
+            "state": "error",
+            "message": "Storm OpenGL context failed",
+            "initialization_failed": True,
+        },
+    )
+    assert launched == ["storm", "stub"]
+    assert "Storm OpenGL context failed" in host._initialization_note
+    assert "test pattern" in host._initialization_note
+    host._on_event("health", {"state": "error", "initialization_failed": True})
+    assert launched == ["storm", "stub"]
+
+
 def test_a_new_stage_clears_the_failure(host: UsdHost, tmp_path: Path, spin):
     host.receive("data", stage(tmp_path / "w"))
     spin(until=lambda: health(host)["status"] == "ok")
@@ -196,6 +231,22 @@ def test_a_new_stage_clears_the_failure(host: UsdHost, tmp_path: Path, spin):
     host.receive("data", stage(tmp_path / "w2", "valley"))
     assert host.failure is None
     spin(until=lambda: health(host)["status"] == "ok")
+
+
+def test_native_initialization_crash_falls_back_but_initialized_crash_keeps_retry(
+    host, monkeypatch
+):
+    launched = []
+    monkeypatch.setattr(host, "_spawn", lambda: launched.append(host._initialization_fallback))
+    src = SimpleNamespace(stderr_tail=lambda: [], proc=SimpleNamespace(pid=0))
+    host._renderer_kind = "rtx"
+    host._failed(src, ACCESS_VIOLATION)
+    assert launched == ["storm"]
+    assert "initialization" in host._initialization_note
+    host._on_event("renderer_ready", {})
+    host._renderer_kind = "storm"
+    host._failed(src, ACCESS_VIOLATION)
+    assert launched == ["storm"] and host.failure is not None
 
 
 def test_the_flows_crash_knob_crashes_the_first_stub_only(
