@@ -945,9 +945,24 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   open already (#215). The CLI grants the app the foreground right first (Windows
   `AllowSetForegroundWindow`); otherwise the system may only flash the taskbar entry.
 
-## 13. Prompt bar (ADR 0015; `specto_app.prompt`)
+## 13. Prompt bar (ADRs 0015, 0032; `specto_app.prompt`)
 
-- One agent session per window: `ClaudeAgentSession` over the Claude Agent SDK
+- One agent session per window, by default `CopilotAgentSession` over the pinned
+  GitHub Copilot SDK and installed CLI. Streaming session events feed the same prompt
+  turn; cancellation uses abort, tools use `TurnTools`, successful terminal tools
+  stop generation, and provider errors reach the thread. Only source-qualified Specto
+  custom tools are available. Project skills are text; allowed project slash commands
+  expand locally, never as provider CLI built-ins or shell. Changed content reconnects
+  with resume. The provider-tagged identity is `.specto/copilot-agent-session.json`;
+  New session resets only the selected provider.
+- Copilot's live management RPC opts this window into local peers without changing
+  global settings. `copilot_sessions` and `copilot_message` use the provider's
+  transport, including opted-in terminal sessions sharing its configuration directory.
+  Create/close are disabled. The pre-prompt hook blocks all externally delivered
+  prompts and hands them to the existing `receive_peer` auto/ask/off path. Sender
+  identity is unverified and grants no approval. Acceptance is transport acceptance,
+  not execution or completion.
+- Explicit `--agent claude` retains `ClaudeAgentSession` over the Claude Agent SDK
   (`claude-agent-sdk`), on a qasync loop shared with Qt (the welcome screen owns the
   same loop and hands it to the app it starts). `ClaudeAgentOptions`: `permission_mode=
   "auto"`, `allowed_tools=["mcp__specto__*"]` (the six tools as an in-process SDK MCP

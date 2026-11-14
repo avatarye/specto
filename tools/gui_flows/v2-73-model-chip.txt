@@ -1,7 +1,6 @@
-# v2 #73 model chip: the prompt bar carries a small chip naming the model of the next
-# turn (Sonnet by default); clicking it opens the menu (Opus / Sonnet / Haiku, the current
-# one marked), picking Opus changes the chip at once and the session before its next
-# turn; the choice is kept in the user's settings ini (prompt/model), not in the canvas.
+# v2 #73 model chip: Copilot selects the next turn's model automatically. The chip's
+# provider-specific menu offers Copilot rather than legacy Claude model names; choosing
+# it keeps the session usable. The provider setting is prompt/copilot_model, never canvas data.
 # The turn itself runs the scripted agent (tools/gui_flows/v2-44-agent-script.json), and
 # the app log shows the per-turn timing line ("[OK] prompt turn changed: total ...").
 # Project: tools/gui_flows/v2-39-seed.py <folder>; app flag:
@@ -14,15 +13,15 @@ hover agentIcon
 wait 1200
 assert_found promptInput
 assert_found modelChip
-shot 73-01-chip-sonnet.png
+shot 73-01-chip-copilot.png
 click modelChip
 wait 600
-assert_found menu:model-opus
+assert_found menu:model-auto
 shot 73-02-chip-menu.png
-click menu:model-opus
+click menu:model-auto
 wait 600
-assert_missing menu:model-opus
-shot 73-03-chip-opus.png
+assert_missing menu:model-auto
+shot 73-03-chip-auto.png
 # the pointer is left above the bar after the menu: bring the bar back before typing
 hover agentIcon
 wait 1200
@@ -30,7 +29,7 @@ click promptInput
 type add cam-a and cam-b galleries, linked on frame
 key enter
 wait 350
-shot 73-04-turn-on-opus-working.png
+shot 73-04-turn-on-auto-working.png
 wait 4500
 assert_found replyUndo
-shot 73-05-turn-on-opus-done.png
+shot 73-05-turn-on-auto-done.png

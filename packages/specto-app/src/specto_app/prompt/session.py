@@ -477,15 +477,8 @@ def save_session_id(root: Path, session_id: str) -> None:
     path.write_text(json.dumps({"session_id": session_id}) + "\n", encoding="utf-8")
 
 
-def sdk_tools(tools: TurnTools) -> list[Any]:
-    """The six agent tools as in-process SDK MCP tools over ``TurnTools.call``, and the
-    skill tools (#161), the command and data tools (#219), the link code tools (#168),
-    ``list_files`` (#169), the walk-through tools (#174), the fleet tools (#187), the
-    launcher tools (#186) and the scratch pad tools (#184) when the turn's tools have
-    the project's stores, the window's walk or fleet, or the project's launchers for
-    them."""
-    from claude_agent_sdk import ToolAnnotations, tool
-
+def tool_specs(tools: TurnTools) -> dict[str, Any]:
+    """The Specto tools supported by this window, independent of the provider."""
     specs = dict(AGENT_TOOLS)
     if tools.skills is not None:
         specs.update(SKILL_TOOLS)
@@ -505,8 +498,15 @@ def sdk_tools(tools: TurnTools) -> list[Any]:
         specs.update(FLEET_TOOLS)
     if tools.launch is not None:
         specs.update(LAUNCH_TOOLS)
+    return specs
+
+
+def sdk_tools(tools: TurnTools) -> list[Any]:
+    """The window's Specto tools as Claude SDK MCP tools."""
+    from claude_agent_sdk import ToolAnnotations, tool
+
     out = []
-    for name, spec in specs.items():
+    for name, spec in tool_specs(tools).items():
 
         def make(name: str) -> Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]:
             async def handler(args: dict[str, Any]) -> dict[str, Any]:

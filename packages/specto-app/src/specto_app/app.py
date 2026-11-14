@@ -247,7 +247,7 @@ class SpectoApp(QObject):
         argv: list[str] | None = None,
         launch_flags: list[str] | None = None,
         remember: bool = True,
-        agent: str | SessionFactory = "claude",
+        agent: str | SessionFactory = "copilot",
         loop: asyncio.AbstractEventLoop | None = None,
         watch_interval_s: float | None = None,
         test_driver: bool = False,
@@ -474,22 +474,31 @@ class SpectoApp(QObject):
 
             path = Path(spec.partition(":")[2]).expanduser().resolve()
             return lambda tools: ScriptedAgentSession.from_file(path, tools)
-        if spec != "claude":
+        if spec not in ("copilot", "claude"):
             raise SpectoError(
-                f"unknown agent {spec!r}", fix="--agent claude or --agent scripted:<script.json>"
+                f"unknown agent {spec!r}", fix="--agent copilot or --agent scripted:<script.json>"
             )
+        from .prompt.copilot_session import CopilotAgentSession
         from .prompt.reference import reference_text
         from .prompt.session import ClaudeAgentSession
 
-        def make(tools: Any) -> ClaudeAgentSession:
+        def make(tools: Any) -> Any:
             # the standing reference (view types, link kinds) from this app's engine
             ctx = CallContext(connection="prompt-bar", origin="agent:prompt")
             ref = reference_text(lambda name, args: self.engine.call(name, args, ctx))
-            return ClaudeAgentSession(tools, self.project.root, reference=ref)
+            if spec == "claude":
+                return ClaudeAgentSession(tools, self.project.root, reference=ref)
+            return CopilotAgentSession(
+                tools,
+                self.project.root,
+                reference=ref,
+                receive_peer=lambda *args: self.prompt_bar.receive_peer(*args),
+            )
 
         # the agent icon shows the error from the start when no session can run (#162)
-        if importlib.util.find_spec("claude_agent_sdk") is None:
-            make.unavailable = "the Claude Agent SDK is not installed"  # type: ignore[attr-defined]
+        package = "copilot" if spec == "copilot" else "claude_agent_sdk"
+        if importlib.util.find_spec(package) is None:
+            make.unavailable = f"the {spec} SDK is not installed"  # type: ignore[attr-defined]
         return make
 
     def run(self) -> int:
