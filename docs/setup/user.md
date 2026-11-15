@@ -71,6 +71,28 @@ already has that project open, it comes to the front instead. Configuration (whe
 app comes from) and troubleshooting are in
 [developer.md, Global CLI](developer.md#global-cli).
 
+### Copilot communication skill
+
+After installing the global CLI, deploy the complete communication skill for all your
+Copilot terminal sessions:
+
+```text
+specto plugin install --copilot           # preview only
+specto plugin install --copilot --yes
+copilot skill list --json
+```
+
+Look for enabled `specto` with source `personal-copilot`, normally under
+`~/.copilot/skills/specto`. Fresh sessions discover it; existing sessions need
+`/skills reload`. The installer leaves Claude skills, project data and peer settings
+alone. Repeating an identical install does nothing; a different existing skill is
+refused rather than overwritten.
+
+The skill explains `specto instances`, `specto --json instances`, messages and replies,
+plus opted-in native Copilot peers. Native discovery sees a window only after its
+first agent prompt. Peer requests still obey **auto / ask / off**: waiting for Run is
+not a completed answer, and a peer can never approve anything for you.
+
 ## The agent and a first prompt
 
 The S icon at the bottom left is the project's agent; its eyes show its state (blinking:
