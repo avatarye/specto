@@ -36,10 +36,16 @@ async def check(root: Path, live: bool) -> None:
     tools = TurnTools(AgentTools(lambda n, a: engine.call(n, a, ctx)), engine.live)
     received: list[tuple] = []
     arrived = asyncio.Event()
+    replied = asyncio.Event()
 
     def receive(*args):
         received.append(args)
         arrived.set()
+
+    def terminal_prompt(data, context):
+        if "Transport check reply." in data.get("prompt", ""):
+            replied.set()
+        return {"decision": "block", "reason": "Transport check: do not run the model"}
 
     def client():
         return CopilotClient(
@@ -66,12 +72,7 @@ async def check(root: Path, live: bool) -> None:
             disabled_mcp_servers=disabled_mcp_servers(),
             enable_config_discovery=False,
             skip_custom_instructions=True,
-            hooks={
-                "on_user_prompt_submitted": lambda *_: {
-                    "decision": "block",
-                    "reason": "Transport check: do not run the model",
-                }
-            },
+            hooks={"on_user_prompt_submitted": terminal_prompt},
         )
         await peer.rpc.management.configure(
             SessionManagementConfigureRequest(
@@ -100,9 +101,15 @@ async def check(root: Path, live: bool) -> None:
             )
         )
         assert result.accepted
+        await asyncio.wait_for(replied.wait(), 60)
         print(
             json.dumps(
-                {"discovery": True, "incoming_policy_handoff": True, "reply_accepted": True}
+                {
+                    "discovery": True,
+                    "incoming_policy_handoff": True,
+                    "reply_accepted": True,
+                    "reply_received": True,
+                }
             ),
             flush=True,
         )
