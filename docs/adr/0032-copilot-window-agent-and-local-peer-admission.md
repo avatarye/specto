@@ -14,6 +14,8 @@ contracts do not change.
   installed, signed-in GitHub Copilot CLI. The adapter uses the SDK's stdio runtime
   connection, streaming session events, custom tools, terminal-tool success and abort.
   A local RPC heartbeat reports a lost runtime even when no final idle event arrives.
+  Prompt turns own startup so Stop also cancels the first connection. Reusing an idle
+  session first checks connectivity and reconnects/resumes a lost runtime.
   `SPECTO_COPILOT_CLI` selects a particular executable. `--agent claude` retains the
   legacy adapter; scripted agents and external clients are unchanged.
 - Only source-qualified Specto custom tools are available. No shell, file editor,
@@ -40,6 +42,9 @@ contracts do not change.
   for Run, off records refusal. Sender names and IDs are claims, never human
   authorization; link-code approval still requires the user's gesture. Peer delivery
   acceptance means transport acceptance, not approval, completion, or an answer.
+  Blocked peers wait for the native idle boundary to avoid completing a subsequent
+  turn accidentally. Errors, shutdown, transport loss and close also drain those
+  receipts into the same peer policy; reconnect must never silently discard them.
 
 ## Compatibility and limitations
 

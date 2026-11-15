@@ -113,7 +113,9 @@ class AgentSession(Protocol):
         *,
         on_delta: DeltaFn | None = None,
         with_context: bool = True,
-    ) -> TurnOutcome: ...
+    ) -> TurnOutcome:
+        """Start the provider if needed and run one cancellable prompt."""
+        ...
 
     async def interrupt(self) -> None: ...
 

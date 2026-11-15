@@ -226,6 +226,11 @@ class CopilotAgentSession:
         except SpectoError as error:
             self.log(f"[WARN] Copilot peer request refused: {error}")
 
+    def _release_peers(self) -> None:
+        pending, self._pending_peers = self._pending_peers, []
+        for sender, prompt in pending:
+            asyncio.get_running_loop().call_soon(self._deliver_peer, sender, prompt)
+
     def _peer_tools(self) -> list[Any]:
         from copilot import Tool, ToolResult
         from copilot.generated.rpc import (
@@ -334,9 +339,20 @@ class CopilotAgentSession:
         if kind == "session.idle":
             if self._admitted_turn:
                 self._finish_turn()
-            pending, self._pending_peers = self._pending_peers, []
-            for sender, prompt in pending:
-                asyncio.get_running_loop().call_soon(self._deliver_peer, sender, prompt)
+            self._release_peers()
+            return
+        if kind in ("session.shutdown", "session.error"):
+            if kind == "session.shutdown":
+                self._restart_needed = True
+            if self._outcome is not None:
+                self._outcome.is_error = True
+                self._outcome.error = (
+                    "Copilot session disconnected; send the prompt again to resume"
+                    if kind == "session.shutdown"
+                    else data.message or "Copilot session failed"
+                )
+                self._finish_turn()
+            self._release_peers()
             return
         if self._outcome is None:
             return
@@ -353,15 +369,6 @@ class CopilotAgentSession:
             tokens = int(getattr(data, "output_tokens", 0) or 0)
             self._outcome.call_output_tokens.append(tokens)
             self._outcome.output_tokens = sum(self._outcome.call_output_tokens)
-        elif kind == "session.error":
-            self._outcome.is_error = True
-            self._outcome.error = data.message or "Copilot session failed"
-            self._finish_turn()
-        elif kind == "session.shutdown":
-            self._restart_needed = True
-            self._outcome.is_error = True
-            self._outcome.error = "Copilot session disconnected; send the prompt again to resume"
-            self._finish_turn()
 
     def _finish_turn(self) -> None:
         if self._done is not None and not self._done.done():
@@ -378,12 +385,19 @@ class CopilotAgentSession:
         on_delta: DeltaFn | None = None,
         with_context: bool = True,
     ) -> TurnOutcome:
+        self._interrupted = False
+        if self.session is not None and not self._restart_needed:
+            try:
+                await asyncio.wait_for(self.client.ping(), REQUEST_TIMEOUT_S)
+            except Exception:
+                self._restart_needed = True
         if self.session is not None and (
             self._restart_needed or self._loaded != skills_key(self.root)
         ):
             await self.close()
             self._restart_needed = False
-        self._interrupted = False
+        if self._interrupted:
+            return TurnOutcome(is_error=True, error="Copilot request cancelled")
         self._starting = asyncio.create_task(self.start())
         try:
             await self._starting
@@ -399,6 +413,8 @@ class CopilotAgentSession:
             self.info["model"] = self.model
         if not with_context:
             prompt = project_content(self.root, prompt)
+        if self._interrupted:
+            return TurnOutcome(is_error=True, error="Copilot request cancelled")
         self._started = time.perf_counter()
         outcome = self._outcome = TurnOutcome(session_id=self.resume_id or "", num_turns=1)
         self._deltas, self._blocks, self._on_delta = [], [], on_delta
@@ -417,6 +433,7 @@ class CopilotAgentSession:
             return outcome
         except Exception:
             self._restart_needed = True
+            self._release_peers()
             raise
         finally:
             self._authorized_prompt = None
@@ -444,6 +461,7 @@ class CopilotAgentSession:
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+        self._release_peers()
         if session is not None:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(session.disconnect(), 5)
@@ -456,4 +474,3 @@ class CopilotAgentSession:
             self._outcome.is_error = True
             self._outcome.error = "Copilot session closed"
         self._finish_turn()
-        self._pending_peers.clear()

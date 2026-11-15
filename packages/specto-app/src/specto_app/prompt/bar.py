@@ -944,7 +944,6 @@ class PromptBar(QObject):
             if self.session is None:
                 self.session = self.factory(self.tools)
                 self.session.set_model(self._model)
-                await self.session.start()
             reply = await run_turn(
                 self.session,
                 self.tools,
