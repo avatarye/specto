@@ -78,6 +78,9 @@ class Client:
     async def stop(self):
         pass
 
+    async def ping(self):
+        return {}
+
 
 def test_streaming_resumes_only_copilot_and_rebinds_restricted_tools(tmp_path):
     async def run():
@@ -284,5 +287,82 @@ def test_transport_loss_is_reported_without_waiting_for_an_idle_event(tmp_path, 
             await asyncio.wait_for(session.turn("hello", "ctx"), 1)
         assert session._restart_needed
         await session.close()
+
+    asyncio.run(run())
+
+
+def test_prompt_bar_stop_during_first_startup_never_sends_the_prompt(app, aloop, aspin):
+    entered, release = asyncio.Event(), asyncio.Event()
+    client = Client()
+
+    async def start():
+        entered.set()
+        await release.wait()
+
+    client.start = start
+    app.loop = aloop
+    bar = app.prompt_bar
+    bar.factory = lambda tools: CopilotAgentSession(
+        tools, app.project.root, client_factory=lambda: client
+    )
+    try:
+        bar.submit("This prompt must not reach Copilot")
+        aspin(until=entered.is_set)
+        bar.interrupt()
+        aspin(until=lambda: not bar.busy, timeout=2)
+        assert not client.session.sent
+        assert "cancel" in bar.reply.error.lower()
+    finally:
+        release.set()
+        aspin(until=lambda: not bar.busy)
+
+
+@pytest.mark.parametrize("event", ["session.shutdown", "session.error", None])
+def test_blocked_peers_are_delivered_once_when_transport_ends_before_idle(tmp_path, event):
+    async def run():
+        received = []
+        client = Client()
+        session = CopilotAgentSession(
+            tools(),
+            tmp_path,
+            client_factory=lambda: client,
+            receive_peer=lambda *args: received.append(args),
+        )
+        await session.start()
+        assert (
+            client.session.admit({"prompt": "Do not lose this peer receipt"}, {})["decision"]
+            == "block"
+        )
+        if event:
+            client.session.emit(event, message="Transport ended")
+            await asyncio.sleep(0)
+            assert len(received) == 1
+        await session.close()
+        await asyncio.sleep(0)
+        assert len(received) == 1 and "peer receipt" in received[0][1]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("shutdown_event", [True, False])
+def test_idle_runtime_loss_reconnects_before_sending_the_next_prompt(tmp_path, shutdown_event):
+    async def run():
+        first, second = Client(), Client()
+        clients = iter([first, second])
+        session = CopilotAgentSession(tools(), tmp_path, client_factory=lambda: next(clients))
+        assert (await session.turn("first", "ctx")).text == "Hello"
+        if shutdown_event:
+            first.session.emit("session.shutdown")
+
+        async def disconnected():
+            raise RuntimeError("Idle connection was lost")
+
+        first.ping = disconnected
+        try:
+            assert (await session.turn("second", "ctx")).text == "Hello"
+            assert len(first.session.sent) == 1 and len(second.session.sent) == 1
+            assert second.resumed == first.session.session_id
+        finally:
+            await session.close()
 
     asyncio.run(run())
