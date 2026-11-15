@@ -313,6 +313,40 @@ the command; after a change to the CLI's dependencies, run the same command with
 Inside the checkout's activated venv, the venv's own `specto` comes first on PATH. Both
 are the same code, so it doesn't matter which one runs.
 
+#### Windows fallback when global dependencies cannot be downloaded
+
+If registry TLS or an incomplete offline cache blocks the tool install, an already
+validated checkout venv can supply the command without reinstalling its dependencies.
+From that checkout, in **PowerShell 7**, create a small launcher in uv's user tool
+directory, only if that directory is already on PATH:
+
+```powershell
+$checkout = (Get-Location).Path
+$exe = Join-Path $checkout '.venv\Scripts\specto.exe'
+if (-not (Test-Path $exe -PathType Leaf)) { throw 'Sync and validate the checkout venv first' }
+& $exe --help
+if ($LASTEXITCODE) { throw 'The venv CLI is not usable' }
+$bin = (uv tool dir --bin).Trim()
+if (($env:PATH -split ';') -notcontains $bin) { throw 'User tool bin must already be on PATH' }
+$launcher = "@echo off`r`n`"$exe`" %*`r`n"
+Push-Location $bin
+try {
+    if (Test-Path '.\specto.cmd') {
+        if ((Get-Content '.\specto.cmd' -Raw) -cne $launcher) { throw 'Existing launcher differs' }
+    } else {
+        if ((Test-Path '.\specto.exe') -or (Test-Path '.\specto.ps1')) { throw 'Existing command' }
+        Set-Content '.\specto.cmd' -Value $launcher -NoNewline -Encoding utf8NoBOM
+    }
+} finally { Pop-Location }
+specto --help
+specto setup-cli --show
+```
+
+This changes no PATH or agent settings and does not overwrite another launcher. It
+depends on keeping this checkout and its venv at the same path; rerun after moving
+them. This fallback is not uv-managed: remove only this `specto.cmd` to uninstall it
+before switching to a normal global tool install.
+
 ### Open a project
 
 ```text
@@ -520,6 +554,32 @@ uv run specto plugin path                      # the marketplace, plugin and ski
 
 The plugin's MCP server runs `specto-mcp`, and fleet members use the `specto` CLI, so both
 must be on the PATH of whatever runs them (the plan warns when they are not).
+
+### Copilot user-wide communication skill
+
+The same package includes a separate, complete Copilot communication skill:
+
+```text
+specto plugin install --copilot
+specto plugin install --copilot --yes
+specto plugin path
+copilot skill list --json
+```
+
+The plan uses supported `copilot skill add <packaged SKILL.md>` file materialization:
+`~/.copilot/skills/specto/SKILL.md` (or beneath `COPILOT_HOME`), not project registration.
+The installed copy survives checkout moves; rerun after updates. An identical copy is
+a no-op. A different existing `specto` directory is refused, including a collision
+that appears after printing the plan. Review/back it up before explicitly removing
+the old skill with Copilot's own skill commands; the installer never overwrites it.
+Claude/fleet resources and installation paths are unchanged.
+
+Fresh Copilot sessions discover this personal skill automatically. In an existing
+terminal run `/skills reload`. The skill teaches exact CLI discovery/read/message/reply
+commands, native `list_sessions` / `send_session_message`, lazy window-agent startup,
+and peer consent/trust rules. These native names are tools, not shell subcommands;
+use only actually exposed schemas. Installation changes neither peer settings nor
+project data and adds no MCP server. Native peer opt-in is still required (§1).
 
 ## Profiling a usd load
 

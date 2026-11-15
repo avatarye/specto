@@ -1,7 +1,8 @@
-"""``specto plugin``: the Claude Code plugin shipped with the app (#187 section 5).
+"""``specto plugin``: packaged skills for Claude Code, Copilot and fleets.
 
     specto plugin install --fleet FLEET          # print the plan: nimitz harness add skill ...
     specto plugin install --claude --yes        # run it: claude plugin marketplace add + install
+    specto plugin install --copilot --yes       # materialize the personal Copilot skill
     specto plugin path                          # where this install keeps the plugin
 
 ``install`` prints the exact plan and runs it only with ``--yes`` (``specto_plugin``):
@@ -19,16 +20,17 @@ import specto_plugin
 
 @click.group("plugin")
 def plugin_group() -> None:
-    """The Claude Code plugin shipped with Specto (the specto skill and specto-mcp)."""
+    """Specto communication skills for Copilot, Claude Code and nimitz fleets."""
 
 
 @plugin_group.command("install")
 @click.option("--fleet", default=None, help="Add the specto skill to this nimitz fleet's harness.")
 @click.option("--claude", is_flag=True, help="Install the plugin into Claude Code.")
+@click.option("--copilot", is_flag=True, help="Install the personal Copilot communication skill.")
 @click.option("--yes", is_flag=True, help="Run the plan (without it, only print it).")
-def install_cmd(fleet: str | None, claude: bool, yes: bool) -> None:
-    """Print the install plan for --fleet F or --claude; run it with --yes."""
-    plan = specto_plugin.install_plan(fleet=fleet, claude=claude)
+def install_cmd(fleet: str | None, claude: bool, copilot: bool, yes: bool) -> None:
+    """Print the plan for --fleet F, --claude or --copilot; run it with --yes."""
+    plan = specto_plugin.install_plan(fleet=fleet, claude=claude, copilot=copilot)
     click.echo(specto_plugin.render_plan(plan, yes=yes))
     if plan.problems:
         sys.exit(1)
@@ -42,6 +44,7 @@ def path_cmd() -> None:
     click.echo(f"marketplace {specto_plugin.MARKETPLACE}")
     click.echo(f"plugin      {specto_plugin.PLUGIN}")
     click.echo(f"skill       {specto_plugin.SKILL}")
+    click.echo(f"copilot     {specto_plugin.COPILOT_SKILL}")
 
 
 __all__ = ["plugin_group"]
