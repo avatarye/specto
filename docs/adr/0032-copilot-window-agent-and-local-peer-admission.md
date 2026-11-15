@@ -45,6 +45,7 @@ contracts do not change.
   Blocked peers wait for the native idle boundary to avoid completing a subsequent
   turn accidentally. Errors, shutdown, transport loss and close also drain those
   receipts into the same peer policy; reconnect must never silently discard them.
+  Window shutdown retains auto-policy receipts as queued without starting another turn.
 
 ## Compatibility and limitations
 
