@@ -255,6 +255,7 @@ class PromptBar(QObject):
         self._asked: dict[int, Entry] = {}
         #: peer rows to run once the running turn ends, oldest first
         self._queue: list[Entry] = []
+        self._closing = False
         #: approval cards waiting for the user's Approve or Dismiss (#203), by entry id
         self._approvals: dict[int, Entry] = {}
         # a link approved elsewhere (the view's header) retires its card
@@ -1147,7 +1148,7 @@ class PromptBar(QObject):
             self._thread.refresh_live()
             print(f"[OK] peer request from {sender}: waiting for the user")
             return {**out, "id": entry.id, "status": "waiting"}
-        status = "queued" if self.busy or self._queue else "run"
+        status = "queued" if self._closing or self.busy or self._queue else "run"
         entry = self._add("peer", **row, status=status)
         print(f"[OK] peer request from {sender}: {status}")
         if status == "queued":
@@ -1190,7 +1191,7 @@ class PromptBar(QObject):
 
     def _next_peer(self) -> None:
         """The oldest queued peer request, once no turn runs."""
-        if self._queue and not self.busy and self.app is not None:
+        if self._queue and not self._closing and not self.busy and self.app is not None:
             self._start_peer(self._queue.pop(0))
 
     # -- approval requests (#203) -----------------------------------------------------------------
@@ -1286,6 +1287,7 @@ class PromptBar(QObject):
 
     # -- lifecycle ----------------------------------------------------------------------------
     async def aclose(self) -> None:
+        self._closing = True
         self._off_patch()
         if self._task is not None:
             self._task.cancel()

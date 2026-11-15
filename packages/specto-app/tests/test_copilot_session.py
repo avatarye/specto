@@ -366,3 +366,31 @@ def test_idle_runtime_loss_reconnects_before_sending_the_next_prompt(tmp_path, s
             await session.close()
 
     asyncio.run(run())
+
+
+def test_prompt_bar_close_records_pending_auto_peer_without_starting_again(app, aloop):
+    async def run():
+        client = Client()
+        bar = app.prompt_bar
+        app.loop = aloop
+        bar.setPeerRequests("auto")
+        session = CopilotAgentSession(
+            bar.tools,
+            app.project.root,
+            receive_peer=bar.receive_peer,
+            client_factory=lambda: client,
+        )
+        bar.session = session
+        bar.factory = lambda _: session
+        try:
+            await session.start()
+            client.session.admit({"prompt": "Retain this receipt during window close"}, {})
+            await bar.aclose()
+            await asyncio.sleep(0)
+            assert bar.session is None
+            assert len(bar._queue) == 1 and bar._queue[0].status == "queued"
+            assert not client.session.sent
+        finally:
+            await bar.aclose()
+
+    aloop.run_until_complete(run())
