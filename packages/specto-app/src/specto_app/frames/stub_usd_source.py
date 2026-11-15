@@ -270,6 +270,7 @@ class StubUsdSource(StubSource):
     def run(self) -> int:
         if self.start_phase:
             self.control.emit("health", state=self.start_phase, message="")
+        self.control.emit("renderer_ready")
         return super().run()
 
     def handle(self, method: str, params: dict) -> dict | Future:
