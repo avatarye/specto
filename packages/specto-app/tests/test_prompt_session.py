@@ -635,7 +635,8 @@ def test_the_sessions_command_line_stays_under_the_windows_limit(app):
 
     from specto_app.prompt.session import SYSTEM_PROMPT
 
-    session = app.prompt_bar.factory(app.prompt_bar.tools)
+    app.agent = "claude"
+    session = app._session_factory()(app.prompt_bar.tools)
     assert len(session.reference) > 10000  # the full app's view types and link kinds
     session.resume_id = "d7f0a0a4-3202-462d-b388-e8ba4a9002d1"
     options = session.options()
