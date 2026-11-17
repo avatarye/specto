@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -50,7 +51,7 @@ async def check(root: Path, live: bool) -> None:
     def client():
         return CopilotClient(
             connection=RuntimeConnection.for_stdio(
-                path=shutil.which("copilot"),
+                path=os.environ.get("SPECTO_COPILOT_CLI") or shutil.which("copilot"),
                 args=["--log-dir", str(root / "logs"), "--log-level", "debug"],
             ),
             working_directory=str(root),
