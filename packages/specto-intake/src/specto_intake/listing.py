@@ -101,7 +101,7 @@ class _Root:
         source's."""
         if self.prefix == "":
             return not _absolute(path)
-        return path == self.prefix or path.startswith(self.prefix + "/")
+        return path == self.prefix or path.startswith(self.prefix.rstrip("/") + "/")
 
     def rel(self, path: str) -> str:
         """``path`` relative to this source's root folder (what the pattern and the
@@ -163,11 +163,12 @@ class TreeLister:
         for r in self.roots:
             if not r.prefix or r.prefix == path:
                 continue
-            if path and not r.prefix.startswith(path + "/"):
+            prefix = path.rstrip("/") + "/" if path else ""
+            if not r.prefix.startswith(prefix):
                 continue
-            rest = r.prefix[len(path) + 1 :] if path else r.prefix
-            name = rest.split("/", 1)[0]
-            child = f"{path}/{name}" if path else name
+            rest = r.prefix[len(prefix) :]
+            name = rest.split("/", 1)[0] or "/"
+            child = join_path(path, name)
             out.setdefault(child, Entry(child, name, True))
         return sorted(out.values(), key=lambda e: e.name.lower())
 
@@ -203,7 +204,7 @@ class TreeLister:
         milliseconds over SMB, so a level of thousands of folders on a network drive must
         not hold the worker after its answer is no longer wanted. A cancelled listing is
         partial: discard it (the tree's worker drops a cancelled job's result)."""
-        path = path.strip("/")
+        path = path.rstrip("/") or ("/" if path else "")
         virtual = split_virtual(path)
         if virtual is not None:
             archive_path, inner = virtual
@@ -245,7 +246,7 @@ class TreeLister:
         for e in found:
             if cancelled():
                 break
-            child = f"{path}/{e.name}" if path else e.name
+            child = join_path(path, e.name)
             try:
                 if e.is_dir(follow_symlinks=r.src.follow_links):
                     if dirs_ok and not (r.inside and hidden(child)):
@@ -312,7 +313,7 @@ class TreeLister:
         for p in paths:
             if stop():
                 break
-            self._collect(p.strip("/"), stats, stop)
+            self._collect(p.rstrip("/") or ("/" if p else ""), stats, stop)
         return sorted(stats), stats
 
     def _collect(self, path: str, stats: dict[str, Stat], stop: Callable[[], bool]) -> None:
@@ -327,7 +328,7 @@ class TreeLister:
         if r is None:
             # above the sources: every source on the way down from here
             for root in self.roots:
-                if root.prefix and (not path or root.prefix.startswith(path + "/")):
+                if root.prefix and (not path or root.prefix.startswith(path.rstrip("/") + "/")):
                     self._collect(root.prefix, stats, stop)
             return
         if path == "":
@@ -362,7 +363,7 @@ class TreeLister:
         dirs_ok = r.depth_ok(r.rel(path))
         subdirs: list[tuple[str, Path]] = []
         for e in found:
-            child = f"{path}/{e.name}" if path else e.name
+            child = join_path(path, e.name)
             try:
                 if e.is_dir(follow_symlinks=r.src.follow_links):
                     if dirs_ok and not (r.inside and hidden(child)):
@@ -427,7 +428,7 @@ def _dir_mtime_ns(path: str, follow_links: bool) -> int:
 
 
 def join_path(folder: str, name: str) -> str:
-    return f"{folder}/{name}" if folder else name
+    return f"{folder.rstrip('/')}/{name}" if folder else name
 
 
 def _sorted(entries: list[Entry]) -> list[Entry]:

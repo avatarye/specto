@@ -306,6 +306,7 @@ def test_auto_update_lists_the_loaded_folders_only_and_shows_arrivals_in_place(
 
     gestures.set_auto_update(engine.live, "fege", False)
     spin(until=lambda: not host._watch.isActive())
+    spin(until=lambda: host.worker.pending == 0)
     n = len(listed)
     spin(150)
     assert len(listed) == n

@@ -87,6 +87,8 @@ def path_refusal(text: str, *, unc_ok: bool = False) -> Refusal | None:
     text = strip_local_long(text.strip())
     if not text:
         return None
+    if text.replace("\\", "/").startswith("/??/"):
+        return Refusal.DEVICE
     if _windows():
         rooted = text[0] in "\\/" or (len(text) >= 2 and text[1] == ":")
         if rooted and not _DRIVE_ABS.match(text):

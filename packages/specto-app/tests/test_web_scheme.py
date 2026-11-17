@@ -465,5 +465,6 @@ def test_locate_item_refuses_a_network_part_before_it_is_stated(part, monkeypatc
     assert got is None and calls == [] and entry["status"] == "refused"
     assert part_refused(part, None) is not None
     # a project on that share serves its own files, and nothing on another share
-    assert part_refused("//host/share/proj/x.png", "//host/share/proj") is None
+    own_part = part_refused("//host/share/proj/x.png", "//host/share/proj")
+    assert (own_part is None) == (os.name == "nt")
     assert part_refused("//other/share/x.png", "//host/share/proj") is not None

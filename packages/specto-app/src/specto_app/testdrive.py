@@ -482,7 +482,9 @@ class TestDriver(QObject):
         window with no focus window in the process as focused once its content item has
         the focus, which a ``FocusIn`` sent in-process gives it (#237 decision 4)."""
         win = self.window()
-        if win.activeFocusItem() is None:
+        # Wrapping WebEngine's private focus item crashes Shiboken on Linux; the
+        # content item's focus scope answers the same question without exposing it.
+        if not win.contentItem().hasActiveFocus():
             QCoreApplication.sendEvent(
                 win, QFocusEvent(QEvent.Type.FocusIn, Qt.FocusReason.ActiveWindowFocusReason)
             )

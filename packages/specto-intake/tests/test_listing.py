@@ -209,15 +209,25 @@ def test_a_source_outside_the_project_is_listed_under_its_absolute_path(tmp_path
     lister = TreeLister(proj, {"sources": [".", str(outside)]})
     posix = str(outside).replace("\\", "/")
     parts = posix.split("/")
+    top_path = parts[0] or "/"
     top = lister.list_dir("")
-    assert (parts[0], True) in names(top) and ("own.txt", False) in names(top)
+    assert (top_path, True) in names(top) and ("own.txt", False) in names(top)
     # down the chain of the absolute path, then the folder itself
     chain = "/".join(parts[:-1])
     assert names(lister.list_dir(chain)) == [(posix, True)]
     assert names(lister.list_dir(posix)) == [(posix + "/a.txt", False)]
-    paths, _ = lister.files_under([parts[0]])
+    paths, _ = lister.files_under([top_path])
     assert paths == [posix + "/a.txt"]
+    assert lister.files_under([posix + "/"])[0] == [posix + "/a.txt"]
     assert lister.files_under([""])[0] == sorted(["own.txt", posix + "/a.txt"])
+    folder = top_path
+    while folder != posix:
+        ((folder, is_dir),) = names(lister.list_dir(folder))
+        assert is_dir
+    assert names(lister.list_dir(folder)) == [(posix + "/a.txt", False)]
+    drive_lister = TreeLister(proj, {"sources": [outside.anchor]})
+    assert names(drive_lister.list_dir(posix)) == [(posix + "/a.txt", False)]
+    assert drive_lister.files_under([posix])[0] == [posix + "/a.txt"]
 
 
 def test_listing_a_folder_never_walks_the_tree(root: Path, monkeypatch: pytest.MonkeyPatch):

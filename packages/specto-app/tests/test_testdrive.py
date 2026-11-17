@@ -86,7 +86,7 @@ def test_a_normal_app_process_has_no_driver_channel(tmp_path):
 
 # -- the driver ------------------------------------------------------------------------------
 @pytest.fixture
-def driven(tmp_path):
+def driven(tmp_path, request):
     """A child ``specto-app --test-driver`` on a small project, its driver channel and
     endpoint open; closed through the driver's ``quit``."""
     project = Project.init(tmp_path / "proj", "demo")
@@ -94,9 +94,17 @@ def driven(tmp_path):
     (project.root / "notes" / "alpha.md").write_text("# alpha\n", encoding="utf-8")
     user_dir = tmp_path / "user"
     env = _app_env(user_dir)
+    web = getattr(request, "param", False)
+    if web:
+        import specto_web
+
+        root = specto_web.find_web_root()
+        if root is None or not (root / "vendor" / "vs" / "loader.js").is_file():
+            pytest.skip(specto_web.BUILD_HINT)
+    flags = [] if web else ["--no-web"]
     proc = subprocess.Popen(
         [sys.executable, "-m", "specto_app", "--project", str(project.root), "--test-driver",
-         "--offscreen", "--inline-jobs", "--no-web"],
+         "--offscreen", "--inline-jobs", *flags],
         env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.STDOUT,
@@ -154,6 +162,20 @@ def test_the_driver_locates_clicks_types_and_reads_the_fake_clipboard(driven):
     entries = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
     assert entries and entries[-1]["kind"] == "start_file"
     assert entries[-1]["path"].endswith("alpha.md")
+
+
+@pytest.mark.parametrize("driven", [True], indirect=True)
+def test_keys_reach_a_focused_web_view(driven):
+    flow, _user_dir = driven
+    flow.run("resize 1200 800")
+    flow.run("dblclick projectNode")
+    flow.run("wait_until scratchSlot:@scratch 15000")
+    flow.run("assert_web @scratch chars 0 15000")
+    flow.drive.call("clipboard", text="hello\n")
+    flow.run("click scratchSlot:@scratch 0.5 0.6")
+    flow.run("key ctrl+v")
+    flow.run("assert_web @scratch chars 6 15000")
+    assert flow.drive.call("ping")["attached"] is True
 
 
 def test_window_flags_take_the_focus_away_only_off_the_offscreen_platform(monkeypatch):
