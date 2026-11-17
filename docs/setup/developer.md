@@ -40,13 +40,14 @@ Windows 11:
 Ubuntu 24.04:
 
 ```text
-sudo apt install build-essential cmake libgl-dev libmpv-dev libxcb-cursor0 ffmpeg
+sudo apt install build-essential cmake libgl-dev libglu1-mesa-dev libx11-dev libxt-dev libxrandr-dev libmpv-dev libxcb-cursor0 ffmpeg
 ```
 
 g++ 11 or newer and CMake 3.21 or newer; Ninja is optional (Makefiles otherwise). The
 distribution's `nodejs` package is older than 20: use the NodeSource repository or nvm.
 `libxcb-cursor0` is required by the PySide6 wheel's XCB platform plugin, including
 the test children that create OpenGL contexts without showing a window.
+The GL/X11 development packages also cover OpenUSD's imaging build below.
 
 ## 1. Clone and sync
 
@@ -79,6 +80,11 @@ account as Specto. `copilot --version` should report a build compatible with the
 pinned `github-copilot-sdk`; the live session-management and blocking pre-prompt RPC
 must be supported (verified with CLI 1.0.112). `SPECTO_COPILOT_CLI` selects an explicit
 binary. Specto uses the same sign-in, never a new API key.
+
+SDK 1.0.34 uses protocol 3; CLI 1.0.113-0 reports protocol 4 and is rejected.
+Keep a compatible CLI such as the verified 1.0.112 alongside a preview installation
+and set `SPECTO_COPILOT_CLI` to that executable for both the app and `check_copilot.py`.
+There is no need to replace a globally installed preview to run Specto.
 
 The default `--agent copilot` streams the window's replies. `--agent claude` retains
 the legacy backend; `--agent scripted:<file.json>` needs neither account.
