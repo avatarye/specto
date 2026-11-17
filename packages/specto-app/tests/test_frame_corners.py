@@ -74,7 +74,8 @@ def frame_rect(app, vid: str) -> tuple[float, float, float, float]:
 
 
 def pixel(image, x: float, y: float) -> str:
-    return QColor(image.pixel(int(x), int(y))).name()
+    dpr = image.devicePixelRatio()
+    return QColor(image.pixel(int(x * dpr), int(y * dpr))).name()
 
 
 def reddish(name: str) -> bool:

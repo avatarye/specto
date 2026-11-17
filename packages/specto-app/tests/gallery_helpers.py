@@ -5,11 +5,14 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+from specto_core.links import LinkRuntime
 
 
 def _default_testdata() -> Path:
@@ -39,6 +42,15 @@ def copy_frames(dst: Path, n: int, series: str = "cam-a") -> Path:
         if side.exists():
             shutil.copy2(side, dst / side.name)
     return dst
+
+
+def wait_for_watch_baseline(links: LinkRuntime, link: str = "l2") -> None:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if (links.watch_status(link) or {}).get("polls", 0) >= 1:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"{link} never finished its watch baseline: {links.watch_status(link)}")
 
 
 class FakeGallery:

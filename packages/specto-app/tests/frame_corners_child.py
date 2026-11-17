@@ -122,7 +122,8 @@ def link(vid: str, vtype: str) -> dict:
 
 
 def pixel(image: QImage, x: float, y: float) -> str:
-    return QColor(image.pixel(int(x), int(y))).name()
+    dpr = image.devicePixelRatio()
+    return QColor(image.pixel(int(x * dpr), int(y * dpr))).name()
 
 
 def probe(vtype: str) -> dict:

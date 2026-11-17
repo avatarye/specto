@@ -278,7 +278,7 @@ def test_words_in_the_roots_own_path_go_to_the_index_as_regexes_anchored_below_i
     everything = fake_everything(index)
     terms = fs.index_terms(str(root), ["zebra", "readme", "zebra/proj", "deep/er"])
     assert terms[1] == 'path:"readme"' and terms[3] == 'path:"deep\\er"'
-    native = re.escape(str(root) + "\\")
+    native = re.escape(str(root).replace("/", "\\") + "\\")
     assert (
         terms[0] == f'regex:"^{native}.*zebra"' and terms[2] == f'regex:"^{native}.*zebra\\\\proj"'
     )

@@ -13,7 +13,13 @@ from pathlib import Path
 
 import pytest
 import test_shell
-from gallery_helpers import TESTDATA, FakeGallery, copy_frames, needs_testdata
+from gallery_helpers import (
+    TESTDATA,
+    FakeGallery,
+    copy_frames,
+    needs_testdata,
+    wait_for_watch_baseline,
+)
 from jobs_helpers import HeldJobs
 from test_ports_hosts import _gallery_from_folder
 from test_shell import click_item, gallery_doc, submit
@@ -130,7 +136,7 @@ def _watched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, frames: int):
     proj = Project.init(tmp_path / "proj", "drops")
     copy_frames(proj.root / "drops", frames)
     jobs = HeldJobs()
-    engine = Engine(project=proj, jobs=jobs, watch_interval_s=0.05, watch_debounce_s=0.0)
+    engine = Engine(project=proj, jobs=jobs, watch_interval_s=0.05, watch_debounce_s=0.05)
     clear_pending()
     fake = FakeGallery(window=0)
 
@@ -146,6 +152,7 @@ def _watched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, frames: int):
     engine.live.submit(doc, origin="agent:s1", label="w")
     while jobs.held:
         jobs.run_next()
+    wait_for_watch_baseline(ctx.links)
     return proj, engine, jobs, ctx, reg, fake
 
 

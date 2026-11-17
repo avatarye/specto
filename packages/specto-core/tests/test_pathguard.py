@@ -67,6 +67,12 @@ def test_posix_forms():
     assert path_refusal("/dev/zero") == Refusal.DEVICE
 
 
+@pytest.mark.parametrize("text", [r"\??\UNC\host\share\x", "/??/UNC/host/share/x"])
+def test_nt_object_paths_are_refused_on_every_platform(text):
+    assert path_refusal(text) == Refusal.DEVICE
+    assert output_refusal(text, "/proj") == Refusal.DEVICE
+
+
 def test_file_uris_never_name_a_host_or_an_object_path():
     if WINDOWS:
         assert file_uri_path("file:///C:/work/a.stl") == ("C:/work/a.stl", None)

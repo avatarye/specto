@@ -26,7 +26,7 @@ from .detached import CREATE_NO_WINDOW
 
 NO_WINDOW = CREATE_NO_WINDOW if os.name == "nt" else 0
 #: the variables a child interpreter keeps under :func:`minimal_env`
-MINIMAL_ENV_KEYS = ("SYSTEMROOT", "PATH", "TEMP", "TMP", "TMPDIR")
+MINIMAL_ENV_KEYS = ("SYSTEMROOT", "PATH", "TEMP", "TMP", "TMPDIR", "LC_CTYPE")
 
 
 def minimal_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:

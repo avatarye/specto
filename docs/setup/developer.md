@@ -40,11 +40,13 @@ Windows 11:
 Ubuntu 24.04:
 
 ```text
-sudo apt install build-essential cmake libgl-dev libmpv-dev ffmpeg
+sudo apt install build-essential cmake libgl-dev libmpv-dev libxcb-cursor0 ffmpeg
 ```
 
 g++ 11 or newer and CMake 3.21 or newer; Ninja is optional (Makefiles otherwise). The
 distribution's `nodejs` package is older than 20: use the NodeSource repository or nvm.
+`libxcb-cursor0` is required by the PySide6 wheel's XCB platform plugin, including
+the test children that create OpenGL contexts without showing a window.
 
 ## 1. Clone and sync
 

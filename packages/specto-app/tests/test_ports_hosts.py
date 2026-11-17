@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from app_doc_helpers import pin
-from gallery_helpers import FakeGallery, copy_frames, needs_testdata
+from gallery_helpers import FakeGallery, copy_frames, needs_testdata, wait_for_watch_baseline
 from jobs_helpers import HeldJobs
 from PySide6.QtCore import QCoreApplication, Qt
 
@@ -434,7 +434,7 @@ def test_a_watched_gallery_marks_arrivals_as_resolving_then_swaps_the_new_collec
     proj = Project.init(tmp_path / "proj", "drops")
     copy_frames(proj.root / "drops", 3)
     jobs = HeldJobs()
-    engine = Engine(project=proj, jobs=jobs, watch_interval_s=0.05, watch_debounce_s=0.0)
+    engine = Engine(project=proj, jobs=jobs, watch_interval_s=0.05, watch_debounce_s=0.05)
     clear_pending()
     fake = FakeGallery(window=0)  # nothing on screen wants a thumbnail: no decodes
 
@@ -454,6 +454,7 @@ def test_a_watched_gallery_marks_arrivals_as_resolving_then_swaps_the_new_collec
     assert reg.host("kobi") is not None and ctx.health_of("kobi")["status"] == "loading"
     jobs.run_next()  # l2 lands: three frames (the gallery then reports its own decoding)
     assert fake.count() == 3 and "resolving" not in ctx.health_of("kobi")["message"]
+    wait_for_watch_baseline(ctx.links)
 
     clears = fake.clears
     copy_frames(proj.root / "drops", 5)  # two more frames (plus sidecars) arrive
