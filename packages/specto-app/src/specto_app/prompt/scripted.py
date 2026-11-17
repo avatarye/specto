@@ -65,6 +65,7 @@ class ScriptedAgentSession:
         on_delta: DeltaFn | None = None,
         with_context: bool = True,
     ) -> TurnOutcome:
+        await self.start()
         self.received.append(
             {"prompt": prompt, "context": context_text, "with_context": with_context}
         )

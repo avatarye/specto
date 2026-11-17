@@ -340,6 +340,9 @@ def test_the_thread_comes_back_on_the_next_launch_and_a_new_session_starts_below
         a.close()
         spin(20)
     (project.root / ".specto" / "agent-session.json").write_text('{"session_id": "s1"}')
+    (project.root / ".specto" / "copilot-agent-session.json").write_text(
+        '{"provider":"copilot","session_id":"c1"}'
+    )
 
     b = start_app(project, aloop, spin, turns)
     try:
@@ -350,8 +353,10 @@ def test_the_thread_comes_back_on_the_next_launch_and_a_new_session_starts_below
         aspin(until=lambda: not bar.busy)
         first_session = b.sessions[0]
 
+        b.agent = "copilot"
         assert bar.newSession() is True
-        assert not (project.root / ".specto" / "agent-session.json").exists()
+        assert not (project.root / ".specto" / "copilot-agent-session.json").exists()
+        assert (project.root / ".specto" / "agent-session.json").exists()
         last = bar.thread.get(bar.thread.rowCount() - 1)
         assert last["kind"] == "divider" and last["dividerText"].startswith("New session today")
         bar.submit("third")

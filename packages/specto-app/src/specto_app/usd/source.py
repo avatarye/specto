@@ -22,6 +22,11 @@ first instead, 1.0-1.4 s more a switch.
 It speaks the frame-source protocol (:mod:`specto_app.frames.control`) with the stub USD
 source's methods (#139), so the usd host drives either one:
 
+``ready`` announces the IPC channel, not a usable renderer. ``renderer_ready`` follows
+successful renderer construction; construction errors carry ``initialization_failed``
+in their health event. Auto selection can therefore fall back on either a reported
+initialization error or a native process exit before construction succeeds.
+
 - ``load {path}``: answered at once; the render thread then sends ``health`` phases
   (``composing``, ``first frame``, ``ok``) and ``loaded {path, name, renderer, up_axis,
   meters_per_unit, bounds, prims, start_time_code, end_time_code, time_codes_per_second,
@@ -488,12 +493,19 @@ class UsdSource:
         except ModuleNotFoundError as e:
             self.renderer = None
             hint = STORM_HINT if self.kind == "storm" else INSTALL_HINT
-            self.health("error", f"{e.name} is not installed: {hint}")
+            self.health("error", f"{e.name} is not installed: {hint}", initialization_failed=True)
         except Exception as e:
             self.renderer = None
             label = "Storm" if self.kind == "storm" else "RTX"
-            self.health("error", f"the {label} renderer did not start: {e}", restartable=True)
+            self.health(
+                "error",
+                f"the {label} renderer did not start: {e}",
+                restartable=True,
+                initialization_failed=True,
+            )
             traceback.print_exc()
+        else:
+            self.control.emit("renderer_ready")
 
     def _close_renderer(self) -> None:
         self._inflight.clear()

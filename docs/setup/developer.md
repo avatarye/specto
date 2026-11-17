@@ -10,7 +10,7 @@ The user guide, for running Specto once it is built, is [user.md](user.md).
 ## What you end up with
 
 - `.venv/`: the uv workspace (Python 3.12, every package editable, PySide6 6.12.0, the
-  Claude Agent SDK with its bundled `claude` binary).
+  Copilot SDK; install and sign in to GitHub Copilot CLI separately).
 - `packages/specto-web/web/vendor/`: the web views' third-party assets (git-ignored).
 - `packages/specto-app/src/specto_app/qml/Specto/Native/`: the native Qt Quick module
   `Specto.Native` (the gallery, the frame item, rounded clips, the libmpv video item;
@@ -53,16 +53,57 @@ the test children that create OpenGL contexts without showing a window.
 ```text
 git clone git@github.com:avatarye/specto.git
 cd specto
-uv sync --extra rtx --extra storm
+uv sync --extra storm
 ```
 
-`uv sync` creates `.venv` with every workspace member editable. The extras are the usd
-view's renderers (`rtx`: NVIDIA ovrtx and ovstage, a 2.3 GB download from pypi.nvidia.com
-at install; `storm`: Hydra Storm from the OpenUSD imaging build of
-`tools/parked/build_openusd.py`). Without either the usd view shows the stub source's test
-pattern. A plain `uv run` re-syncs the venv without extras, so keep them on every call:
-`uv run --extra rtx --extra storm specto-app`, or pass `--no-sync`. The commands below
-leave the flags out for brevity; add them to every `uv run` once the extras are installed.
+`uv sync` creates `.venv` with every workspace member editable. Storm's Python
+dependencies are base dependencies (`--extra storm` is a compatibility alias), but
+Hydra Storm also needs an OpenUSD **imaging** build:
+`uv run --no-sync python tools/parked/build_openusd.py`, or point `SPECTO_OPENUSD`
+at its install prefix. Plain pip `usd-core` does not contain `UsdImagingGL`.
+Without imaging, the view reports the missing renderer and shows a diagnostic test
+pattern, not a rendered stage.
+
+Only on an RTX-capable NVIDIA machine, optionally run `uv sync --extra rtx --extra storm`.
+The `rtx` extra downloads ovrtx/ovstage (about 2.3 GB). Auto requires confirmed
+RT-core hardware as well as installed packages; otherwise it selects Storm.
+Initialization failure is reported and auto tries a safe fallback (ADR 0033).
+Do not install RTX merely to test on an integrated/AMD GPU.
+After syncing use `uv run --no-sync` to preserve the chosen environment; the commands
+below omit `--no-sync` for brevity.
+
+### Copilot window agent
+
+Install GitHub Copilot CLI and run `copilot login` in a terminal under the same OS
+account as Specto. `copilot --version` should report a build compatible with the
+pinned `github-copilot-sdk`; the live session-management and blocking pre-prompt RPC
+must be supported (verified with CLI 1.0.112). `SPECTO_COPILOT_CLI` selects an explicit
+binary. Specto uses the same sign-in, never a new API key.
+
+The default `--agent copilot` streams the window's replies. `--agent claude` retains
+the legacy backend; `--agent scripted:<file.json>` needs neither account.
+Copilot resumes `.specto/copilot-agent-session.json`, independently of the legacy
+Claude pointer. A refused resume/sign-in is shown in the thread; New session resets
+only the selected provider.
+
+For communication, each **terminal** session must opt in: in Copilot,
+`/settings sessionManagementTools.enabled on` (or
+`copilot config sessionManagementTools.enabled on` before launching it). The default
+scope is `all`: opted-in local sessions sharing `COPILOT_HOME` (normally `~/.copilot`).
+`in-process` intentionally hides a session from other processes.
+Specto opts in only its own live session through SDK RPC and changes no global
+settings. After its first prompt it remains addressable while connected.
+Ask the window agent to list local Copilot sessions or message a specific session;
+its tools are `copilot_sessions` and `copilot_message`.
+Incoming text still follows Specto's **Peer requests** auto/ask/off policy. Delivery
+acceptance is not user approval or a completed response.
+
+Run `uv run --no-sync python tools/check_copilot.py --work out/copilot-check` to
+check native cross-process discovery, policy handoff and a reply using only two
+self-created sessions. It changes no global settings. Add `--live` to verify a
+streaming model response and a read-only Specto tool call (requires a working
+Copilot sign-in and uses the account's plan). The model chip's Copilot `auto`
+choice delegates model selection to the CLI; Claude aliases remain provider-specific.
 
 The workspace pins public PyPI as its only index (`pyproject.toml`), and
 `packages/specto-web/.npmrc` pins the public npm registry, so a private index in a
@@ -248,7 +289,7 @@ uv run --extra rtx --extra storm specto --help                   # the CLI
 
 `specto-app --help` lists the flags: `--inline-jobs` (no worker pool, for debugging),
 `--workers N`, `--no-web`, `--no-serve`, `--offscreen` (tests), `--host-module MODULE`,
-`--agent claude|scripted:<script.json>` (the window's agent) and `--test-driver` (the GUI
+`--agent copilot|claude|scripted:<script.json>` (the window's agent) and `--test-driver` (the GUI
 flows' driver, section 8; never on without it). `SPECTO_PROJECT` is the same as
 `--project`.
 
@@ -273,6 +314,40 @@ the command; after a change to the CLI's dependencies, run the same command with
 
 Inside the checkout's activated venv, the venv's own `specto` comes first on PATH. Both
 are the same code, so it doesn't matter which one runs.
+
+#### Windows fallback when global dependencies cannot be downloaded
+
+If registry TLS or an incomplete offline cache blocks the tool install, an already
+validated checkout venv can supply the command without reinstalling its dependencies.
+From that checkout, in **PowerShell 7**, create a small launcher in uv's user tool
+directory, only if that directory is already on PATH:
+
+```powershell
+$checkout = (Get-Location).Path
+$exe = Join-Path $checkout '.venv\Scripts\specto.exe'
+if (-not (Test-Path $exe -PathType Leaf)) { throw 'Sync and validate the checkout venv first' }
+& $exe --help
+if ($LASTEXITCODE) { throw 'The venv CLI is not usable' }
+$bin = (uv tool dir --bin).Trim()
+if (($env:PATH -split ';') -notcontains $bin) { throw 'User tool bin must already be on PATH' }
+$launcher = "@echo off`r`n`"$exe`" %*`r`n"
+Push-Location $bin
+try {
+    if (Test-Path '.\specto.cmd') {
+        if ((Get-Content '.\specto.cmd' -Raw) -cne $launcher) { throw 'Existing launcher differs' }
+    } else {
+        if ((Test-Path '.\specto.exe') -or (Test-Path '.\specto.ps1')) { throw 'Existing command' }
+        Set-Content '.\specto.cmd' -Value $launcher -NoNewline -Encoding utf8NoBOM
+    }
+} finally { Pop-Location }
+specto --help
+specto setup-cli --show
+```
+
+This changes no PATH or agent settings and does not overwrite another launcher. It
+depends on keeping this checkout and its venv at the same path; rerun after moving
+them. This fallback is not uv-managed: remove only this `specto.cmd` to uninstall it
+before switching to a normal global tool install.
 
 ### Open a project
 
@@ -393,7 +468,7 @@ uv run python tools/desktop_lock.py run <name> -- <scratch>/pyauto/Scripts/pytho
 the app (one process per session, its own user settings dir under the project) with a
 scripted agent and runs its flows; screenshots land in `--out` (default `out/verify/v2`,
 git-ignored) and the report, one line per flow, in `<out>/suite-<tier>.txt`. `--heavy` adds the 20 M-point 3D flow (GPU tier),
-`--live` one short run against the real Claude Code agent (your Claude login; billed to it),
+`--live` one short run against the real Copilot agent (your sign-in; uses its plan),
 `--net` the html view with live embeds.
 
 The offscreen and GPU tiers go through the app's test driver: `tools/gui_qtdrive.py`
@@ -441,9 +516,10 @@ exits. On Linux,
 `python-xlib` in the pyautogui venv and `xclip`). Do not run it while someone is using the
 desktop: it clicks.
 
-## 9. The Claude login
+## 9. The legacy Claude login
 
-The prompt bar runs Claude Code over the Agent SDK (`specto_app.prompt.session`). The
+Only `--agent claude` runs Claude Code over the Agent SDK (`specto_app.prompt.session`).
+For the default Copilot backend, see §1. The
 SDK's bundled CLI (`.venv/Lib/site-packages/claude_agent_sdk/_bundled/claude.exe`, 2.1.x)
 reads the same credentials as a normal Claude Code install, `~/.claude/.credentials.json`
 (`%USERPROFILE%\.claude` on Windows), so one login serves both:
@@ -480,6 +556,32 @@ uv run specto plugin path                      # the marketplace, plugin and ski
 
 The plugin's MCP server runs `specto-mcp`, and fleet members use the `specto` CLI, so both
 must be on the PATH of whatever runs them (the plan warns when they are not).
+
+### Copilot user-wide communication skill
+
+The same package includes a separate, complete Copilot communication skill:
+
+```text
+specto plugin install --copilot
+specto plugin install --copilot --yes
+specto plugin path
+copilot skill list --json
+```
+
+The plan uses supported `copilot skill add <packaged SKILL.md>` file materialization:
+`~/.copilot/skills/specto/SKILL.md` (or beneath `COPILOT_HOME`), not project registration.
+The installed copy survives checkout moves; rerun after updates. An identical copy is
+a no-op. A different existing `specto` directory is refused, including a collision
+that appears after printing the plan. Review/back it up before explicitly removing
+the old skill with Copilot's own skill commands; the installer never overwrites it.
+Claude/fleet resources and installation paths are unchanged.
+
+Fresh Copilot sessions discover this personal skill automatically. In an existing
+terminal run `/skills reload`. The skill teaches exact CLI discovery/read/message/reply
+commands, native `list_sessions` / `send_session_message`, lazy window-agent startup,
+and peer consent/trust rules. These native names are tools, not shell subcommands;
+use only actually exposed schemas. Installation changes neither peer settings nor
+project data and adds no MCP server. Native peer opt-in is still required (§1).
 
 ## Profiling a usd load
 
@@ -631,8 +733,10 @@ Each task is built on its own branch in its own worktree, off `main` (`docs/agen
 git fetch origin
 git worktree add ../specto-wt/<name> -b fix/<slug> origin/main     # or feat/, docs/
 cd ../specto-wt/<name>
-uv sync --extra rtx --extra storm
+uv sync --extra storm
 ```
+
+Add `--extra rtx` only on a machine with an RTX-capable NVIDIA GPU.
 
 A worktree is a fresh checkout as far as the git-ignored artefacts go: it needs its own
 `web/vendor/` (step 2, or copy the folder from a built checkout), its own native plugin

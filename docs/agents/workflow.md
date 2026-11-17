@@ -39,7 +39,7 @@ The brief is the builder's only context. It names:
 
 - the task id, and how to read it (`backlog task view SPEC-n --plain`);
 - the evidence the lead already has, and the suspects, marked as unverified;
-- the worktree, the branch, and the setup in `docs/setup/developer.md` (Worktrees): sync with every extra, its own `web/vendor/`, its own native plugin build, and `SPECTO_TESTDATA` pointing at the main checkout's test data;
+- the worktree, the branch, and the setup in `docs/setup/developer.md` (Worktrees): sync with Storm's dependencies and add the RTX extra only on an RTX-capable machine, its own `web/vendor/`, its own native plugin build, and `SPECTO_TESTDATA` pointing at the main checkout's test data;
 - the skills (from the `mattpocock-skills` plugin): `diagnosing-bugs` for a bug (a red loop before any theory), `tdd` (a failing test first), `domain-modeling` when a term or decision changes (`GLOSSARY.md`, ADRs), `pr` for the pull request body;
 - which GUI tiers it may use (below), and that it kills only processes it started;
 - the gates, the commit rules and "open a PR, don't merge, report back with the PR link, the root cause, what changed and the gate results".

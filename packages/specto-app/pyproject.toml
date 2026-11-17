@@ -11,6 +11,7 @@ dependencies = [
     "specto-web",
     "PySide6>=6.8",
     "claude-agent-sdk>=0.2.168",
+    "github-copilot-sdk==1.0.34",
     "qasync>=0.28",
     # the usd view's Storm renderer (#143), the default: the source draws offscreen with
     # PyOpenGL and reads back with numpy. Both are small; with them a plain `uv run` keeps

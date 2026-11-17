@@ -26,7 +26,7 @@ def on_path(*names: str):
     return lambda name: f"C:/bin/{name}.exe" if name in names else None
 
 
-EVERYTHING = on_path("nimitz", "claude", "specto", "specto-mcp")
+EVERYTHING = on_path("nimitz", "claude", "copilot", "specto", "specto-mcp")
 
 
 # -- the plugin's files ---------------------------------------------------------------------------
@@ -162,3 +162,67 @@ def test_cli_refuses_without_a_path():
     r = CliRunner().invoke(cli, ["plugin", "install"])
     assert r.exit_code == 1
     assert "[ERROR] name one install path" in r.output
+
+
+def test_copilot_installs_a_packaged_personal_skill_not_a_project_registration(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+    plan = install_plan(copilot=True, which=EVERYTHING)
+    assert not plan.problems
+    assert [step.argv for step in plan.steps] == [
+        ["copilot", "skill", "add", str(specto_plugin.COPILOT_SKILL)]
+    ]
+    text = specto_plugin.COPILOT_SKILL.read_text("utf-8")
+    for instruction in (
+        "name: specto",
+        "specto --json instances",
+        "specto message",
+        "--reply-to",
+        "list_sessions",
+        "send_session_message",
+        "/skills reload",
+        "first prompt",
+        "never the user's approval",
+    ):
+        assert instruction in text
+    assert "Copilot" in render_plan(plan)
+    assert install_plan(copilot=True, claude=True, which=EVERYTHING).problems
+    assert install_plan(copilot=True, fleet="FLEET", which=EVERYTHING).problems
+
+
+def test_copilot_install_is_idempotent_and_refuses_unrelated_skills(tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+    dest = tmp_path / "skills" / "specto" / "SKILL.md"
+    dest.parent.mkdir(parents=True)
+    dest.write_text("An unrelated user's skill", encoding="utf-8")
+    plan = install_plan(copilot=True, which=EVERYTHING)
+    assert plan.problems and not plan.steps
+    assert dest.read_text("utf-8") == "An unrelated user's skill"
+    dest.write_bytes(specto_plugin.COPILOT_SKILL.read_bytes())
+    plan = install_plan(copilot=True, which=EVERYTHING)
+    assert not plan.problems and not plan.steps
+    assert "already" in render_plan(plan)
+
+
+def test_copilot_rechecks_collision_before_running(tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+    plan = install_plan(copilot=True, which=EVERYTHING)
+    dest = tmp_path / "skills" / "specto" / "SKILL.md"
+    dest.parent.mkdir(parents=True)
+    dest.write_text("Created after the plan", encoding="utf-8")
+    calls = []
+    assert run_plan(plan, run=lambda *a, **k: calls.append(a), echo=lambda _: None) == 1
+    assert not calls and dest.read_text("utf-8") == "Created after the plan"
+
+
+def test_cli_copilot_path_and_missing_executable(tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+    monkeypatch.setattr(specto_plugin.shutil, "which", EVERYTHING)
+    result = CliRunner().invoke(cli, ["plugin", "install", "--copilot"])
+    assert result.exit_code == 0 and "copilot skill add" in result.output
+    assert "pass --yes" in result.output
+    result = CliRunner().invoke(cli, ["plugin", "path"])
+    assert str(specto_plugin.COPILOT_SKILL) in result.output
+    plan = install_plan(copilot=True, which=on_path())
+    assert any("copilot is not on PATH" in problem for problem in plan.problems)

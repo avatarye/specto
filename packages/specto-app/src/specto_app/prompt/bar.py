@@ -74,8 +74,14 @@ from .. import clipboard
 from ..launchers.agent import LaunchTools
 from ..launchers.book import book_for
 from ..walk.tools import WalkTools, walk_request
+from . import copilot_session as copilot_models
+from . import session as claude_models
 from .commands import CommandStore, list_commands
 from .context import CanvasContext, document_hash
+from .copilot_session import (
+    DEFAULT_MODEL,
+    SESSION_FILE,
+)
 from .data import DataStore
 from .files import ProjectFiles
 from .fleet import PATH_RE, RECIPIENTS_SETTING, FleetTools, Nimitz
@@ -92,12 +98,7 @@ from .peers import (
 )
 from .scratch import ScratchTools, context_items, turn_label
 from .session import (
-    DEFAULT_MODEL,
-    MODEL_DETAILS,
-    MODEL_LABELS,
-    MODELS,
     SERVER_NAME,
-    SESSION_FILE,
     project_commands,
     project_skills,
     slash_command,
@@ -112,7 +113,7 @@ if TYPE_CHECKING:
 SessionFactory = Callable[[TurnTools], AgentSession]
 ORIGIN = "agent:prompt"
 MAX_PATHS = 50  # selected files listed in the context
-MODEL_SETTING = "prompt/model"  # the chip's choice, in the user's settings ini
+MODEL_SETTING = "prompt/copilot_model"
 #: Claude Code's own commands: listed greyed in the completion, refused on submit
 BUILT_IN_COMMANDS = (
     "clear",
@@ -128,16 +129,17 @@ BUILT_IN_COMMANDS = (
 )
 
 
-def saved_model() -> str:
-    """The model the user chose last (``MODELS``), ``DEFAULT_MODEL`` when none or
-    when the saved name is no longer one of the three."""
-    value = str(QSettings().value(MODEL_SETTING, DEFAULT_MODEL) or DEFAULT_MODEL)
-    return value if value in MODELS else DEFAULT_MODEL
+def saved_model(provider: str = "copilot") -> str:
+    """The provider's saved model, or its default when the choice is unavailable."""
+    config = claude_models if provider == "claude" else copilot_models
+    key = "prompt/model" if provider == "claude" else MODEL_SETTING
+    value = str(QSettings().value(key, config.DEFAULT_MODEL) or config.DEFAULT_MODEL)
+    return value if value in config.MODELS else config.DEFAULT_MODEL
 
 
-def save_model(name: str) -> None:
+def save_model(name: str, provider: str = "copilot") -> None:
     settings = QSettings()
-    settings.setValue(MODEL_SETTING, name)
+    settings.setValue("prompt/model" if provider == "claude" else MODEL_SETTING, name)
     settings.sync()
 
 
@@ -226,7 +228,8 @@ class PromptBar(QObject):
         self._task: asyncio.Task[None] | None = None
         self._mouse: tuple[float, float] | None = None
         self._draft = ""
-        self._model = saved_model()
+        self._model_config = claude_models if app.agent == "claude" else copilot_models
+        self._model = saved_model(app.agent)
         self._last_hash = ""  # the document hash the agent last saw
         #: the project skills as the agent last knew them (#161): the session listed
         #: them at its start, its own saves reported back to it
@@ -252,6 +255,7 @@ class PromptBar(QObject):
         self._asked: dict[int, Entry] = {}
         #: peer rows to run once the running turn ends, oldest first
         self._queue: list[Entry] = []
+        self._closing = False
         #: approval cards waiting for the user's Approve or Dismiss (#203), by entry id
         self._approvals: dict[int, Entry] = {}
         # a link approved elsewhere (the view's header) retires its card
@@ -429,7 +433,7 @@ class PromptBar(QObject):
     @Slot(result=bool)
     def newSession(self) -> bool:
         """The panel's new-session button: the agent forgets the conversation (a fresh
-        Claude Code session, and the next launch resumes that one); the thread keeps the
+        provider session, and the next launch resumes that one); the thread keeps the
         old one readable above a divider. Refused while a turn runs."""
         if self.busy:
             self.app.notices.info("the agent is still working on the last request")
@@ -438,7 +442,9 @@ class PromptBar(QObject):
         if session is not None:
             loop = self.app.loop or asyncio.get_event_loop()
             loop.create_task(session.close())
-        (Path(self.app.project.root) / ".specto" / SESSION_FILE).unlink(missing_ok=True)
+        if self.app.agent in ("copilot", "claude"):
+            filename = claude_models.SESSION_FILE if self.app.agent == "claude" else SESSION_FILE
+            (Path(self.app.project.root) / ".specto" / filename).unlink(missing_ok=True)
         self._last_hash = ""  # the new session gets the whole document
         self._skills_seen = ""  # and the project's skills
         self.reply = None
@@ -777,28 +783,32 @@ class PromptBar(QObject):
 
     @Property(str, notify=modelChanged)
     def model(self) -> str:
-        """The model the next turn runs on: ``opus``, ``sonnet`` or ``haiku``."""
+        """The provider-specific model the next turn runs on."""
         return self._model
 
     @Property(str, notify=modelChanged)
     def modelLabel(self) -> str:
-        return MODEL_LABELS.get(self._model, self._model)
+        return self._model_config.MODEL_LABELS.get(self._model, self._model)
 
     @Property(list, constant=True)
     def models(self) -> list[dict[str, str]]:
         """The chip's menu: ``{name, label, detail}`` per model."""
-        return [{"name": m, "label": MODEL_LABELS[m], "detail": MODEL_DETAILS[m]} for m in MODELS]
+        config = self._model_config
+        return [
+            {"name": m, "label": config.MODEL_LABELS[m], "detail": config.MODEL_DETAILS[m]}
+            for m in config.MODELS
+        ]
 
     @Slot(str, result=bool)
     def setModel(self, name: str) -> bool:
         """Pick the model for the next turn (a running turn finishes on the old one);
         the live session switches without a restart. Remembered per user."""
         name = str(name).strip().lower()
-        if name not in MODELS:
+        if name not in self._model_config.MODELS:
             return False
         if name != self._model:
             self._model = name
-            save_model(name)
+            save_model(name, self.app.agent)
             if self.session is not None:
                 self.session.set_model(name)
             self.modelChanged.emit()
@@ -935,7 +945,6 @@ class PromptBar(QObject):
             if self.session is None:
                 self.session = self.factory(self.tools)
                 self.session.set_model(self._model)
-                await self.session.start()
             reply = await run_turn(
                 self.session,
                 self.tools,
@@ -1139,7 +1148,7 @@ class PromptBar(QObject):
             self._thread.refresh_live()
             print(f"[OK] peer request from {sender}: waiting for the user")
             return {**out, "id": entry.id, "status": "waiting"}
-        status = "queued" if self.busy or self._queue else "run"
+        status = "queued" if self._closing or self.busy or self._queue else "run"
         entry = self._add("peer", **row, status=status)
         print(f"[OK] peer request from {sender}: {status}")
         if status == "queued":
@@ -1182,7 +1191,7 @@ class PromptBar(QObject):
 
     def _next_peer(self) -> None:
         """The oldest queued peer request, once no turn runs."""
-        if self._queue and not self.busy and self.app is not None:
+        if self._queue and not self._closing and not self.busy and self.app is not None:
             self._start_peer(self._queue.pop(0))
 
     # -- approval requests (#203) -----------------------------------------------------------------
@@ -1278,6 +1287,7 @@ class PromptBar(QObject):
 
     # -- lifecycle ----------------------------------------------------------------------------
     async def aclose(self) -> None:
+        self._closing = True
         self._off_patch()
         if self._task is not None:
             self._task.cancel()

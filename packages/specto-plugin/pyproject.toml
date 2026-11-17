@@ -1,7 +1,7 @@
 [project]
 name = "specto-plugin"
 version = "0.2.0"
-description = "The Claude Code plugin shipped with Specto (#187): the specto skill and specto-mcp, with its install plan."
+description = "Specto communication skills for Copilot and Claude Code, with explicit install plans."
 requires-python = ">=3.12,<3.13"
 license = "MIT"
 dependencies = []

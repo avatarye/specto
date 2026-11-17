@@ -1,23 +1,27 @@
-"""The Claude Code plugin shipped with Specto (#187 section 5) and its install plan.
+"""Specto's packaged agent skills and explicit install plans.
 
 The plugin's files are package data: ``marketplace/`` is a local Claude Code
 marketplace (``.claude-plugin/marketplace.json``) holding one plugin, ``specto/``, with
 the ``specto`` skill, the ``/specto`` command and the specto-mcp server declared in its
-``.claude-plugin/plugin.json``. Two install paths, each run only when the user agrees:
+``.claude-plugin/plugin.json``. Three install paths, run only when the user agrees:
 
 - fleet: ``nimitz harness add skill <skill folder> --fleet F --yes``, so the fleet's
   members get the skill through the fleet harness (a harness carries rules, agents,
   skills and settings, not MCP servers: members use the ``specto`` CLI the skill names);
 - Claude Code: ``claude plugin marketplace add <marketplace>`` then
-  ``claude plugin install specto@specto-app``.
+  ``claude plugin install specto@specto-app``;
+- Copilot: ``copilot skill add <packaged SKILL.md>`` materializes a personal
+  communication skill, without installing MCP or changing peer settings.
 
 ``install_plan`` builds the plan (exact argv per step, with the notes the user should
 read first), ``render_plan`` prints it and ``run_plan`` runs it on ``--yes``. Nothing
-here edits ``~/.claude`` itself: the two CLIs do, once the user said yes.
+here edits an agent's configuration itself: its supported CLI installs the resources
+once the user said yes. Copilot name collisions are refused; identical installs are a no-op.
 """
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -30,6 +34,7 @@ MARKETPLACE_NAME = "specto-app"
 PLUGIN_NAME = "specto"
 PLUGIN = MARKETPLACE / PLUGIN_NAME
 SKILL = PLUGIN / "skills" / "specto"
+COPILOT_SKILL = Path(__file__).resolve().parent / "copilot" / "specto" / "SKILL.md"
 PLUGIN_ID = f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"
 #: one fleet's name as nimitz writes it (``FLEET``, ``MAIN_2``): never a path, never //...
 FLEET_NAME = re.compile(r"[A-Z0-9_]+")
@@ -51,20 +56,58 @@ class Plan:
     warnings: list[str] = field(default_factory=list)
     #: why nothing can run (``[ERROR]`` lines); a plan with problems never runs
     problems: list[str] = field(default_factory=list)
+    skill_target: Path | None = None
+
+
+def _copilot_collision(plan: Plan) -> None:
+    target = plan.skill_target
+    if target is None or not target.parent.exists():
+        return
+    if target.is_file() and target.read_bytes() == COPILOT_SKILL.read_bytes():
+        plan.steps.clear()
+        plan.warnings.append("the personal Copilot specto skill is already up to date")
+    else:
+        plan.problems.append(
+            f"{target.parent} already exists: it will not be overwritten. Back up and "
+            "review that skill before explicitly removing it with `copilot skill remove specto`."
+        )
+        plan.steps.clear()
 
 
 def install_plan(
     *,
     fleet: str | None = None,
     claude: bool = False,
+    copilot: bool = False,
     which: Which | None = None,
 ) -> Plan:
-    """The plan for ``specto plugin install --fleet F | --claude`` (exactly one);
+    """The plan for ``specto plugin install --fleet F | --claude | --copilot`` (one);
     ``which`` finds a program on PATH (``shutil.which``)."""
     which = which or shutil.which
-    if (fleet is None) == (not claude):
+    if sum((fleet is not None, claude, copilot)) != 1:
         plan = Plan("")
-        plan.problems.append("name one install path: --fleet F (a nimitz fleet) or --claude")
+        plan.problems.append(
+            "name one install path: --fleet F (a nimitz fleet), --claude or --copilot"
+        )
+        return plan
+    if copilot:
+        home = Path(os.environ.get("COPILOT_HOME") or Path.home() / ".copilot").expanduser()
+        plan = Plan("Copilot CLI", skill_target=home / "skills" / "specto" / "SKILL.md")
+        if which("copilot") is None:
+            plan.problems.append("copilot is not on PATH: install GitHub Copilot CLI first")
+        plan.steps.append(
+            Step(
+                ["copilot", "skill", "add", str(COPILOT_SKILL)],
+                "materialize the complete communication skill in personal Copilot skills",
+            )
+        )
+        _copilot_collision(plan)
+        plan.warnings.append(
+            "existing Copilot sessions need `/skills reload`; new sessions discover it "
+            "automatically. No MCP server or peer settings are installed."
+        )
+        if which("specto") is None:
+            plan.warnings.append("specto is not on PATH here: install the global CLI first")
         return plan
     if fleet is not None:
         plan = Plan(f"fleet {fleet}")
@@ -134,6 +177,12 @@ def run_plan(
     exit code."""
     if plan.problems:
         return 1
+    if plan.skill_target is not None:
+        _copilot_collision(plan)
+        if plan.problems:
+            for problem in plan.problems:
+                echo(f"[ERROR] {problem}")
+            return 1
     which = which or shutil.which
     for step in plan.steps:
         echo(f"[RUN] {_shell(step.argv)}")
@@ -151,6 +200,7 @@ def _shell(argv: Sequence[str]) -> str:
 
 
 __all__ = [
+    "COPILOT_SKILL",
     "MARKETPLACE",
     "MARKETPLACE_NAME",
     "PLUGIN",

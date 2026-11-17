@@ -42,7 +42,9 @@ shot 153s-05-wireframe.png
 click viewMode:kobi
 wait 600
 click menu:mode-collision
-wait 4000
+# The pill names the requested mode while the overlay still builds. Wait for the
+# source's completed switch, including a cold hull build on a busy machine.
+assert_host kobi view_mode "collision" 35000
 assert_text viewMode:kobi Collision
 assert_text viewModeNote:kobi 2 colliders
 shot 153s-06-collision.png
