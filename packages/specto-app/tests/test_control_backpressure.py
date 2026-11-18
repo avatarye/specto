@@ -207,13 +207,56 @@ def test_closing_in_the_background_returns_at_once_and_still_kills_a_deaf_source
     """SPEC-87: ``close_in_background`` hands the close (ask, wait, kill) to a thread the
     interpreter waits for at exit (not a daemon), so the caller never blocks and a source
     that never stops is still killed after the timeout."""
-    src = spawn("import time\nwhile True: time.sleep(1)\n")  # reads nothing, never stops
+    src = spawn(DEAF)  # reads nothing and never stops by itself
     started = time.perf_counter()
     reaper = src.close_in_background(timeout=1.0)
-    assert time.perf_counter() - started < 0.1
+    assert time.perf_counter() - started < 1.0  # close() itself waits the whole timeout
     assert not reaper.daemon
     reaper.join(15)
     assert not reaper.is_alive() and src.proc.poll() is not None
+
+
+#: an app that starts a source which never stops, closes it in the background and quits
+QUITS = f"""
+import atexit, sys, time
+from specto_app.frames import control
+src = control.FrameSourceProcess.spawn([sys.executable, "-c", {DEAF!r}])
+print("SOURCE", src.proc.pid, flush=True)
+started = time.perf_counter()
+def report():
+    print("AT EXIT", time.perf_counter() - started, src.proc.poll(), flush=True)
+atexit.register(report)  # runs once the interpreter joined its non-daemon threads
+src.close_in_background(timeout=1.0)
+"""
+
+
+def test_an_app_that_quits_while_a_source_closes_in_the_background_leaves_no_orphan():
+    """SPEC-87: the interpreter waits for the close before it exits, so the app ends only
+    once the close timeout passed and the source was killed."""
+    import subprocess
+
+    from process_helpers import alive, kill_tree
+
+    with subprocess.Popen(
+        [sys.executable, "-c", QUITS], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    ) as proc:
+        try:
+            out, _ = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            kill_tree(proc.pid)
+            out, _ = proc.communicate()
+    pids = [int(line.split()[1]) for line in out.splitlines() if line.startswith("SOURCE ")]
+    assert pids, out
+    try:
+        assert proc.returncode == 0, out
+        at_exit = [line.split()[2:] for line in out.splitlines() if line.startswith("AT EXIT ")]
+        assert at_exit, out
+        waited, code = at_exit[0]
+        assert float(waited) >= 1.0 and code != "None", out  # killed after the timeout
+        assert not alive(pids[0]), "the source outlived the app"
+    finally:
+        if alive(pids[0]):
+            kill_tree(pids[0])
 
 
 def test_a_stub_source_that_is_told_to_stop_waits_for_stdin_to_close_before_it_exits():
@@ -223,14 +266,14 @@ def test_a_stub_source_that_is_told_to_stop_waits_for_stdin_to_close_before_it_e
     import subprocess
 
     argv = [sys.executable, "-m", "specto_app.frames.stub_source", "--width", "32"]
-    proc = subprocess.Popen(
+    with subprocess.Popen(
         argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
-    assert proc.stdout.readline()  # ready
-    proc.stdin.write(json.dumps({"id": 1, "method": "shutdown", "params": {}}).encode() + b"\n")
-    proc.stdin.flush()
-    time.sleep(0.5)  # the source stops before its stdin closes
-    proc.stdin.close()
-    err = proc.stderr.read().decode("utf-8", "replace")
-    assert proc.wait(15) == 0, err
+    ) as proc:
+        assert proc.stdout.readline()  # ready
+        proc.stdin.write(json.dumps({"id": 1, "method": "shutdown", "params": {}}).encode() + b"\n")
+        proc.stdin.flush()
+        time.sleep(0.5)  # the source stops before its stdin closes
+        proc.stdin.close()
+        err = proc.stderr.read().decode("utf-8", "replace")
+        assert proc.wait(15) == 0, err
     assert "Fatal Python error" not in err

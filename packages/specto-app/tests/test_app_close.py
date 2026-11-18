@@ -8,7 +8,6 @@ take the test session with it."""
 
 from __future__ import annotations
 
-import ctypes
 import subprocess
 import sys
 import threading
@@ -16,42 +15,13 @@ import time
 from pathlib import Path
 
 import pytest
+from process_helpers import alive, kill_tree
 
 pytest.importorskip("PySide6.QtQuick")
 
 CHILD = Path(__file__).with_name("app_close_child.py")
 #: from the window closing to the process having exited
 EXIT_S = 5.0
-
-
-def alive(pid: int) -> bool:
-    if sys.platform != "win32":
-        try:
-            import os
-
-            os.kill(pid, 0)
-        except OSError:
-            return False
-        return True
-    k32 = ctypes.windll.kernel32
-    h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-    if not h:
-        return False
-    try:
-        code = ctypes.c_ulong()
-        return bool(k32.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == 259
-    finally:
-        k32.CloseHandle(h)
-
-
-def kill_tree(pid: int) -> None:
-    if sys.platform == "win32":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True)
-    else:
-        import os
-        import signal
-
-        os.kill(pid, signal.SIGKILL)
 
 
 def run_child(project: Path, *args: str) -> tuple[list[tuple[float, str]], float | None, int]:

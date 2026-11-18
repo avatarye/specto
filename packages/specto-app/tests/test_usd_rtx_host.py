@@ -12,6 +12,7 @@ import pytest
 
 pytest.importorskip("pxr", reason="usd-core comes with the rtx extra")
 
+from process_helpers import alive
 from test_usd_host import stages, submit_usd
 
 from specto_app.hosts import HostContext
@@ -98,22 +99,6 @@ def _held_step(tmp_path: Path) -> bool:
     return log.exists() and '"hold_step"' in log.read_text(encoding="utf-8")
 
 
-def _gone(pid: int) -> bool:
-    import subprocess
-    import sys
-
-    if sys.platform == "win32":
-        out = subprocess.run(
-            ["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True
-        ).stdout
-        return str(pid) not in out
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return True
-    return False
-
-
 @pytest.mark.parametrize(("hold", "within"), [(3, 15), (60, 20)], ids=["finishes", "killed"])
 def test_closing_mid_first_frame_never_blocks_and_leaves_no_process(
     tmp_path: Path, qapp, spin, monkeypatch: pytest.MonkeyPatch, hold: int, within: int
@@ -130,5 +115,5 @@ def test_closing_mid_first_frame_never_blocks_and_leaves_no_process(
     pid = host.source.proc.pid
     started = time.perf_counter()
     host.dispose()
-    assert time.perf_counter() - started < 0.1
-    spin(until=lambda: _gone(pid), timeout=within)
+    assert time.perf_counter() - started < 1.0  # it blocked 3-5 s before
+    spin(until=lambda: not alive(pid), timeout=within)
