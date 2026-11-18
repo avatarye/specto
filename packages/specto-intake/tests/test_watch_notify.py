@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from intake_helpers import copy_frames, make_tree, needs_testdata
-from test_watch_resolve import drip, pump_until, watched_gallery
+from test_watch_resolve import drip, pump_until, settled, watched_gallery
 
 import specto_intake  # noqa: F401  (registers the intaker resolver and watcher)
 from specto_core import Engine, Project, fswatch
@@ -43,15 +43,6 @@ def start_watching(project: Project, monkeypatch=None) -> tuple[Engine, ThreadJo
     assert pump_until(engine, jobs, lambda: items_of(engine) == 3)
     assert pump_until(engine, jobs, lambda: settled(engine.links))
     return engine, jobs
-
-
-def settled(links, link_id: str = "l2") -> bool:
-    """The watcher's start is behind it: the baseline, and in notify mode the listing
-    after notifications armed (SPEC-83), so a count of listings taken now stays put."""
-    status = links.watch_status(link_id) or {}
-    if not status.get("decided"):
-        return False
-    return status.get("polls", 0) >= (2 if status.get("mode") == "notify" else 1)
 
 
 @needs_testdata

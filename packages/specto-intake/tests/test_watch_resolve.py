@@ -82,6 +82,15 @@ def pump_until(engine: Engine, jobs: ThreadJobManager, cond, timeout: float = 30
     return False
 
 
+def settled(links, link_id: str = "l2") -> bool:
+    """The watcher's start is behind it: the baseline, and in notify mode the listing
+    after notifications armed (SPEC-83), so a count of listings taken now stays put."""
+    status = links.watch_status(link_id) or {}
+    if not status.get("decided"):
+        return False
+    return status.get("polls", 0) >= (2 if status.get("mode") == "notify" else 1)
+
+
 def keys_of(col: Collection) -> list[str]:
     return [it.key for it in col.items]
 
@@ -104,7 +113,7 @@ def test_files_arriving_in_a_watched_folder_resolve_in_the_background_and_swap_i
     assert links.watching() == ["l2"]  # the tree follows its loaded folders itself (#231)
     # the watcher has settled: its baseline and the listing after notifications armed
     # are behind it, so no listing catches the drip half-written (SPEC-83)
-    assert pump_until(engine, jobs, lambda: links.watch_status("l2")["polls"] >= 2)
+    assert pump_until(engine, jobs, lambda: settled(links))
 
     drip(project.root / "drops", 3, 2)
 

@@ -576,7 +576,7 @@ class LinkWatch:
 
     # -- the loop ------------------------------------------------------------------------
     def _run(self) -> None:
-        # how to follow the sources is decided first (quick), then the baseline at once,
+        # the folders to follow are planned first (quick), then the baseline at once,
         # as close to the resolve's own listing as can be (SPEC-83: arming can take a
         # while, the observer starts on first use, and a baseline taken after it would
         # swallow what landed meanwhile); then notifications arm, and one more listing
@@ -674,7 +674,8 @@ class LinkWatch:
             if refused:
                 self._retry_gap = min(RETRY_MAX_S, self._retry_gap * 2)
             return
-        # a listing that could not be made: poll as before
+        # anything else (a listing that could not be made, or a Notifier that failed to
+        # start for another reason): poll as before, with no timed retry
         self._set_state(WatchMode.POLL, f"polling: {e}")
         self._retry_at = None
 
