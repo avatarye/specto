@@ -97,8 +97,6 @@ def path_refusal(text: str, *, unc_ok: bool = False) -> Refusal | None:
                     return Refusal.NETWORK
             elif text[:2] in ("\\\\", "//"):
                 return Refusal.DEVICE if text[2:3] in ("?", ".") else Refusal.NETWORK
-            elif text[:4] in ("\\??\\", "/??/"):
-                return Refusal.DEVICE
             else:
                 return Refusal.ROOTED
         name = ntpath.basename(text.replace("/", "\\"))
