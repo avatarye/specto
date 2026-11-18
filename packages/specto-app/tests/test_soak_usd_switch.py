@@ -4,6 +4,8 @@ that times out are faults (exit 1), and the last two leave no source process beh
 
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -14,7 +16,7 @@ import pytest
 
 pytest.importorskip("pxr", reason="usd-core comes with the rtx extra")
 
-from process_helpers import alive
+from process_helpers import alive, kill_tree
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL = ROOT / "tools" / "soak_usd_switch.py"
@@ -96,3 +98,38 @@ def test_a_close_that_times_out_is_killed_and_is_a_fault(tmp_path: Path):
     assert row["timed_out"] and row["rc"] != 0
     assert any("close round 1" in f for f in report["faults"])
     assert not alive(row["pid"])
+
+
+def test_a_process_of_the_tree_left_after_a_clean_close_is_killed_and_is_a_fault(tmp_path: Path):
+    """The source's own process closes cleanly but another of its tree (here a sleeper
+    standing in for an interpreter a launcher left behind) still runs: ``Source.close``
+    kills it and the soak counts a fault."""
+    spec = importlib.util.spec_from_file_location("soak_usd_switch", TOOL)
+    tool = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tool)
+    from specto_app.frames.control import FrameSourceProcess
+
+    src = tool.Source.__new__(tool.Source)
+    src.stderr = open(tmp_path / "stderr.log", "w", encoding="utf-8")
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        # a source that ends at stdin EOF, rc 0, well inside the close timeout
+        src.src = FrameSourceProcess.spawn(
+            [sys.executable, "-c", "import sys; sys.stdin.read()"], stderr=src.stderr
+        )
+        src.pid = sleeper.pid  # the tree's other member, as the ``ready`` pid
+        ns = argparse.Namespace(work=tmp_path, seed=78, py_spy="", close_timeout=30.0)
+        soak = tool.Soak(ns)
+        soak.closed(src, "close round 1", {"round": 1, "case": "close"})
+        (row,) = soak.rows
+        assert row["rc"] == 0 and not row["timed_out"]
+        assert row["left_running"]
+        assert soak.faults and soak.faults[0].startswith("close round 1")
+        assert sleeper.wait(10) is not None and not alive(sleeper.pid)
+    finally:
+        if sleeper.poll() is None:
+            kill_tree(sleeper.pid)
+            sleeper.wait(10)
+        if hasattr(src, "src"):
+            src.src.close()
+        src.stderr.close()
