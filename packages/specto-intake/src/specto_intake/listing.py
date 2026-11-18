@@ -81,14 +81,15 @@ class _Root:
         self.dir = root.parent if self.is_file else root
         self.file_name = root.name if self.is_file else ""
         base_posix = posix(base.resolve()).rstrip("/")
-        dir_posix = posix(self.dir)
+        # a drive's root without its slash (C:), so C: is the folder and C:/x below it
+        dir_posix = posix(self.dir).rstrip("/") or "/"
         if dir_posix.lower() == base_posix.lower():
             self.prefix = ""
         elif dir_posix.lower().startswith(base_posix.lower() + "/"):
             self.prefix = dir_posix[len(base_posix) + 1 :]
         else:
             self.prefix = dir_posix
-        self.inside = self.prefix == "" or not os.path.isabs(self.prefix)
+        self.inside = not _absolute(self.prefix)
         self.pattern = (
             re.compile(glob_to_regex(src.pattern.replace("\\", "/")), re.IGNORECASE)
             if src.pattern
@@ -267,7 +268,7 @@ class TreeLister:
     ) -> list[Entry]:
         out: list[Entry] = []
         for name, size, mtime_ns in files:
-            child = f"{folder}/{name}" if folder else name
+            child = join_path(folder, name)
             if is_container(name):
                 if not (r.inside and hidden(child)):
                     # a member may pass the pattern the archive itself does not

@@ -13,7 +13,7 @@ import pytest
 from intake_helpers import ALIASES
 
 from specto_intake import sources
-from specto_intake.listing import Entry, TreeLister
+from specto_intake.listing import Entry, TreeLister, join_path
 from specto_intake.scan import scan
 
 
@@ -221,13 +221,48 @@ def test_a_source_outside_the_project_is_listed_under_its_absolute_path(tmp_path
     assert lister.files_under([posix + "/"])[0] == [posix + "/a.txt"]
     assert lister.files_under([""])[0] == sorted(["own.txt", posix + "/a.txt"])
     folder = top_path
-    while folder != posix:
+    for _ in parts:
+        if folder == posix:
+            break
         ((folder, is_dir),) = names(lister.list_dir(folder))
         assert is_dir
+    assert folder == posix
     assert names(lister.list_dir(folder)) == [(posix + "/a.txt", False)]
     drive_lister = TreeLister(proj, {"sources": [outside.anchor]})
     assert names(drive_lister.list_dir(posix)) == [(posix + "/a.txt", False)]
     assert drive_lister.files_under([posix])[0] == [posix + "/a.txt"]
+
+
+def test_a_whole_drive_source_lists_the_drive_from_the_tree_root(tmp_path: Path):
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / "a.txt").write_bytes(b"a")
+    outside = (tmp_path / "elsewhere").resolve()
+    posix = str(outside).replace("\\", "/")
+    parts = posix.split("/")
+    lister = TreeLister(proj, {"sources": [outside.anchor]})
+    # from the tree root, down through the drive (C: on Windows, / on POSIX) to the folder
+    folder = ""
+    for part in [parts[0] or "/", *parts[1:]]:
+        child = join_path(folder, part)
+        listed = {p.lower(): is_dir for p, is_dir in names(lister.list_dir(folder))}
+        assert listed.get(child.lower()) is True, (folder, child)
+        folder = child
+    assert folder == posix
+    assert names(lister.list_dir(folder)) == [(posix + "/a.txt", False)]
+
+
+def test_files_at_a_posix_root_get_a_single_leading_slash(tmp_path: Path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "a.txt").write_bytes(b"a")
+    lister = TreeLister(tmp_path, {"sources": [str(tmp_path)]})
+    # the source "/" on POSIX, placed at a folder this test owns
+    (r,) = lister.roots
+    r.prefix, r.inside = "/", False
+    assert names(lister.list_dir("")) == [("/", True)]
+    assert names(lister.list_dir("/")) == [("/sub", True), ("/a.txt", False)]
+    assert lister.files_under(["/"])[0] == ["/a.txt"]
 
 
 def test_listing_a_folder_never_walks_the_tree(root: Path, monkeypatch: pytest.MonkeyPatch):
