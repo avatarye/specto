@@ -1106,11 +1106,11 @@ def test_a_reference_outside_the_scope_is_judged_before_anything_resolves_it(
 ):
     """SPEC-43.1 review 3: ``resolve`` called ``target.resolve()`` (the disk; on a mapped
     network drive, traffic) before the scope test. An absolute or relative reference
-    whose text already lies outside the scope is OUTSIDE without a filesystem call."""
+    whose text already lies outside the scope is ``Cause.OUTSIDE`` without a filesystem call."""
     import os
     import pathlib
 
-    from specto_readers.urdf import OUTSIDE
+    from specto_readers.urdf import Cause
 
     proj = tmp_path / "proj"
     urdf = write(proj / "r.urdf", '<robot name="r"><link name="a"/></robot>')
@@ -1141,7 +1141,7 @@ def test_a_reference_outside_the_scope_is_judged_before_anything_resolves_it(
     finally:
         monkeypatch.undo()
     assert calls == []
-    assert [h.cause for h in hits] == [OUTSIDE, OUTSIDE, OUTSIDE]
+    assert [h.cause for h in hits] == [Cause.OUTSIDE] * 3
 
 
 def test_a_package_paths_mapping_needs_a_package_xml_naming_the_package(tmp_path: Path):

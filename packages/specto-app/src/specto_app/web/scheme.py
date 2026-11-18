@@ -368,7 +368,7 @@ def locate_item(
         entry["status"] = "not_found"
         return None
     p = Path(parts[role])
-    if part_refused(str(p), items.guard_root(col) if items is not None else None):
+    if part_refused(str(p), owner.guard_root(col) if owner is not None else None):
         entry["status"] = "refused"
         return None
     if is_virtual(str(p)):  # a container member: the archive must exist

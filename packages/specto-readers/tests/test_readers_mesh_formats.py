@@ -249,6 +249,24 @@ def test_the_resolver_absolute_refuses_a_whitespace_wrapped_network_name(
     assert reached == []
 
 
+@pytest.mark.parametrize(
+    "src",
+    [r"\??\UNC\attacker\share\robot.dae", "//?/UNC/attacker/share/robot.dae"],
+    ids=["nt-object", "device-unc"],
+)
+def test_prepare_refuses_a_device_source_before_any_filesystem_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str
+):
+    """SPEC-43.1 review 3: ``dae.prepare`` judges its own source by ``pathguard``
+    (defence in depth behind its callers): a device or NT object path never reaches the
+    stamp's stat, the cache or the converter."""
+    reached = filesystem_calls_naming(monkeypatch, "attacker")
+    with pytest.raises(dae.DaeError, match=r"(device|network) path"):
+        dae.prepare(src, tmp_path / "cache", "k")
+    assert reached == []
+    assert not (tmp_path / "cache").exists()
+
+
 def test_a_y_up_metre_dae_is_left_as_it_is(tmp_path: Path):
     src = write_dae(tmp_path / "plain.dae", unit_meter=1.0, up_axis="Y_UP")
     info = dae.convert(src, tmp_path / "plain.glb")

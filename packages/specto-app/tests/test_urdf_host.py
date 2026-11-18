@@ -727,7 +727,8 @@ def test_the_robot_s_guard_root_is_the_project(engine: Engine):
     submit_robot(engine)
     _ctx, host, _sink = make_host(engine)
     meshes = host._meshes
-    assert meshes.guard_root("l2") == meshes.scope[0]
-    assert Path(meshes.scope[0]) == Path(engine.project.root).resolve()
+    project = meshes.robot.scope[0]
+    assert meshes.guard_root("l2") == project
+    assert Path(project) == Path(engine.project.root).resolve()
     assert meshes.guard_root("elsewhere") is None
-    assert runtime().items.guard_root("l2") == meshes.scope[0]
+    assert runtime().items.guard_root("l2") == project

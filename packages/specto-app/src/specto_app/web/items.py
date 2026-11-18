@@ -53,6 +53,15 @@ class ItemResolver(Protocol):
         return None
 
 
+def own_lookup(
+    resolver: ItemResolver, link_id: str, key: str
+) -> tuple[ItemResolver, dict[str, str]] | None:
+    """``ItemResolver.lookup`` for a resolver that answers for itself (every one but a
+    chain): ``(resolver, parts)`` when it knows the item, else None."""
+    p = resolver.parts(link_id, key)
+    return (resolver, p) if p else None
+
+
 def _table_of(items: Iterable[Item | dict[str, Any]]) -> dict[str, dict[str, str]]:
     table: dict[str, dict[str, str]] = {}
     for it in items:
@@ -82,14 +91,14 @@ class ItemTable:
         return list(self._cols.get(link_id, {}))
 
     def lookup(self, link_id: str, key: str) -> tuple[ItemResolver, dict[str, str]] | None:
-        p = self.parts(link_id, key)
-        return (self, p) if p else None
+        return own_lookup(self, link_id, key)
 
     def root(self, link_id: str, key: str) -> str | None:
         return None
 
     def guard_root(self, link_id: str) -> str | None:
         return self._guard_root if link_id in self._cols else None
+
     def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
         return True
 
@@ -143,12 +152,12 @@ class LinkItems:
         if v is None:
             return None
         return v.root or getattr(self.links, "root", "") or None
+
     def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
         return True  # what resolve_relative and the root allow
 
     def lookup(self, link_id: str, key: str) -> tuple[ItemResolver, dict[str, str]] | None:
-        p = self.parts(link_id, key)
-        return (self, p) if p else None
+        return own_lookup(self, link_id, key)
 
     def keys(self, link_id: str) -> list[str]:
         v = self.value_of(link_id)
@@ -259,5 +268,6 @@ __all__ = [
     "LinkItems",
     "display_name",
     "display_names",
+    "own_lookup",
     "pick_role",
 ]

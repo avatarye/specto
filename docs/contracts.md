@@ -323,7 +323,8 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   writes the converted mesh `<name>.dae.glb` beside it, or in the cache when the folder
   cannot take it (`specto_readers.dae.prepare(src, cache_dir, key, *, beside=True)`, ADR
   0028; `beside=False` keeps it in the cache only, for the urdf view's DAEs outside the
-  project); a converted mesh whose DAE is in the
+  project; `src`'s text passes `pathguard.path_refusal` with `unc_ok` first, so a
+  device path raises `DaeError` before any stat); a converted mesh whose DAE is in the
   same collection gets no scene, so the model shows once. `attach_scenes` takes the
   collection's `root`; an OBJ's MTL and textures outside it, or missing, are listed under
   the scene's `missing`. The items host serves a part's trailing path that starts with
@@ -331,9 +332,10 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   every `ItemResolver` (`specto_app.web.items`: `parts(link_id, key)`, `keys(link_id)`,
   `lookup(link_id, key)`, `root(link_id, key)`, `side_allowed(link_id, key, role,
   path)`, `guard_root(link_id)`) implements `lookup -> (resolver, parts) | None`, the
-  one pass the items host makes per request (a single resolver answers for itself,
-  `CompositeItems` asks its members in order); the host then asks only that resolver
-  for its `root`. Under that root it serves only an MTL, a buffer or an image
+  one pass the items host makes per request (a single resolver answers for itself
+  through `items.own_lookup`, `CompositeItems` asks its members in order); the host
+  then asks only that resolver for its `root`, `side_allowed` and `guard_root`. Under
+  that root it serves only an MTL, a buffer or an image
   (`scheme.ROOT_SUFFIXES`, the one list in `specto_readers.mesh_assets`); then the same
   resolver's `side_allowed` may still refuse it. A part's own recorded path passes
   `specto_core.pathguard.output_refusal` against the resolver's `guard_root` before it
@@ -893,7 +895,11 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   `package.xml` names the package; references pass `specto_core.pathguard`
   before any filesystem call; per parse `MAX_REFERENCES` (2000) references,
   `MAX_DAE_CONVERSIONS` (64) DAE conversions and one `SearchBudget` (4000 folders for
-  every package probe); past a cap the rest are missing with the cap named. A DAE goes
+  every package probe); past a cap the rest are missing with the cap named. Each
+  `missing` entry is `{link, kind, uri, cause}`: `kind` a `RefKind` (`visual`,
+  `collision`, `texture`), `cause` the words of a `Cause` when the parse decided it
+  (outside the scope, not fetched, a cap, no cache folder) or composed where it arose
+  (a package not found, a type not served). A DAE goes
   as ADR 0028's converted GLB (`beside=False` outside the project). It speaks ADR
   0029's messages:
   `model {generation, model, environments}`, `pose {joints, source, track?}`, `params`,

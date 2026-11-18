@@ -60,6 +60,7 @@ from specto_readers.urdf import (
 
 from ..hosts.base import HostContext, SimpleFactory
 from ..hosts.stepping import Stepping
+from ..web.items import ItemResolver, own_lookup
 from ..web.runtime import runtime
 from ..web.scheme import item_url
 from ..web.webview import WebViewHost
@@ -215,26 +216,6 @@ class RobotMeshes:
     def __init__(self) -> None:
         self.robot = ServedRobot()
 
-    @property
-    def link(self) -> str:
-        return self.robot.link
-
-    @property
-    def key(self) -> str | None:
-        return self.robot.key
-
-    @property
-    def table(self) -> Mapping[str, str]:
-        return self.robot.table
-
-    @property
-    def files(self) -> Mapping[str, str]:
-        return self.robot.files
-
-    @property
-    def scope(self) -> tuple[str, ...]:
-        return self.robot.scope
-
     def set(self, robot: ServedRobot) -> None:
         self.robot = robot
 
@@ -249,38 +230,42 @@ class RobotMeshes:
             real = path.resolve()
         except OSError:
             return False
-        return servable(real, allowed) is None and under(real, self.scope)
+        return servable(real, allowed) is None and under(real, self.robot.scope)
+
+    def _answers(self, link_id: str, key: str) -> bool:
+        return bool(self.robot.table) and link_id == self.robot.link and key == self.robot.key
 
     def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
         """A file named under one of the robot's parts (``specto://items/.../<role>/<name>``):
         the file itself, else only an OBJ's .mtl and images, or a glTF's buffers and
         images; each checked now (``_ok``). Nothing next to the URDF or other meshes."""
-        if link_id != self.link or key != self.key or role not in self.files:
+        robot = self.robot
+        if not self._answers(link_id, key) or role not in robot.files:
             return False
-        own = self.table.get(role)
+        own = robot.table.get(role)
         if own is not None and Path(own).resolve() == path.resolve():
             return self._ok(path, SERVED_EXTS)  # the file by its own name
-        allowed = SIDE_EXTS.get(self.files[role])
+        allowed = SIDE_EXTS.get(robot.files[role])
         return allowed is not None and self._ok(path, allowed)
 
     # -- ItemResolver ----------------------------------------------------------------------
     def parts(self, link_id: str, key: str) -> dict[str, str] | None:
         """The item's own parts and the robot's files, each robot file checked again
         (``_ok``) so one swapped after the parse is not served unchecked."""
-        if not self.table or link_id != self.link or key != self.key:
+        if not self._answers(link_id, key):
             return None
         return {
             role: path
-            for role, path in self.table.items()
-            if role not in self.files or self._ok(Path(path), SERVED_EXTS)
+            for role, path in self.robot.table.items()
+            if role not in self.robot.files or self._ok(Path(path), SERVED_EXTS)
         }
 
     def keys(self, link_id: str) -> list[str]:
-        return [self.key] if self.key and link_id == self.link and self.table else []
+        robot = self.robot
+        return [robot.key] if robot.key and self._answers(link_id, robot.key) else []
 
-    def lookup(self, link_id: str, key: str) -> tuple[RobotMeshes, dict[str, str]] | None:
-        p = self.parts(link_id, key)
-        return (self, p) if p else None
+    def lookup(self, link_id: str, key: str) -> tuple[ItemResolver, dict[str, str]] | None:
+        return own_lookup(self, link_id, key)
 
     def root(self, link_id: str, key: str) -> str | None:
         """No ``@root/`` paths for a robot (ADR 0028's): its meshes often live outside
@@ -291,7 +276,8 @@ class RobotMeshes:
         """The project (the scope's first folder), which a part's own path is judged
         against before anything is stat'ed (SPEC-91): a project on a share serves its own
         robot; package folders on a network path are never resolved in the first place."""
-        return self.scope[0] if link_id == self.link and self.scope else None
+        scope = self.robot.scope
+        return scope[0] if link_id == self.robot.link and scope else None
 
 
 class UrdfHost(Stepping, WebViewHost):

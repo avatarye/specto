@@ -50,7 +50,7 @@ from typing import Any
 
 import numpy as np
 
-from specto_core.pathguard import reference_refusal
+from specto_core.pathguard import path_refusal, reference_refusal
 
 from .glb import GLTF_UP
 from .scenecache import (
@@ -380,7 +380,13 @@ def prepare(
     count, bounds, up: "y", version}``, converting when no matching GLB exists (module
     docstring). ``key`` names the DAE's identity (path, size, mtime) in the cache.
     ``beside`` False (the urdf view's DAE outside the project, ADR 0029) never reads or
-    writes a GLB beside the source: the conversion lives in the cache only."""
+    writes a GLB beside the source: the conversion lives in the cache only. The source's
+    text passes ``pathguard.path_refusal`` first (defence in depth behind the callers'
+    own checks): a device, NT object or stream path raises ``DaeError`` before anything
+    is stat'ed; a plain network path stays allowed (a project on a share, SPEC-91)."""
+    why = path_refusal(str(src), unc_ok=True)
+    if why is not None:
+        raise DaeError(f"{why} is never read")
     src = Path(src)
     stamp = source_stamp(src)
     cache = cache_folder(cache_dir)

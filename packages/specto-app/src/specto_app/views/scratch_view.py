@@ -41,6 +41,7 @@ from PySide6.QtQuick import QQuickItem
 from specto_app import clipboard
 from specto_app.hosts.base import HostContext, _plain
 from specto_app.web.capabilities import Capabilities
+from specto_app.web.items import ItemResolver, own_lookup
 from specto_app.web.runtime import runtime
 from specto_app.web.scheme import item_url
 from specto_app.web.webview import WebViewHost, item_alive
@@ -165,12 +166,12 @@ class ScratchItems:
     def guard_root(self, link_id: str) -> str | None:
         """The project the notes live in (a project on a share serves them, SPEC-91)."""
         return str(self.store.root) if link_id == self.link_id else None
+
     def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
         return True  # a note's own pictures, as resolve_relative allows
 
-    def lookup(self, link_id: str, key: str) -> tuple[Any, dict[str, str]] | None:
-        p = self.parts(link_id, key)
-        return (self, p) if p else None
+    def lookup(self, link_id: str, key: str) -> tuple[ItemResolver, dict[str, str]] | None:
+        return own_lookup(self, link_id, key)
 
 
 class ScratchBridge(QObject):

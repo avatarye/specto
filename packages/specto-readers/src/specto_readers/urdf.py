@@ -76,8 +76,6 @@ MESH_EXTS: dict[str, str] = {
     ".gltf": "gltf",
 }
 SUPPORTED_NOTE = "STL, OBJ, glTF, DAE"
-#: a DAE when no cache folder was given to convert it into (a caller other than the host)
-DAE_NOTE = "DAE not converted: no cache folder"
 #: what may be served next to a mesh (``specto://items/.../m<n>/<name>``): an OBJ's
 #: material library and a glTF's buffers, and their textures
 SIDE_EXTS: dict[str, frozenset[str]] = {
@@ -97,8 +95,6 @@ MAX_DAE_CONVERSIONS = 64
 SEARCH_DEPTH = 5
 SEARCH_MAX_DIRS = 4000
 SKIP_DIRS = frozenset({".git", ".hg", ".svn", ".specto", "node_modules", "__pycache__"})
-NOT_FETCHED = "http(s) is never fetched (offline)"
-OUTSIDE = "outside the project and its packages"
 PACKAGE_HINT = "set `params.package_paths`"
 #: a ROS package name (REP 144 style): never a path, no dots, no spaces
 PACKAGE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
@@ -116,6 +112,36 @@ Vec = list[float]
 
 class UrdfError(Exception):
     """The file is not a URDF Specto can read."""
+
+
+class Cause(StrEnum):
+    """Why a reference is missing, when the parse itself decided it (the value is the
+    words ``missing[].cause`` and the health notes show); a cap's words name the cap
+    (``Cause.OVER_REFERENCES.of(MAX_REFERENCES)``). A cause naming a file, a package or
+    a type is composed where it arises."""
+
+    NOT_FETCHED = "http(s) is never fetched (offline)"
+    OUTSIDE = "outside the project and its packages"
+    #: a DAE when no cache folder was given to convert it into (a caller other than the
+    #: host)
+    NO_CACHE = "DAE not converted: no cache folder"
+    OVER_REFERENCES = "over {cap} mesh and texture references"
+    OVER_DAE_CONVERSIONS = "over {cap} DAE conversions"
+    BUDGET_SPENT = "the search budget of {cap} folders is spent"
+
+    def of(self, cap: int) -> str:
+        """The words with ``cap`` in them."""
+        return self.value.format(cap=cap)
+
+
+def package_ref(uri: str) -> tuple[str, str] | None:
+    """``package://<name>/<rel>`` as ``(name, rel)`` (either may be empty), or None for
+    any other filename. Text only."""
+    text = uri.strip()
+    if not text.lower().startswith("package://"):
+        return None
+    name, _, rel = text[len("package://") :].partition("/")
+    return name, rel
 
 
 @dataclass(frozen=True)
@@ -359,37 +385,15 @@ class PackageResolver:
         """Where a URDF filename points (module docstring). The text is judged first, by
         ``pathguard``: a refused path is never handed to the filesystem. With ``scope``
         (the folders a served file may lie in) a file or relative reference outside it is
-        ``OUTSIDE`` before anything asks whether it exists."""
+        ``Cause.OUTSIDE`` before anything asks whether it exists; a ``package://`` one
+        never leaves its package (``resolve_package``)."""
+        pkg = package_ref(uri)
+        if pkg is not None:
+            return self.resolve_package(*pkg, uri)
         text = uri.strip()
         low = text.lower()
         if low.startswith(("http://", "https://")):
-            return Resolution(None, NOT_FETCHED)
-        if low.startswith("package://"):
-            rest = text[len("package://") :]
-            name, _, rel = rest.partition("/")
-            if not name:
-                return Resolution(None, f"no package name in `{uri}`")
-            refused = path_refusal(rel)
-            if refused:
-                return Resolution(None, f"{refused} is never read")
-            found = self.find_package(name)
-            if found is None:
-                cause = f"package `{name}` not found"
-                if self.budget.spent:
-                    cause += f" (the search budget of {SEARCH_MAX_DIRS} folders is spent)"
-                return Resolution(None, cause, package=name)
-            folder, via = found
-            missing = f"not in package `{name}` (found by {via})"
-            if os.path.isabs(rel) or Path(rel).drive or rel.startswith(("/", "\\")):
-                return Resolution(None, missing, via, name)
-            target = (folder / rel).resolve()
-            try:
-                target.relative_to(folder.resolve())  # package://pkg/../../x escapes it
-            except ValueError:
-                return Resolution(None, missing, via, name)
-            if not target.is_file():
-                return Resolution(None, missing, via, name)
-            return Resolution(str(target), None, via, name)
+            return Resolution(None, Cause.NOT_FETCHED)
         if low.startswith("file://"):
             raw, refused = file_uri_path(text)
             if refused or raw is None:
@@ -406,14 +410,42 @@ class PackageResolver:
         # the scope is tested on the text first (abspath is lexical), so a path outside it
         # is never handed to the disk, then again on the resolved path (links)
         if scope is not None and not under(os.path.abspath(target), scope):
-            return Resolution(None, OUTSIDE, via)
+            return Resolution(None, Cause.OUTSIDE, via)
         target = target.resolve()
         if scope is not None and not under(target, scope):
-            return Resolution(None, OUTSIDE, via)
+            return Resolution(None, Cause.OUTSIDE, via)
         if not target.is_file():
             where = "next to the URDF" if via == "relative" else "at its absolute path"
             return Resolution(None, f"not found {where}", via)
         return Resolution(str(target), None, via)
+
+    def resolve_package(self, name: str, rel: str, uri: str) -> Resolution:
+        """Where ``package://<name>/<rel>`` (``uri``, as written) points: inside the
+        package's folder, never out of it (``package://pkg/../../x``), or None with the
+        cause. The package's folder joins the scope of what may be served."""
+        if not name:
+            return Resolution(None, f"no package name in `{uri}`")
+        refused = path_refusal(rel)
+        if refused:
+            return Resolution(None, f"{refused} is never read")
+        found = self.find_package(name)
+        if found is None:
+            cause = f"package `{name}` not found"
+            if self.budget.spent:
+                cause += f" ({Cause.BUDGET_SPENT.of(SEARCH_MAX_DIRS)})"
+            return Resolution(None, cause, package=name)
+        folder, via = found
+        missing = f"not in package `{name}` (found by {via})"
+        if os.path.isabs(rel) or Path(rel).drive or rel.startswith(("/", "\\")):
+            return Resolution(None, missing, via, name)
+        target = (folder / rel).resolve()
+        try:
+            target.relative_to(folder)  # folder is resolved (find_package)
+        except ValueError:
+            return Resolution(None, missing, via, name)
+        if not target.is_file():
+            return Resolution(None, missing, via, name)
+        return Resolution(str(target), None, via, name)
 
 
 # -- the parser ------------------------------------------------------------------------------
@@ -704,9 +736,9 @@ def dae_source(
     ``dae.prepare`` converts it (bounded, in a child process) or finds its current GLB
     (ADR 0028 owns the freshness rule). ``beside`` False (a DAE outside the project)
     keeps the GLB in the cache, never beside its source. Without a cache folder a DAE
-    stays missing (``DAE_NOTE``)."""
+    stays missing (``Cause.NO_CACHE``)."""
     if cache_dir is None:
-        return None, DAE_NOTE
+        return None, Cause.NO_CACHE
     from . import dae
     from .scene3d import cache_key
 
@@ -718,7 +750,7 @@ def dae_source(
     return (str(glb), None) if glb else (None, "DAE not converted: no GLB")
 
 
-class Kind(StrEnum):
+class RefKind(StrEnum):
     """What a reference is for (``missing[].kind``)."""
 
     VISUAL = "visual"
@@ -732,7 +764,7 @@ class _Ref:
     that is not a ``package://`` one waits for pass two (``deferred``), when the scope is
     known."""
 
-    kind: Kind
+    kind: RefKind
     link: str
     uri: str
     target: dict[str, Any]  # the geometry, or the material
@@ -752,14 +784,15 @@ class _Files:
     _roles: dict[str, str] = field(default_factory=dict)  # path -> role
     _daes: dict[str, tuple[str | None, str | None]] = field(default_factory=dict)
 
-    def take(self, kind: Kind, link: str, uri: str, target: dict[str, Any]) -> None:
+    def take(self, kind: RefKind, link: str, uri: str, target: dict[str, Any]) -> None:
         """Pass one: resolve a ``package://`` reference (its package joins the scope),
         defer the others, refuse past ``MAX_REFERENCES``."""
         ref = _Ref(kind, link, uri, target)
+        pkg = package_ref(uri)
         if len(self.refs) >= MAX_REFERENCES:
-            ref.cause = f"over {MAX_REFERENCES} mesh and texture references"
-        elif uri.strip().lower().startswith("package://"):
-            hit = self.resolver.resolve(uri)
+            ref.cause = Cause.OVER_REFERENCES.of(MAX_REFERENCES)
+        elif pkg is not None:
+            hit = self.resolver.resolve_package(*pkg, uri)
             ref.path, ref.cause = hit.path, hit.cause
         else:
             ref.deferred = True
@@ -770,17 +803,17 @@ class _Files:
         return [*self.project, *(folder for folder, _via in self.resolver.packages.values())]
 
     def finish(self) -> None:
-        """Pass two, once every package is known: scope, types, DAEs, roles."""
+        """Pass two, once every package is known: scope, types, DAEs, roles. A resolved
+        path is in scope already: a ``package://`` one inside its package, any other
+        judged against the scope by ``resolve``."""
         scope = self.scope()
         for ref in self.refs:
             if ref.deferred:  # outside the scope before anything asks whether it exists
                 hit = self.resolver.resolve(ref.uri, scope)
                 ref.path, ref.cause = hit.path, hit.cause
             path, cause = ref.path, ref.cause
-            if path is not None and not under(path, scope):
-                path, cause = None, OUTSIDE
             if path is not None:
-                path, cause = (self._texture if ref.kind == Kind.TEXTURE else self._mesh)(path)
+                path, cause = (self._texture if ref.kind == RefKind.TEXTURE else self._mesh)(path)
             if path is None:
                 self.missing.append(
                     {"link": ref.link, "kind": ref.kind, "uri": ref.uri, "cause": cause}
@@ -790,7 +823,7 @@ class _Files:
             if role is None:
                 role = self._roles[path] = f"m{len(self._roles)}"
                 self.served[role] = path
-            if ref.kind == Kind.TEXTURE:
+            if ref.kind == RefKind.TEXTURE:
                 ref.target["texture_file"] = role
             else:
                 ref.target["ext"] = MESH_EXTS[Path(path).suffix.lower()]
@@ -801,7 +834,7 @@ class _Files:
         if suffix == ".dae":
             if path not in self._daes:
                 if len(self._daes) >= MAX_DAE_CONVERSIONS:
-                    return None, f"over {MAX_DAE_CONVERSIONS} DAE conversions"
+                    return None, Cause.OVER_DAE_CONVERSIONS.of(MAX_DAE_CONVERSIONS)
                 beside = under(path, self.project)
                 self._daes[path] = dae_source(path, self.cache_dir, beside=beside)
             path, cause = self._daes[path]
@@ -852,10 +885,10 @@ def build_robot(
             for shape in shapes:
                 geo = shape["geometry"]
                 if geo["type"] == "mesh":
-                    files.take(Kind(kind), link["name"], geo["uri"], geo)
+                    files.take(RefKind(kind), link["name"], geo["uri"], geo)
                 mat = shape.get("material")
                 if mat is not None and "texture" in mat:
-                    files.take(Kind.TEXTURE, link["name"], mat.pop("texture"), mat)
+                    files.take(RefKind.TEXTURE, link["name"], mat.pop("texture"), mat)
     files.finish()
     model["missing"] = files.missing
     joints = model["joints"]
@@ -912,8 +945,9 @@ __all__ = [
     "PACKAGE_NAME",
     "SERVED_EXTS",
     "SIDE_EXTS",
-    "Kind",
+    "Cause",
     "PackageResolver",
+    "RefKind",
     "Resolution",
     "SearchBudget",
     "UrdfError",
@@ -922,6 +956,7 @@ __all__ = [
     "dae_source",
     "missing_notes",
     "package_name_of",
+    "package_ref",
     "parse_urdf",
     "safe_xml",
     "servable",
