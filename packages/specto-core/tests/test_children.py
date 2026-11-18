@@ -61,6 +61,11 @@ def test_output_past_the_cap_fails_the_run():
     assert ok.over_cap is None and len(ok.stdout) == 300000
 
 
+def test_the_minimal_environment_keeps_the_locale_character_type():
+    env = minimal_env({"LC_CTYPE": "C.UTF-8", "SPECTO_TEST_SECRET": "x"})
+    assert env == {"LC_CTYPE": "C.UTF-8"}
+
+
 def test_the_minimal_environment_carries_only_what_an_interpreter_needs(monkeypatch):
     monkeypatch.setenv("SPECTO_TEST_SECRET", "agent-chosen")
     env = minimal_env()
