@@ -709,15 +709,23 @@ the same drift with a fresh renderer per stage, so the reuse is not what drives 
 `tools/soak_usd_switch.py` (SPEC-78) drives the usd frame source through the switches a
 user makes, not only settled ones: a switch in the middle of a first frame, a load
 replaced before it starts, a failed load and the next one, camera, environment and view
-mode changes between switches, and closes during a load. It samples the frame source's
-private bytes and its dedicated GPU memory after each load (Windows' GPU Process Memory
-counter; nvidia-smi says N/A under WDDM), counts faults and, when a load neither finishes
-nor fails in `--timeout` s, writes the hung process's stacks and spinning threads before it
-kills it. `--plan isolate --op ...` repeats one operation to see what it keeps. Dev-only;
-nothing in `packages/` imports it. Run it on the GPU tier like the bench, with psutil:
+mode changes between switches, and closes during a load. It closes a source the way the
+view does since SPEC-87 (`close_in_background`, killed after `--close-timeout` s; the
+view's is 5 s) and samples the frame source's private bytes and its dedicated GPU memory
+after each load (Windows' GPU Process Memory counter; nvidia-smi says N/A under WDDM). It
+counts faults, a close that times out or leaves any of the source's processes running
+among them (it kills what is left) and, when a load neither finishes nor fails in
+`--timeout` s, writes the hung process's stacks (`--py-spy`) and spinning threads before
+it kills its tree. `--plan isolate --op ...` repeats one operation to see what it keeps.
+It runs the view's explicit-rtx command line, so it needs an RTX GPU. Dev-only; nothing
+in `packages/` imports it. Run it on the GPU tier like the bench, one run at a time in the
+heavy-run slot (the board repository's `tools/heavy_slot.py`) and under
+`tools/gpu_guard.py`, with psutil:
 
 ```text
-uv run --no-sync --with psutil python tools/soak_usd_switch.py --work <scratch>/soak \
+python <board>/tools/heavy_slot.py -- \
+  uv run --no-sync --with psutil python tools/gpu_guard.py --log <scratch>/guard.log -- \
+  uv run --no-sync --with psutil python tools/soak_usd_switch.py --work <scratch>/soak \
     --plan interactive --rounds 15 \
     --big <scratch>/full/Isaac/Environments/Simple_Warehouse/full_warehouse.usd \
     --big-alt <scratch>/flat/Isaac/Environments/Simple_Warehouse/full_warehouse.usd \
@@ -725,12 +733,17 @@ uv run --no-sync --with psutil python tools/soak_usd_switch.py --work <scratch>/
 ```
 
 What SPEC-78 saw (about 570 loads, same machine): no reuse leak. Every interactive case
-ran clean, reused and fresh. Dedicated GPU memory grows about 4 MB a load and ovrtx trims
-about 500 MB at once every 8-20 iterations, the same with a fresh renderer per stage, so
-it is ovrtx's process-level pooling; the first-frame drift is the same either way too. One
-warehouse load hung (the render loop waiting on an ovrtx step with no timeout, 17 ovrtx
-threads spinning; SPEC-86), and a close during a first frame waits for that frame, 5-8.5 s
-(SPEC-87).
+(mid-first-frame switches, replaced pending loads, a failed then a good load, sky, HDRI,
+stage, view mode and camera changes) ran 15 rounds with 0 faults and no ovrtx errors,
+reused and fresh. Dedicated GPU memory climbs about 50 MB per interactive round, the same
+with reuse (52) and with a fresh renderer per stage (49), while warehouse-only baselines
+stay flat. Isolating each operation (25 iterations) shows the same sawtooth: about 4 MB a
+load, and ovrtx trims about 500 MB at once every 8-20 loads, so it is ovrtx's
+process-level pooling, not one operation or the reuse. The first-frame drift is the same
+either way too. One warehouse load hung (the render loop waiting on an ovrtx step with no
+timeout, 17 ovrtx threads spinning; SPEC-86). A close during a first frame waits for that
+frame, 5.1-8.5 s, and froze the UI up to 5 s until SPEC-87 moved the close off the GUI
+thread.
 
 ## Common failures
 

@@ -1,5 +1,6 @@
 """tools/soak_usd_switch.py (SPEC-78, developer.md "Soaking stage switches") against the fake
-ovrtx: every plan runs clean on small stages, and a failing step is a fault (exit 1)."""
+ovrtx: every plan runs clean on small stages; a failing step, a hung load and a close
+that times out are faults (exit 1), and the last two leave no source process behind."""
 
 from __future__ import annotations
 
@@ -12,6 +13,8 @@ from pathlib import Path
 import pytest
 
 pytest.importorskip("pxr", reason="usd-core comes with the rtx extra")
+
+from process_helpers import alive
 
 ROOT = Path(__file__).resolve().parents[3]
 TOOL = ROOT / "tools" / "soak_usd_switch.py"
@@ -53,9 +56,43 @@ def test_each_plan_runs_clean_against_the_fake_renderer(tmp_path: Path, plan: li
     assert report["rows"]
 
 
-def test_a_failing_step_is_a_fault(tmp_path: Path):
+@pytest.mark.parametrize(
+    ("plan", "case"),
+    [(["--plan", "baseline"], "settled"), (["--plan", "isolate", "--op", "switch"], "switch prop")],
+    ids=["baseline", "isolate"],
+)
+def test_a_failing_step_is_a_fault(tmp_path: Path, plan: list[str], case: str):
     """A step that fails is an error where a stage should have loaded: the soak says so
-    and exits 1."""
-    rc, report = soak(tmp_path, "--plan", "baseline", "--rounds", "2", FAKE_OVRTX_FAIL_STEPS="1")
+    and exits 1, isolate's loads around the repeated operation included."""
+    rc, report = soak(tmp_path, *plan, "--rounds", "2", FAKE_OVRTX_FAIL_STEPS="1")
     assert rc == 1
-    assert any("settled" in f for f in report["faults"])
+    assert any(case in f for f in report["faults"])
+
+
+def test_a_hung_load_writes_the_hang_file_and_kills_the_source(tmp_path: Path):
+    """A load that sees neither ``ok`` nor an error in ``--timeout`` s is a hang: the soak
+    writes the hang file, then kills the source's tree."""
+    rc, report = soak(
+        tmp_path, "--plan", "baseline", "--rounds", "1", "--timeout", "3", "--py-spy", "",
+        FAKE_OVRTX_HOLD_STEP_S="120",
+    )  # fmt: skip
+    assert rc == 1
+    assert any("hung" in f for f in report["faults"])
+    hangs = list((tmp_path / "work").glob("hang-baseline-*.txt"))
+    assert len(hangs) == 1
+    pid = int(hangs[0].stem.rsplit("-", 1)[1])
+    assert not alive(pid)
+
+
+def test_a_close_that_times_out_is_killed_and_is_a_fault(tmp_path: Path):
+    """A source still running at the close timeout (its first frame outlasts it): the soak
+    kills what is left of its tree and counts a fault."""
+    rc, report = soak(
+        tmp_path, "--plan", "close", "--rounds", "1", "--close-timeout", "2",
+        FAKE_OVRTX_HOLD_STEP_S="120",
+    )  # fmt: skip
+    assert rc == 1
+    (row,) = [r for r in report["rows"] if r["case"] == "close"]
+    assert row["timed_out"] and row["rc"] != 0
+    assert any("close round 1" in f for f in report["faults"])
+    assert not alive(row["pid"])
