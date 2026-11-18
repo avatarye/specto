@@ -205,6 +205,19 @@ def test_copilot_install_is_idempotent_and_refuses_unrelated_skills(tmp_path, mo
     assert "already" in render_plan(plan)
 
 
+def test_copilot_up_to_date_is_a_clean_no_op_without_copilot_on_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+    dest = tmp_path / "skills" / "specto" / "SKILL.md"
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(specto_plugin.COPILOT_SKILL.read_bytes())
+    monkeypatch.setattr(specto_plugin.shutil, "which", on_path("specto"))
+    for args in (["--copilot"], ["--copilot", "--yes"]):
+        result = CliRunner().invoke(cli, ["plugin", "install", *args])
+        assert result.exit_code == 0, result.output
+        assert "already up to date" in result.output
+        assert "[ERROR]" not in result.output and "pass --yes" not in result.output
+
+
 def test_copilot_rechecks_collision_before_running(tmp_path, monkeypatch):
     monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
     plan = install_plan(copilot=True, which=EVERYTHING)

@@ -569,8 +569,9 @@ copilot skill list --json
 The plan uses supported `copilot skill add <packaged SKILL.md>` file materialization:
 `~/.copilot/skills/specto/SKILL.md` (or beneath `COPILOT_HOME`), not project registration.
 The installed copy survives checkout moves; rerun after updates. An identical copy is
-a no-op. A different existing `specto` directory is refused, including a collision
-that appears after printing the plan. Review/back it up before explicitly removing
+a clean no-op (exit 0, even without `copilot` on PATH). A different existing `specto`
+directory is refused, including a collision that appears after printing the plan.
+Review/back it up before explicitly removing
 the old skill with Copilot's own skill commands; the installer never overwrites it.
 Claude/fleet resources and installation paths are unchanged.
 

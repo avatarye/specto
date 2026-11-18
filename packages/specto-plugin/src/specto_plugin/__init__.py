@@ -59,19 +59,21 @@ class Plan:
     skill_target: Path | None = None
 
 
-def _copilot_collision(plan: Plan) -> None:
+def _copilot_collision(plan: Plan) -> bool:
+    """Refuse an existing, different skill; True when the identical skill is installed."""
     target = plan.skill_target
     if target is None or not target.parent.exists():
-        return
+        return False
     if target.is_file() and target.read_bytes() == COPILOT_SKILL.read_bytes():
         plan.steps.clear()
         plan.warnings.append("the personal Copilot specto skill is already up to date")
-    else:
-        plan.problems.append(
-            f"{target.parent} already exists: it will not be overwritten. Back up and "
-            "review that skill before explicitly removing it with `copilot skill remove specto`."
-        )
-        plan.steps.clear()
+        return True
+    plan.problems.append(
+        f"{target.parent} already exists: it will not be overwritten. Back up and "
+        "review that skill before explicitly removing it with `copilot skill remove specto`."
+    )
+    plan.steps.clear()
+    return False
 
 
 def install_plan(
@@ -93,15 +95,15 @@ def install_plan(
     if copilot:
         home = Path(os.environ.get("COPILOT_HOME") or Path.home() / ".copilot").expanduser()
         plan = Plan("Copilot CLI", skill_target=home / "skills" / "specto" / "SKILL.md")
-        if which("copilot") is None:
-            plan.problems.append("copilot is not on PATH: install GitHub Copilot CLI first")
         plan.steps.append(
             Step(
                 ["copilot", "skill", "add", str(COPILOT_SKILL)],
                 "materialize the complete communication skill in personal Copilot skills",
             )
         )
-        _copilot_collision(plan)
+        up_to_date = _copilot_collision(plan)
+        if not up_to_date and which("copilot") is None:
+            plan.problems.append("copilot is not on PATH: install GitHub Copilot CLI first")
         plan.warnings.append(
             "existing Copilot sessions need `/skills reload`; new sessions discover it "
             "automatically. No MCP server or peer settings are installed."
@@ -160,7 +162,7 @@ def render_plan(plan: Plan, *, yes: bool = False) -> str:
         lines.append(f"     {_shell(step.argv)}")
     lines += [f"[WARN] {w}" for w in plan.warnings]
     lines += [f"[ERROR] {p}" for p in plan.problems]
-    if not plan.problems and not yes:
+    if plan.steps and not plan.problems and not yes:
         lines.append("[INFO] nothing was run: pass --yes to run this plan")
     return "\n".join(lines)
 
