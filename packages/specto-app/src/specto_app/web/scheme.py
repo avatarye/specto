@@ -344,8 +344,10 @@ def locate_item(
     ``specto_core.pathguard`` before anything is stat'ed (``refused``; SPEC-75): the
     backstop for every host that serves through items, whatever produced the item (a
     Python link's collection, a resolve step's derived files). A network path is served
-    only when the resolver's ``guard_root`` for the link (the collection's or content's
-    root, else the project's; SPEC-91) is on that share and the part lies under it."""
+    only when the answering resolver's ``guard_root`` for the part (the collection's or
+    content's root, else the project's, SPEC-91; a robot file's own scope folder) is on
+    that share and the part lies under it. That resolver's ``may_serve`` has the last
+    word on the file served."""
     parsed = parse_item_rel_path(url_path)
     if parsed is None:
         entry["status"] = "bad_item_path"
@@ -363,25 +365,28 @@ def locate_item(
         entry["status"] = "denied"
         return None
     hit = items.lookup(col, key) if items is not None else None  # once per request
-    owner, parts = hit if hit is not None else (None, None)
-    if not parts or role not in parts:
+    if hit is None or role not in hit[1]:
         entry["status"] = "not_found"
         return None
+    owner, parts = hit
     p = Path(parts[role])
-    if part_refused(str(p), owner.guard_root(col) if owner is not None else None):
+    if part_refused(str(p), owner.guard_root(col, key, role)):
         entry["status"] = "refused"
         return None
     if is_virtual(str(p)):  # a container member: the archive must exist
         return p if Path(real_path(str(p))).is_file() else None
-    if rel is not None:
+    if rel is None:
+        if not p.is_file():
+            return None
+        target: Path | None = p
+    else:
         entry["rel"] = rel
-        p2 = resolve_relative(p, rel, owner.root(col, key) if owner is not None else None)
-        if p2 is not None and owner is not None and not owner.side_allowed(col, key, role, p2):
-            p2 = None  # the item's resolver serves no such file (SPEC-43)
-        if p2 is None:
-            entry["status"] = "not_found"
-        return p2
-    return p if p.is_file() else None
+        target = resolve_relative(p, rel, owner.root(col, key))
+    if target is not None and not owner.may_serve(col, key, role, target):
+        target = None  # the item's resolver serves no such file now (SPEC-43)
+    if target is None:
+        entry["status"] = "not_found"
+    return target
 
 
 def content_type(path: Path) -> bytes:

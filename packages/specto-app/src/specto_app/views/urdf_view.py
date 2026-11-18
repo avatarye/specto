@@ -36,7 +36,7 @@ import contextlib
 import copy
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -51,6 +51,7 @@ from specto_readers.urdf import (
     CLAMPED,
     SERVED_EXTS,
     SIDE_EXTS,
+    Cause,
     build_robot,
     count_notes,
     missing_notes,
@@ -204,14 +205,22 @@ class ServedRobot:
     #: every robot file's role (a mesh or a texture) -> its suffix without the dot
     #: (``obj``, ``gltf``, ``png``, ...); the item's own parts are not in it
     files: Mapping[str, str] = field(default_factory=dict)
-    #: the folders a served file may lie in: the project and the robot's packages
+    #: the folders a served file may lie in: the project, then the robot's packages
     scope: tuple[str, ...] = ()
+    #: the GLBs its DAEs converted to (resolved, ``os.path.normcase``): served wherever
+    #: they lie, the cache included, and nothing else beside them
+    converted: frozenset[str] = frozenset()
+
+
+def _same_file_key(path: str | Path) -> str:
+    return os.path.normcase(str(path))
 
 
 class RobotMeshes:
     """An item resolver serving the shown robot's meshes as extra roles of its item
     (``.m0``, ``.m1``, ...) beside the item's own parts; first in the runtime's chain,
-    answering only for that one item of that one link."""
+    answering only for that one item of that one link. A request checks only the file it
+    serves (``may_serve``): the items host runs on the GUI thread."""
 
     def __init__(self) -> None:
         self.robot = ServedRobot()
@@ -222,43 +231,37 @@ class RobotMeshes:
     def clear(self) -> None:
         self.robot = ServedRobot()
 
-    def _ok(self, path: Path, allowed: frozenset[str]) -> bool:
-        """A file may be served now: its resolved path (links followed: a mesh swapped
-        for a link after the parse is judged by its target) is a regular file of an
-        ``allowed`` type under the cap, inside the project or the robot's packages."""
+    def refusal(self, path: Path, allowed: frozenset[str]) -> str | None:
+        """Why a robot file may not be served now (None: it may): its resolved path
+        (links followed: a mesh swapped for a link after the parse is judged by its
+        target) must be a regular file of an ``allowed`` type under the cap, inside the
+        project or the robot's packages, or one of the GLBs its DAEs converted to."""
         try:
             real = path.resolve()
         except OSError:
-            return False
-        return servable(real, allowed) is None and under(real, self.robot.scope)
+            return "not found"
+        why = servable(real, allowed)
+        if why is not None:
+            return why
+        robot = self.robot
+        if under(real, robot.scope) or _same_file_key(real) in robot.converted:
+            return None
+        return Cause.OUTSIDE
 
     def _answers(self, link_id: str, key: str) -> bool:
         return bool(self.robot.table) and link_id == self.robot.link and key == self.robot.key
 
-    def side_allowed(self, link_id: str, key: str, role: str, path: Path) -> bool:
-        """A file named under one of the robot's parts (``specto://items/.../<role>/<name>``):
-        the file itself, else only an OBJ's .mtl and images, or a glTF's buffers and
-        images; each checked now (``_ok``). Nothing next to the URDF or other meshes."""
-        robot = self.robot
-        if not self._answers(link_id, key) or role not in robot.files:
-            return False
-        own = robot.table.get(role)
-        if own is not None and Path(own).resolve() == path.resolve():
-            return self._ok(path, SERVED_EXTS)  # the file by its own name
-        allowed = SIDE_EXTS.get(robot.files[role])
-        return allowed is not None and self._ok(path, allowed)
+    def _folder_of(self, path: str) -> str | None:
+        """The deepest scope folder ``path`` lies in, by its text; None for none (a GLB
+        converted into the cache)."""
+        inside = [s for s in self.robot.scope if under(path, [s])]
+        return max(inside, key=len) if inside else None
 
     # -- ItemResolver ----------------------------------------------------------------------
     def parts(self, link_id: str, key: str) -> dict[str, str] | None:
-        """The item's own parts and the robot's files, each robot file checked again
-        (``_ok``) so one swapped after the parse is not served unchecked."""
-        if not self._answers(link_id, key):
-            return None
-        return {
-            role: path
-            for role, path in self.robot.table.items()
-            if role not in self.robot.files or self._ok(Path(path), SERVED_EXTS)
-        }
+        """The item's own parts and the robot's files, as the robot loaded (no file is
+        touched: ``may_serve`` checks the one a request serves)."""
+        return dict(self.robot.table) if self._answers(link_id, key) else None
 
     def keys(self, link_id: str) -> list[str]:
         robot = self.robot
@@ -272,12 +275,36 @@ class RobotMeshes:
         the project, and an OBJ's .mtl and images are served next to it instead."""
         return None
 
-    def guard_root(self, link_id: str) -> str | None:
-        """The project (the scope's first folder), which a part's own path is judged
-        against before anything is stat'ed (SPEC-91): a project on a share serves its own
-        robot; package folders on a network path are never resolved in the first place."""
-        scope = self.robot.scope
-        return scope[0] if link_id == self.robot.link and scope else None
+    def may_serve(self, link_id: str, key: str, role: str, path: Path) -> bool:
+        """A part itself, or a file named under it (``specto://items/.../<role>/<name>``):
+        the item's own part (the ``.urdf``) as itself only; a robot file as itself, else
+        only an OBJ's .mtl and images, or a glTF's buffers and images next to it; a robot
+        file checked now (``refusal``), the one file this request serves."""
+        robot = self.robot
+        own = robot.table.get(role) if self._answers(link_id, key) else None
+        if own is None:
+            return False
+        is_own = path == Path(own) or path == Path(own).resolve()
+        if role not in robot.files:
+            return is_own  # nothing next to the URDF
+        if is_own:
+            return self.refusal(path, SERVED_EXTS) is None
+        allowed = SIDE_EXTS.get(robot.files[role])
+        return allowed is not None and self.refusal(path, allowed) is None
+
+    def guard_root(
+        self, link_id: str, key: str | None = None, role: str | None = None
+    ) -> str | None:
+        """The folder a part's own path is judged against before anything is stat'ed
+        (SPEC-91): for a robot file, the scope folder it lies in (a package that resolved
+        to a share serves its own files although the project is local; a GLB in the cache
+        has none), else the project (the scope's first folder)."""
+        robot = self.robot
+        if link_id != robot.link or not robot.scope:
+            return None
+        if key == robot.key and role in robot.files:
+            return self._folder_of(robot.table[role])
+        return robot.scope[0]
 
 
 class UrdfHost(Stepping, WebViewHost):
@@ -458,22 +485,45 @@ class UrdfHost(Stepping, WebViewHost):
         self._say_health()
 
     def _serve(self) -> None:
-        """Serve the robot's files as roles of its item and put their URLs in the model."""
+        """Serve the robot's files as roles of its item and put their URLs in the model.
+        Each file is checked once, here (``RobotMeshes.refusal``): one the host cannot
+        serve (gone since the parse, outside the scope) gets no URL and joins the model's
+        ``missing`` with its cause, so the page never gets a URL the items host refuses."""
         assert self.robot is not None
         key = self.key or ""
-        files: dict[str, str] = self.robot["files"]
-        urls = {
-            role: f"{item_url(self.data_link, key, role)}/{quote(Path(p).name, safe='')}"
-            for role, p in files.items()
-        }
         it = self.items[self.index]
+        found: dict[str, str] = self.robot["files"]
         self._meshes.set(
             ServedRobot(
                 link=self.data_link,
                 key=key,
+                scope=tuple(self.robot.get("scope") or ()),
+                converted=frozenset(
+                    _same_file_key(Path(p).resolve()) for p in self.robot.get("converted") or ()
+                ),
+            )
+        )
+        files: dict[str, str] = {}
+        uses: dict[str, list[dict[str, Any]]] = self.robot.get("uses") or {}
+        missing: list[dict[str, Any]] = self.robot["model"]["missing"]
+        for role, p in found.items():
+            why = self._meshes.refusal(Path(p), SERVED_EXTS)
+            if why is None:
+                files[role] = p
+                continue
+            for use in uses.get(role, []):
+                noun = "texture file" if use.get("kind") == "texture" else "mesh file"
+                cause = why if why == Cause.OUTSIDE else f"{noun} {why}"
+                missing.append({**use, "cause": cause})
+        urls = {
+            role: f"{item_url(self.data_link, key, role)}/{quote(Path(p).name, safe='')}"
+            for role, p in files.items()
+        }
+        self._meshes.set(
+            replace(
+                self._meshes.robot,
                 table={**dict(it.parts), **{"." + r: p for r, p in files.items()}},
                 files={"." + r: Path(p).suffix.lower().lstrip(".") for r, p in files.items()},
-                scope=tuple(self.robot.get("scope") or ()),
             )
         )
         model = copy.deepcopy(self.robot["model"])

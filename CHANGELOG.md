@@ -21,11 +21,12 @@ the release and move on their own schedule.
   finds its meshes itself: `params.package_paths` first, then the nearest `package.xml`,
   then `ROS_PACKAGE_PATH` and `AMENT_PREFIX_PATH`, never by stripping prefixes and never
   over the network; a DAE mesh goes through the 3d view's converter. Only files in the
-  project or a package the robot names are served, and a network or device path in a
-  URDF is refused before anything is read. A mesh that is missing or unreadable draws
-  as a placeholder and turns the view's health to the new amber `warn`, with one note per
-  cause; `snap` lists each one. The agent poses the robot through `params.joints`
-  (radians and metres), and a slider release is one undo step.
+  project or a package the robot names, and the GLBs its DAEs convert to, are served,
+  and a network or device path in a URDF is refused before anything is read. A mesh that
+  is missing, unservable or unreadable draws as a placeholder and turns the view's health
+  to the new amber `warn`, with one note per cause; `snap` lists each one. The agent
+  poses the robot through `params.joints` (radians and metres), and a slider release is
+  one undo step.
 - Specto and its test suite run on Ubuntu (SPEC-101). On Linux a source at an absolute
   path, `/` included, lists in the file tree under that path (`/data/a.txt`, never
   `//a.txt`, which reads as a network path), and a whole-drive source on Windows (`C:\`)

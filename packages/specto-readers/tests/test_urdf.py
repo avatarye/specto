@@ -690,7 +690,7 @@ def test_xml_text_parses_with_the_same_refusals_and_resolves_next_to_its_file(tm
 
 
 def test_only_images_are_served_as_textures_and_a_secret_key_never_is(tmp_path: Path):
-    """A texture outside the project and its packages is never served (amendment 18),
+    """A texture outside the project and its packages is never served (ADR 0029 decision 6),
     and inside them only an image gets a role; a key file is listed missing (kind
     texture)."""
     secret = write(tmp_path / "home" / ".ssh" / "id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\n")
@@ -834,7 +834,7 @@ def test_a_windows_stream_name_is_never_served(tmp_path: Path):
     assert miss["kind"] == "texture" and miss["uri"] == "secret.txt:x.png"
 
 
-# -- amendment 18: never the network, only the project and its packages, caps ----------------
+# -- ADR 0029 decision 6: never the network, only the project and its packages, caps ------
 
 
 def _no_filesystem(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -1028,6 +1028,7 @@ def test_a_dae_outside_the_project_converts_into_the_cache_only(tmp_path: Path):
     assert len(files) == 2 and robot["model"]["missing"] == []
     assert not (pkg / "body.dae.glb").exists()  # never beside a source outside the project
     assert Path(files[0]).is_relative_to((tmp_path / "cache").resolve())
+    assert sorted(robot["converted"]) == sorted(files)  # both GLBs, the cached one too
     assert (tmp_path / "proj" / "inside.dae.glb").exists()  # in the project: beside, as SPEC-42
 
 

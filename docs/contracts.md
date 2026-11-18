@@ -330,20 +330,23 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   the scene's `missing`. The items host serves a part's trailing path that starts with
   `@root/` from the root of the resolver that answers for the item, never outside it:
   every `ItemResolver` (`specto_app.web.items`: `parts(link_id, key)`, `keys(link_id)`,
-  `lookup(link_id, key)`, `root(link_id, key)`, `side_allowed(link_id, key, role,
-  path)`, `guard_root(link_id)`) implements `lookup -> (resolver, parts) | None`, the
-  one pass the items host makes per request (a single resolver answers for itself
-  through `items.own_lookup`, `CompositeItems` asks its members in order); the host
-  then asks only that resolver for its `root`, `side_allowed` and `guard_root`. Under
+  `lookup(link_id, key)`, `root(link_id, key)`, `may_serve(link_id, key, role, path)`,
+  `guard_root(link_id, key=None, role=None)`) implements `lookup -> (resolver, parts) |
+  None`, the one pass the items host makes per request (a single resolver answers for
+  itself through `items.own_lookup`, `CompositeItems` asks its members in order); the
+  host then asks only that resolver for its `root`, `may_serve` and `guard_root`. Under
   that root it serves only an MTL, a buffer or an image
   (`scheme.ROOT_SUFFIXES`, the one list in `specto_readers.mesh_assets`); then the same
-  resolver's `side_allowed` may still refuse it. A part's own recorded path passes
-  `specto_core.pathguard.output_refusal` against the resolver's `guard_root` before it
+  resolver's `may_serve`, asked of the file a request serves (the part itself or one
+  named under it), may still refuse it. A part's own recorded path passes
+  `specto_core.pathguard.output_refusal` against the resolver's `guard_root` for that
+  part (`guard_root(link_id, key, role)`) before it
   is stat'ed (`scheme.part_refused`, status `refused`; SPEC-75), the backstop for every
   host that serves through items whatever produced the item; a container member is
   judged by its archive. `guard_root` is the root of what delivered the item (a
   collection's or a content value's, else the project's; an intaker table's; the
-  scratch store's project; the urdf view's robot: the project), so a project on a
+  scratch store's project; the urdf view's robot: for a robot file the scope folder it
+  lies in, else the project), so a project on a
   share serves its own parts and nothing on another share (SPEC-91). A part with a bare leading slash is refused where it is
   no absolute path (Windows: the current drive's root). The one leading-slash rule is
   `pathguard.below_root`. A trailing path's text (and the text after
@@ -877,18 +880,25 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
 - URDF view (SPEC-43, ADR 0029, `specto_app.views.urdf_view`): `UrdfHost` is a web host
   (`urdf/index.html`, Babylon.js) for one robot. It parses the shown `.urdf` item on the
   job manager (`specto_readers.urdf.build_robot(path, package_paths, search_roots,
-  environ, text, cache_dir) -> {model, files, packages, scope, actuated, parse_ms}`;
-  `scope` lists the folders a served file may lie in: `parse_urdf` on the
+  environ, text, cache_dir) -> {model, files, uses, converted, packages, scope,
+  actuated, parse_ms}`; `uses` lists per file role the references it answers,
+  `converted` the GLBs its DAEs converted to, `scope` the folders any other served file
+  lies in: `parse_urdf` on the
   standard library's `xml.etree`, refusing any DOCTYPE or entity declaration, the
   package resolver, `missing_notes` for health; `PackageResolver.folder(name)` is the
   picklable `$(find)` hook for xacro), serves the robot's files as extra roles of its
   item (`.m0`, `.m1`, ...; `RobotMeshes`, first in the runtime's item resolvers, so
   `specto://items/<link>/<key>/m<n>/<file name>`): only regular files of the mesh and
   image types up to 512 MB, and next to a mesh only an OBJ's `.mtl` or a glTF's `.bin`
-  and images (`ItemResolver.side_allowed`, which `locate_item` asks of the resolver
+  and images (`ItemResolver.may_serve`, which `locate_item` asks of the resolver
   answering for the item once a path resolved; the others allow any), and no `@root/`
   paths (`root` is None). Served files lie under the project (`search_roots`) or a
-  package folder the parse resolved, checked again by their resolved path when served;
+  package folder the parse resolved, or are the GLBs its DAEs converted to (in the
+  cache too; nothing else there). Each file is checked by its resolved path when the
+  robot loads (one that cannot be served then is added to `missing` with its cause and
+  gets no URL) and again when a request serves it, that one file only; each robot
+  file's own path is judged against the scope folder it lies in (a package resolved to
+  a share serves its own files under SPEC-91's rules);
   a reference is tested against that scope on its text (`os.path.abspath`) before it is
   resolved, then on its resolved path; a package name matches `PACKAGE_NAME`; a
   `package_paths` mapping (`{name: folder}`) counts only when the folder's

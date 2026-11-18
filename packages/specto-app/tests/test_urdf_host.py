@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import gc
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -594,9 +595,12 @@ def test_next_to_a_mesh_only_its_material_library_and_images_are_served(engine: 
     assert get("m1", "cover.mtl") is not None and get("m1", "skin.png") is not None
     assert get("m1", "id_rsa") is None and get("m1", "notes.txt") is None
     assert get("m0", "cover.mtl") is None  # nothing next to an STL
-    assert get("urdf", "arm.urdf") is None  # nor next to the URDF
+    urdf_dir = Path(runtime().items.parts("l2", key)[".urdf"]).parent
+    (urdf_dir / "notes.txt").write_text("secret", encoding="utf-8")
+    assert get("urdf", "notes.txt") is None  # nor next to the URDF
+    assert get("urdf", "arm.urdf") is not None  # the item's own part, as itself
     # another link's items are untouched by the urdf view's rule
-    assert runtime().items.side_allowed("other", "k", ".md", meshes / "notes.txt") is True
+    assert runtime().items.may_serve("other", "k", ".md", meshes / "notes.txt") is True
 
 
 def test_a_slider_map_keeps_only_actuated_non_mimic_joints(engine: Engine, tmp_path: Path):
@@ -636,8 +640,9 @@ def test_a_mesh_swapped_after_the_parse_is_checked_again_when_served(engine: Eng
     assert stl_path.name == "base.stl"
     stl_path.unlink()
     stl_path.mkdir()  # no longer a regular file
-    after = runtime().items.parts("l2", key)
-    assert ".m0" not in after and ".m1" in after and ".urdf" in after
+    enc = key.replace("/", "%2F")
+    assert get_item(f"specto://items/l2/{enc}/m0/base.stl") is None
+    assert get_item(f"specto://items/l2/{enc}/m1/cover.obj") is not None
 
 
 def test_a_mesh_swapped_for_a_link_is_judged_by_its_target(engine: Engine, tmp_path: Path):
@@ -656,7 +661,6 @@ def test_a_mesh_swapped_for_a_link_is_judged_by_its_target(engine: Engine, tmp_p
         stl_path.symlink_to(secret)
     except OSError:
         pytest.skip("symlinks need privileges here")
-    assert ".m0" not in runtime().items.parts("l2", key)
     enc = key.replace("/", "%2F")
     entry: dict = {}
     got = locate_item(
@@ -668,7 +672,7 @@ def test_a_mesh_swapped_for_a_link_is_judged_by_its_target(engine: Engine, tmp_p
         entry=entry,
     )
     assert got is None
-    assert runtime().items.side_allowed("l2", key, ".m0", secret) is False
+    assert runtime().items.may_serve("l2", key, ".m0", secret) is False
 
 
 def test_a_file_outside_the_project_and_its_packages_is_not_served(engine: Engine, tmp_path: Path):
@@ -732,3 +736,208 @@ def test_the_robot_s_guard_root_is_the_project(engine: Engine):
     assert Path(project) == Path(engine.project.root).resolve()
     assert meshes.guard_root("elsewhere") is None
     assert runtime().items.guard_root("l2") == project
+
+
+# -- final review: cached DAE GLBs, one file per request, each file's own guard root ---------
+
+
+def get_item(url: str) -> Path | None:
+    """What the items host serves for a model's ``specto://items/...`` URL."""
+    from specto_app.web.scheme import locate_item
+
+    return locate_item(
+        "items",
+        url[len("specto://items") :],
+        "robo.page",
+        caps_of=runtime().caps_of,
+        items=runtime().items,
+        entry={},
+    )
+
+
+def show(host: UrdfHost, suffix: str) -> str:
+    key = next(k for k in host.keys if k.endswith(suffix))
+    assert host.show_step(key)
+    host.flush()
+    return key
+
+
+def test_a_dae_converted_into_the_cache_is_served(engine: Engine, tmp_path: Path):
+    """ADR 0029 decision 6: a DAE outside the project converts into the cache only
+    (``beside=False``); the GLB it produced is served, though the cache is neither the
+    project nor a package, and nothing else in the cache is."""
+    from scene3d_helpers import mesh_samples
+
+    pkg = tmp_path / "ros" / "arm_meshes"
+    pkg.mkdir(parents=True)
+    (pkg / "package.xml").write_text(
+        "<package format='3'><name>arm_meshes</name></package>", encoding="utf-8"
+    )
+    mesh_samples().write_dae(pkg / "body.dae")
+    (tmp_path / "proj" / "robots" / "dae_bot.urdf").write_text(
+        """<robot name="dae_bot"><link name="a"><visual><geometry>
+        <mesh filename="package://arm_meshes/body.dae"/></geometry></visual></link></robot>""",
+        encoding="utf-8",
+    )
+    submit_robot(engine, {"package_paths": {"arm_meshes": str(pkg)}})
+    _ctx, host, sink = make_host(engine)
+    show(host, "dae_bot")
+    model = sink.last("model")["model"]
+    assert model["missing"] == []
+    geo = model["links"][0]["visuals"][0]["geometry"]
+    assert geo["ext"] == "glb" and geo["url"]
+    assert not (pkg / "body.dae.glb").exists()  # never beside a source outside the project
+    got = get_item(geo["url"])
+    assert got is not None and got.suffix == ".glb"
+    assert got.resolve().is_relative_to((tmp_path / "cache").resolve())
+    # another file in the cache is not the robot's: never served next to the GLB
+    (got.parent / "other.png").write_bytes(b"\x89PNG\r\n")
+    assert get_item(geo["url"].rsplit("/", 1)[0] + "/other.png") is None
+
+
+def test_a_robot_file_that_cannot_be_served_is_listed_missing(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    """A file the parse found but the host cannot serve when it loads the robot (gone, or
+    not a regular file by then) gets no URL and is listed in ``missing`` with its cause,
+    so the robot never carries a URL the items host answers not_found for."""
+    import specto_app.views.urdf_view as urdf_view
+
+    real = urdf_view.build_robot
+
+    def then_gone(path, **kw):
+        out = real(path, **kw)
+        for p in out["files"].values():
+            if p.endswith("base.stl"):
+                Path(p).unlink()
+        return out
+
+    monkeypatch.setattr(urdf_view, "build_robot", then_gone)
+    submit_robot(engine)
+    ctx, host, sink = make_host(engine)
+    model = sink.last("model")["model"]
+    base = model["links"][0]["visuals"][0]["geometry"]
+    assert base["url"] is None
+    gone = [m for m in model["missing"] if m["uri"].endswith("base.stl")]
+    assert gone == [
+        {
+            "link": "base",
+            "kind": "visual",
+            "uri": "package://arm_description/meshes/base.stl",
+            "cause": "mesh file not found",
+        }
+    ]
+    assert host.snapshot()["missing"] == model["missing"]
+    assert "1 mesh missing: mesh file not found" in ctx.health_of("robo")["message"]
+    assert ".m0" not in (runtime().items.parts("l2", host.key) or {})
+
+
+def test_one_request_stats_one_file_however_many_the_robot_has(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    """The items host runs on the GUI thread: a request checks the file it serves, not
+    every file of the robot (a robot of N meshes cost N resolves and stats per request)."""
+    import os
+    import pathlib
+
+    folder = engine.project.root / "robots" / "many"
+    folder.mkdir()
+    for n in range(40):
+        (folder / f"m{n}.stl").write_bytes(b"solid m\nendsolid m\n")
+    body = "".join(
+        f'<visual><geometry><mesh filename="many/m{n}.stl"/></geometry></visual>' for n in range(40)
+    )
+    (engine.project.root / "robots" / "many.urdf").write_text(
+        f'<robot name="many"><link name="a">{body}</link></robot>', encoding="utf-8"
+    )
+    submit_robot(engine)
+    _ctx, host, sink = make_host(engine)
+    show(host, "many")
+    url = sink.last("model")["model"]["links"][0]["visuals"][7]["geometry"]["url"]
+    calls: list[str] = []
+
+    def counted(name, real):
+        def call(*a, **k):
+            calls.append(name)
+            return real(*a, **k)
+
+        return call
+
+    monkeypatch.setattr(pathlib.Path, "resolve", counted("resolve", pathlib.Path.resolve))
+    monkeypatch.setattr(os, "stat", counted("stat", os.stat))
+    got = get_item(url)
+    monkeypatch.undo()
+    assert got is not None and got.name == "m7.stl"
+    assert len(calls) <= 12, calls
+
+
+SHARE_PKG = r"\\fakehost\share\ws\arm_meshes"
+
+
+def share_robot(engine: Engine, host: UrdfHost) -> str:
+    """The shown robot as if its package had resolved to a share (a mapped drive or a
+    link the user placed): a local project, the package's files on ``SHARE_PKG``."""
+    from specto_app.views.urdf_view import ServedRobot
+
+    key = host.key
+    project = str(engine.project.root.resolve())
+    host._meshes.set(
+        ServedRobot(
+            link="l2",
+            key=key,
+            table={
+                ".urdf": str(engine.project.root / "robots" / "arm.urdf"),
+                ".m0": SHARE_PKG + r"\meshes\base.stl",
+                ".m1": SHARE_PKG + r"\..\..\other\x.stl",
+                ".m2": r"\\?\UNC\fakehost\share\ws\arm_meshes\meshes\c.stl",
+            },
+            files={".m0": "stl", ".m1": "stl", ".m2": "stl"},
+            scope=(project, SHARE_PKG),
+        )
+    )
+    return key
+
+
+@pytest.mark.skipif(os.name != "nt", reason="network paths are judged as such on Windows")
+def test_each_robot_file_is_judged_against_the_scope_folder_it_lies_in(engine: Engine):
+    """A package that resolved to a share serves its own files although the project is
+    local: each file's guard root is the scope folder it lies in (SPEC-91's share rules:
+    a plain share root only, nothing escaping it, no device forms)."""
+    from specto_app.web.scheme import part_refused
+
+    submit_robot(engine)
+    _ctx, host, _sink = make_host(engine)
+    key = share_robot(engine, host)
+    meshes = host._meshes
+    table = meshes.robot.table
+    root0 = meshes.guard_root("l2", key, ".m0")
+    assert root0 == SHARE_PKG
+    assert part_refused(table[".m0"], root0) is None
+    assert part_refused(table[".m0"], meshes.robot.scope[0]) is not None  # the old root
+    assert part_refused(table[".m1"], meshes.guard_root("l2", key, ".m1")) is not None
+    assert part_refused(table[".m2"], meshes.guard_root("l2", key, ".m2")) is not None
+    # the item's own parts and the link-only question keep the project
+    assert meshes.guard_root("l2", key, ".urdf") == meshes.robot.scope[0]
+    assert meshes.guard_root("l2") == meshes.robot.scope[0]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="network paths are judged as such on Windows")
+def test_the_items_host_asks_for_the_requested_files_guard_root(
+    engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    from specto_app.web import scheme
+    from specto_core.pathguard import Refusal
+
+    submit_robot(engine)
+    _ctx, host, _sink = make_host(engine)
+    key = share_robot(engine, host)
+    seen: list[tuple[str, str | None]] = []
+
+    def judged(part, root):
+        seen.append((part, root))
+        return Refusal.NETWORK  # nothing reaches the fake host
+
+    monkeypatch.setattr(scheme, "part_refused", judged)
+    enc = key.replace("/", "%2F")
+    assert get_item(f"specto://items/l2/{enc}/m0/base.stl") is None
+    assert seen == [(SHARE_PKG + r"\meshes\base.stl", SHARE_PKG)]

@@ -30,12 +30,13 @@ stream name are refused, so parsing an untrusted URDF never connects out. A pack
 never guessed by stripping the ``package://<name>/`` prefix, a ``package://`` path never
 leaves its package, and ``http(s)://`` is never fetched (offline rule).
 
-What may be served (ADR 0029 decision 6 and amendment 18): a file whose resolved path
+What may be served (ADR 0029 decision 6): a file whose resolved path
 lies under the project (``search_roots``; the URDF's own folder when none is given) or a
 package folder this parse resolved, of a mesh type (STL, OBJ, glTF, GLB) or an image
 type, a regular file of at most ``MAX_SERVED_BYTES``. A DAE goes as the GLB that
 SPEC-42's ``dae.prepare`` returns, converted into the cache, never beside a source
-outside the project. Per parse at most ``MAX_REFERENCES`` references and
+outside the project; the result's ``converted`` lists those GLBs, the only files served
+outside that scope. Per parse at most ``MAX_REFERENCES`` references and
 ``MAX_DAE_CONVERSIONS`` conversions are taken, and the package search shares one folder
 budget. Anything else keeps its geometry with ``url: None`` (the page draws a
 placeholder) and is listed in the model's ``missing`` with its cause; ``missing_notes``
@@ -86,7 +87,7 @@ SIDE_EXTS: dict[str, frozenset[str]] = {
 SERVED_EXTS: frozenset[str] = frozenset(MESH_EXTS) | TEXTURE_EXTS
 #: the largest mesh or texture served (a regular file; bounds a wrong reference)
 MAX_SERVED_BYTES = 512 * 1024 * 1024
-#: per parse: the mesh and texture references taken, and the DAEs converted (amendment 18)
+#: per parse: the mesh and texture references taken, and the DAEs converted (ADR 0029)
 MAX_REFERENCES = 2000
 MAX_DAE_CONVERSIONS = 64
 #: how deep the project's folders and a package_paths / ROS_PACKAGE_PATH folder are
@@ -231,7 +232,7 @@ def package_name_of(folder: Path) -> str | None:
 class SearchBudget:
     """The folders one parse may look at while searching for packages, shared by every
     package name and every step that probes a folder (the walk up from the URDF, a
-    folder of packages, the project's folders, the ROS environment; amendment 18);
+    folder of packages, the project's folders, the ROS environment; ADR 0029 decision 6);
     ``spent`` once a probe found it empty."""
 
     left: int = field(default_factory=lambda: SEARCH_MAX_DIRS)
@@ -779,6 +780,8 @@ class _Files:
     cache_dir: str | Path | None = None
     project: list[Path] = field(default_factory=list)
     served: dict[str, str] = field(default_factory=dict)  # role -> path
+    #: role -> the references it answers (`{link, kind, uri}`)
+    uses: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     missing: list[dict[str, Any]] = field(default_factory=list)
     refs: list[_Ref] = field(default_factory=list)
     _roles: dict[str, str] = field(default_factory=dict)  # path -> role
@@ -823,6 +826,9 @@ class _Files:
             if role is None:
                 role = self._roles[path] = f"m{len(self._roles)}"
                 self.served[role] = path
+            self.uses.setdefault(role, []).append(
+                {"link": ref.link, "kind": ref.kind, "uri": ref.uri}
+            )
             if ref.kind == RefKind.TEXTURE:
                 ref.target["texture_file"] = role
             else:
@@ -845,6 +851,11 @@ class _Files:
         refused = servable(path, MESH_EXTS)
         return (None, f"mesh file {refused}") if refused else (path, None)
 
+    def converted(self) -> list[str]:
+        """The GLBs `dae.prepare` returned for this robot's DAEs (beside them or in the
+        cache)."""
+        return [glb for glb, _cause in self._daes.values() if glb is not None]
+
     def _texture(self, path: str) -> tuple[str | None, str | None]:
         suffix = Path(path).suffix.lower()
         if suffix not in TEXTURE_EXTS:
@@ -863,8 +874,10 @@ def build_robot(
     cache_dir: str | Path | None = None,
     progress: Any = None,
 ) -> dict[str, Any]:
-    """Parse ``path`` and resolve its files: ``{model, files, packages, scope, actuated,
-    parse_ms}`` (module docstring; ``scope``: the folders a served file may lie in). With
+    """Parse ``path`` and resolve its files: ``{model, files, uses, converted, packages,
+    scope, actuated, parse_ms}`` (module docstring; ``uses``: per role of ``files``, the
+    references it answers, ``{link, kind, uri}``; ``converted``: the DAEs' GLBs, which may
+    lie in the cache; ``scope``: the folders any other served file lies in). With
     ``text`` (xacro's expanded URDF, SPEC-43.3) the XML is that text, and ``path`` (the
     file it came from) still anchors relative mesh paths and the walk up to the nearest
     package.xml. ``search_roots`` is the project (none: the URDF's own folder).
@@ -897,6 +910,8 @@ def build_robot(
     return {
         "model": model,
         "files": files.served,
+        "uses": files.uses,
+        "converted": files.converted(),
         "packages": {
             name: {"path": str(folder), "via": via}
             for name, (folder, via) in resolver.packages.items()
