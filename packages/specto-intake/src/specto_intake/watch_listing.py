@@ -2,8 +2,13 @@
 notifications (SPEC-8, ADR 0027).
 
 ``watch_table`` lists every source: ``{"<source index>:<rel>": "<size>:<mtime_ns>"}``,
-archives as single files, the project's ``.specto/`` and writers' temporaries
-(``transient``) left out; ``watch_intaker`` is the intaker's watcher over it.
+archives as single files, the project's ``.specto/`` (never entered) and writers'
+temporaries (``transient``) left out; ``watch_intaker`` is the intaker's watcher over it.
+A listing past its ``WalkBudget`` (SPEC-94) holds, for the source it cut short and every
+existing source after it, the one entry ``"<index>:": "truncated"`` instead of their
+files, and ``IntakerListing`` ignores notices under those sources; a missing source
+stays ``"<index>:": "missing:..."``.
+
 ``IntakerListing`` gives the same table for the paths a change notice names, without
 listing anything else:
 
@@ -38,7 +43,15 @@ from specto_core.fswatch import NotifyUnavailable, Unavailable, case_insensitive
 from specto_core.links import ARRIVALS_CAP, FilesValue, TableChange, arrival_entry
 
 from .screener import glob_to_regex
-from .sources import WalkBudget, hidden, posix, resolve_root, walk_dir, walk_source
+from .sources import (
+    WalkBudget,
+    existing_root,
+    hidden,
+    posix,
+    resolve_root,
+    walk_dir,
+    walk_source,
+)
 from .spec import IntakeSpec, SourceSpec, intake_spec
 
 #: a writer's temporary while it writes (``.<name>.<pid>.tmp``, ``.<name>.part``): never
@@ -74,20 +87,30 @@ def watch_table(
     """One ``scandir`` pass over the sources: the watcher's table. ``links`` collects the
     folders reached through a symbolic link or a junction. The pass runs under
     ``budget`` (a fresh ``WalkBudget`` by default): a source it cuts short, and every
-    source after it, is the one entry ``"<index>:": "truncated"`` instead of its files,
-    so the next truncated pass gives the same table (a time budget stops at a different
-    file each time) and never reads as files arriving or leaving (SPEC-94)."""
+    existing source after it, is the one entry ``"<index>:": "truncated"`` instead of
+    its files, so the next truncated pass gives the same table (a time budget stops at a
+    different file each time) and never reads as files arriving or leaving (SPEC-94). A
+    source that is not there is ``missing:`` either way, so its appearance is noticed."""
     budget = WalkBudget() if budget is None else budget
     base_posix = posix(base).rstrip("/") + "/"
     table: dict[str, str] = {}
     for i, src in enumerate(spec.sources):
-        if budget.reason:
-            table[arrival_entry(i, "")] = TRUNCATED
-            continue
-        entries: dict[str, str] = {}
         try:
+            if budget.reason:
+                existing_root(i, src, base)
+                budget.skip(i)
+                table[arrival_entry(i, "")] = TRUNCATED
+                continue
+            entries: dict[str, str] = {}
             for f in walk_source(
-                i, src, base, expand_containers=False, links=links, skip=transient, budget=budget
+                i,
+                src,
+                base,
+                expand_containers=False,
+                links=links,
+                skip=transient,
+                budget=budget,
+                hide_specto=True,
             ):
                 full = f"{f.root}/{f.rel}"
                 rel_proj = (
@@ -194,10 +217,8 @@ class IntakerListing:
         budget = WalkBudget()
         table = watch_table(self.spec, self.base, links, budget)
         self.link_dirs = links
-        self.truncated = {
-            s.index for s in self.sources if table.get(arrival_entry(s.index, "")) == TRUNCATED
-        }
         self._truncation = budget.note
+        self._read_truncation(table)
         return table
 
     def reset(self, table: dict[str, str]) -> None:
@@ -205,6 +226,15 @@ class IntakerListing:
         self._folded = {}
         for key in table:
             self._index(key)
+        self._read_truncation(table)
+
+    def _read_truncation(self, table: dict[str, str]) -> None:
+        """The sources ``table`` holds as one ``truncated`` entry (SPEC-94)."""
+        self.truncated = {
+            s.index for s in self.sources if table.get(arrival_entry(s.index, "")) == TRUNCATED
+        }
+        if not self.truncated:
+            self._truncation = ""
 
     def source_missing(self, table: dict[str, str]) -> bool:
         return any(v.startswith("missing:") for v in table.values())

@@ -11,9 +11,11 @@ archive yields its members relative to the archive's folder. ``expand_containers
 lists the archive as one file instead (the watcher's cheap snapshot).
 
 A ``WalkBudget`` bounds a walk (SPEC-94): past ``WALK_MAX_FILES`` files or
-``WALK_SECONDS`` seconds it stops, and its ``note`` says which source was cut short and
-how to narrow it. The run-time intake and the watcher's listing walk under one each; an
-agent-written ``C:/**`` would otherwise walk the whole drive on every rescan.
+``WALK_SECONDS`` seconds it stops, and its ``note`` says which source was cut short,
+which sources after it were not walked, and how to narrow it. The run-time intake and
+the watcher's listing walk under one each, and leave the project's ``.specto/`` unentered
+(``hide_specto``) so its cache costs the budget nothing; an agent-written ``C:/**``
+would otherwise walk the whole drive on every rescan.
 """
 
 from __future__ import annotations
@@ -44,7 +46,8 @@ class WalkBudget:
     """How far one walk may go: ``max_files`` files and ``seconds`` seconds over all its
     sources (defaults: ``WALK_MAX_FILES``, ``WALK_SECONDS``). The walker asks ``folder``
     before listing a folder and ``file`` before yielding a file; once either says no,
-    ``source`` and ``reason`` say where and why, and the walk stops."""
+    ``source`` and ``reason`` say where and why, and the walk stops. A caller that then
+    leaves a source unwalked records it with ``skip``, so the note names it too."""
 
     def __init__(self, max_files: int | None = None, seconds: float | None = None) -> None:
         self.max_files = WALK_MAX_FILES if max_files is None else max_files
@@ -52,7 +55,12 @@ class WalkBudget:
         self.files = 0
         self.source: int | None = None
         self.reason = ""
+        self.skipped: list[int] = []
         self._t0 = time.monotonic()
+
+    def skip(self, index: int) -> None:
+        """Source ``index`` was not walked at all: the budget was spent before it."""
+        self.skipped.append(index)
 
     def folder(self, index: int) -> bool:
         if self.reason:
@@ -75,10 +83,15 @@ class WalkBudget:
 
     @property
     def note(self) -> str:
-        """``''`` for a whole walk, else what was cut short, with its fix-it."""
+        """``''`` for a whole walk, else the source cut short, the sources not walked
+        after it, and the fix-it."""
         if not self.reason:
             return ""
-        return f"source {self.source} truncated: {self.reason}. Fix: {TRUNCATED_FIX}"
+        note = f"source {self.source} truncated: {self.reason}"
+        if self.skipped:
+            what = "source" if len(self.skipped) == 1 else "sources"
+            note += f"; {what} {', '.join(map(str, self.skipped))} not walked"
+        return f"{note}. Fix: {TRUNCATED_FIX}"
 
 
 @dataclass(frozen=True)
@@ -115,6 +128,17 @@ def hidden(rel_to_project: str) -> bool:
     return rel_to_project == SPECTO_DIR or rel_to_project.startswith(SPECTO_DIR + "/")
 
 
+def existing_root(index: int, src: SourceSpec, base: Path) -> Path:
+    """``resolve_root``, or ``NotFound`` when the source is not there."""
+    root = resolve_root(src, base)
+    if not root.exists():
+        raise NotFound(
+            f"source {index} root {posix(root)} does not exist",
+            fix="check the path; relative roots resolve against the project folder",
+        )
+    return root
+
+
 def walk_source(
     index: int,
     src: SourceSpec,
@@ -124,13 +148,17 @@ def walk_source(
     links: list[str] | None = None,
     skip: Callable[[str], bool] | None = None,
     budget: WalkBudget | None = None,
+    hide_specto: bool = False,
 ) -> Iterator[FoundFile]:
-    root = resolve_root(src, base)
-    if not root.exists():
-        raise NotFound(
-            f"source {index} root {posix(root)} does not exist",
-            fix="check the path; relative roots resolve against the project folder",
-        )
+    """The files source ``index`` holds. ``hide_specto`` leaves the project's own
+    ``.specto/`` folder (under ``base``) unentered, so it costs ``budget`` nothing."""
+    root = existing_root(index, src, base)
+    root_posix = posix(root)
+    hide_in: str | None = None
+    if hide_specto:
+        hide_in = posix(Path(base).resolve()).lower().rstrip("/")
+        if root_posix.lower().startswith(hide_in + "/") and hidden(root_posix[len(hide_in) + 1 :]):
+            return
     pattern = (
         re.compile(glob_to_regex(src.pattern.replace("\\", "/")), re.IGNORECASE)
         if src.pattern
@@ -151,7 +179,6 @@ def walk_source(
                 return
             yield f
         return
-    root_posix = posix(root)
     yield from walk_dir(
         index,
         root,
@@ -164,6 +191,7 @@ def walk_source(
         links=links,
         skip=skip,
         budget=budget,
+        hide_in=hide_in,
     )
 
 
@@ -202,11 +230,13 @@ def walk_dir(
     links: list[str] | None = None,
     skip: Callable[[str], bool] | None = None,
     budget: WalkBudget | None = None,
+    hide_in: str | None = None,
 ) -> Iterator[FoundFile]:
     """The files under ``directory`` (``prefix`` its path below the source root,
     ``depth`` its depth), as ``walk_source`` finds them. ``links`` collects the folders
     descended into through a symbolic link or a junction (no change notices come from
-    inside them); ``skip(name)`` leaves files out by name; ``budget`` stops the walk."""
+    inside them); ``skip(name)`` leaves files out by name; ``budget`` stops the walk;
+    the ``.specto/`` folder right in ``hide_in`` (lower-cased POSIX) is not entered."""
     if budget is not None and not budget.folder(index):
         return
     try:
@@ -214,11 +244,14 @@ def walk_dir(
             entries = sorted(it, key=lambda e: e.name)
     except OSError:
         return
+    in_project = hide_in is not None and posix(directory).lower().rstrip("/") == hide_in
     subdirs: list[tuple[str, Path]] = []
     for e in entries:
         rel = f"{prefix}{e.name}"
         try:
             if e.is_dir(follow_symlinks=src.follow_links):
+                if in_project and e.name == SPECTO_DIR:
+                    continue
                 if src.depth is None or depth < src.depth:
                     subdirs.append((rel + "/", Path(e.path)))
                     if links is not None and (e.is_symlink() or e.is_junction()):
@@ -252,6 +285,7 @@ def walk_dir(
             links=links,
             skip=skip,
             budget=budget,
+            hide_in=hide_in,
         )
         if budget is not None and budget.reason:
             return

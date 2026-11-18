@@ -147,13 +147,14 @@ def _found_from_paths(
 
 def _found_from_walk(spec: IntakeSpec, base: Path, budget: WalkBudget) -> list[FoundFile]:
     """The files the sources hold, walked under ``budget`` (SPEC-94): past it the walk
-    stops and ``budget.note`` says so."""
+    stops, the sources after it are recorded as not walked, and ``budget.note`` says so."""
     base_posix = posix(base).rstrip("/") + "/"
     out: list[FoundFile] = []
     for i, src in enumerate(spec.sources):
         if budget.reason:
-            break
-        for f in walk_source(i, src, base, budget=budget):
+            budget.skip(i)
+            continue
+        for f in walk_source(i, src, base, budget=budget, hide_specto=True):
             full = f"{f.root}/{f.rel}"
             rel_proj = (
                 full[len(base_posix) :] if full.lower().startswith(base_posix.lower()) else ""

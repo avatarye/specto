@@ -1190,7 +1190,7 @@ class LinkRuntime:
         """Resolved; a result whose walk was cut short (``truncated``, SPEC-94) says so in
         the status message, with ``truncated: true``."""
         note = getattr(result, "truncated", "") if isinstance(result, BaseModel) else ""
-        if note:
+        if isinstance(note, str) and note:
             self._set_status(link_id, "resolved", note, truncated=True)
         else:
             self._set_status(link_id, "resolved", "")

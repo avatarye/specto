@@ -135,3 +135,96 @@ def test_the_listing_notes_the_truncation_and_ignores_notices_under_it(folder, m
     out = listing.apply(table, [str(folder / "runs" / "r0" / "new.txt")])
     assert out is not None and out[:3] == (0, 0, 0)
     assert table == before
+
+
+def test_a_listing_reset_from_a_truncated_table_ignores_notices_under_it(folder, monkeypatch):
+    """``reset`` reads the truncation off the table, whoever listed it."""
+    monkeypatch.setattr(sources, "WALK_MAX_FILES", 7)
+
+    def make() -> IntakerListing:
+        return IntakerListing(
+            link(["runs/**/*.txt"]), FilesValue(root=str(folder)), root=str(folder), env={}
+        )
+
+    table = make().full()
+    listing = make()
+    listing.reset(table)
+    (folder / "runs" / "r0" / "new.txt").write_bytes(b"x")
+    before = dict(table)
+    out = listing.apply(table, [str(folder / "runs" / "r0" / "new.txt")])
+    assert out is not None and out[:3] == (0, 0, 0)
+    assert table == before
+
+
+def _specto_thumbs(folder: Path, n: int) -> None:
+    thumbs = folder / ".specto" / "cache" / "thumbs"
+    thumbs.mkdir(parents=True)
+    for i in range(n):
+        (thumbs / f"t{i:03d}.txt").write_bytes(b"x")
+
+
+def test_the_projects_specto_folder_does_not_count_against_the_budget(folder, monkeypatch):
+    """A ``.`` intaker never enters ``.specto/``: its thumbnails neither use up the file
+    cap nor read as a truncation."""
+    _specto_thumbs(folder, 30)
+    monkeypatch.setattr(sources, "WALK_MAX_FILES", 20)
+    seen: list[str] = []
+    real = sources.os.scandir
+
+    def counting(path):
+        seen.append(sources.posix(path))
+        return real(path)
+
+    monkeypatch.setattr(sources.os, "scandir", counting)
+    col = resolve(folder, ["."])
+    assert len(col.items) == 20
+    assert col.truncated == ""
+    assert not any("/.specto" in p for p in seen)
+    table = watch_table(intake_spec({"sources": ["."]}), folder)
+    assert len(table) == 20 and "0:" not in table
+
+
+def test_the_note_names_the_source_cut_short_and_the_sources_not_walked(folder, monkeypatch):
+    monkeypatch.setattr(sources, "WALK_MAX_FILES", 7)
+    col = resolve(folder, ["runs/r0", "runs/r1", "runs/r2", "runs/r3"])
+    assert len(col.items) == 7
+    assert "source 1 truncated" in col.truncated
+    assert "sources 2, 3 not walked" in col.truncated
+    assert "source 0" not in col.truncated
+
+    col = resolve(folder, ["runs/r0", "runs/r1", "runs/r2"])
+    assert "source 1 truncated" in col.truncated
+    assert "source 2 not walked" in col.truncated
+
+
+def test_a_missing_source_after_a_truncation_is_still_missing(folder, monkeypatch):
+    """The watcher re-arms on a missing source's appearance only if it reads missing."""
+    monkeypatch.setattr(sources, "WALK_MAX_FILES", 7)
+    listing = IntakerListing(
+        link(["runs/**/*.txt", "later", "runs/r3"]),
+        FilesValue(root=str(folder)),
+        root=str(folder),
+        env={},
+    )
+    table = listing.full()
+    assert table["0:"] == "truncated"
+    assert table["1:"].startswith("missing:") and "later" in table["1:"]
+    assert table["2:"] == "truncated"
+    assert listing.source_missing(table)
+
+
+def test_a_status_reads_only_a_text_truncation(folder):
+    """A result whose ``truncated`` is not a note (a bool here) resolves plainly."""
+    from pydantic import BaseModel
+
+    from specto_core import Engine, Project
+
+    class Flagged(BaseModel):
+        truncated: bool = True
+
+    engine = Engine(project=Project.init(folder, "demo"))
+    try:
+        engine.links._resolved("l1", Flagged())
+        assert engine.links.status("l1") == {"state": "resolved", "message": ""}
+    finally:
+        engine.close()
