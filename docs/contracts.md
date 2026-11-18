@@ -310,11 +310,13 @@ register_resolver(kind, fn, needs=(), inline=False); register_watcher(kind, fn)
   grouping, sort over the files arriving on the input; `.specto/` never enters a
   collection; a source string splits into its base and glob by
   `specto_core.pathguard.split_glob`, as the submit's unknown-files check splits it.
-  The walk stops past `WALK_MAX_FILES` (100,000) files or `WALK_SECONDS` (10 s): the
-  collection's `truncated` says which source and how to narrow it, the link's status
-  carries it as its message with `truncated: true`, and the watcher's table holds the
-  one entry `"<index>:": "truncated"` for that source and ignores notices under it,
-  SPEC-94), its watcher (`watch_intaker`), `read_contents` and the 3D scene buffers
+  The walk stops past `WALK_MAX_FILES` (100,000) files or `WALK_SECONDS` (10 s), never
+  entering the project's `.specto/`: the collection's `truncated` names the source cut
+  short and the sources after it that were not walked, and how to narrow it; the link's
+  status carries it as its message with `truncated: true`; and the watcher's table holds
+  the one entry `"<index>:": "truncated"` for the source cut short and for every
+  existing source after it (a missing one stays `missing:`), and ignores notices under
+  them, SPEC-94), its watcher (`watch_intaker`), `read_contents` and the 3D scene buffers
   (`scene3d.attach_scenes`, for intakers feeding a `3d` view). For a `.dae` that step
   writes the converted mesh `<name>.dae.glb` beside it, or in the cache when the folder
   cannot take it (`specto_readers.dae`, ADR 0028); a converted mesh whose DAE is in the

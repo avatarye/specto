@@ -44,11 +44,12 @@ the release and move on their own schedule.
   start in its folders again (SPEC-96); a path on another share stays refused, and a
   launcher's command on a share still never runs.
 - A run-time intake walk and a watcher's listing are bounded (SPEC-94): past 100,000
-  files or 10 s the walk stops, and the link's status says which source was cut short
-  and to narrow its folder or glob. Before, an agent-written `C:/**/*.x` walked the whole
-  drive on every rescan. `intake.preview` keeps its own 20,000-file cap and now stops
-  after 10 s too. The submit and the intake spec split a source into base and glob with
-  one helper (`pathguard.split_glob`).
+  files or 10 s the walk stops, and the link's status says which source was cut short,
+  which sources after it were not walked, and to narrow its folder or glob. The walk
+  never enters the project's `.specto/`, so its cache costs nothing. Before, an
+  agent-written `C:/**/*.x` walked the whole drive on every rescan. `intake.preview`
+  keeps its own 20,000-file cap and now stops after 10 s too. The submit and the intake
+  spec split a source into base and glob with one helper (`pathguard.split_glob`).
 - Security fix (SPEC-73): the prompt bar agent's `scratch_append` no longer asks Windows
   whether a network path in its `image` or `file` argument exists; such a path (or a
   device or stream path) is refused by its text first.
