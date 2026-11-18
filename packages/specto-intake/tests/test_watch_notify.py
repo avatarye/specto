@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import threading
 import time
 from pathlib import Path
 
@@ -1201,9 +1202,10 @@ def test_nothing_is_said_while_the_first_arming_is_under_way(project: Project, m
     monkeypatch.delenv("SPECTO_WATCH", raising=False)
     real_start = fswatch.Notifier.start
     armed = []
+    release = threading.Event()
 
     def slow_start(self):
-        time.sleep(0.5)
+        release.wait(timeout=30)  # held until the test has looked; bounded if it fails
         armed.append(1)
         return real_start(self)
 
@@ -1219,10 +1221,12 @@ def test_nothing_is_said_while_the_first_arming_is_under_way(project: Project, m
         )
         assert not armed and not links.watch_status("l2")["decided"]
         assert said == [] and links.watch_note("kobi") == ""
+        release.set()
         assert pump_until(engine, jobs, lambda: bool(armed) and bool(said))
         assert pump_until(engine, jobs, lambda: settled(links))
         assert [e["mode"] for e in said] == ["notify"], said
     finally:
+        release.set()
         engine.close()
         jobs.shutdown()
 
