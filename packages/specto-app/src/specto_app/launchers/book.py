@@ -43,7 +43,7 @@ def refusal(text: str, root: str | Path | None = None) -> Refusal | None:
     """Why a launcher's command or cwd, or a path to open, may not be looked for: its text
     judged by ``specto_core.pathguard`` (SPEC-76), a ``file:`` URI by its host first (a
     host is a network path). A network path is accepted only under ``root`` when that is
-    a plain network path (a project on a share opens its own files, SPEC-91; the same
+    a plain network path (a project on a share opens its own files, SPEC-96; the same
     acceptance as ``output_refusal``); a command is always judged without one."""
     if text[:5].lower() == "file:":
         _path, why = file_uri_path(text)
@@ -59,7 +59,7 @@ def file_of(path: str, root: str | Path | None = None) -> str:
     """The file behind a target item's path: a container entry (``file.zip#inner``, the
     gallery's) is its container. "" for a path whose text ``specto_core.pathguard``
     refuses (a network or device path is never looked for, SPEC-76; one under a project
-    ``root`` on a share is the project's, SPEC-91)."""
+    ``root`` on a share is the project's, SPEC-96)."""
     if path and refusal(path, root):
         return ""
     if not path or os.path.exists(path):

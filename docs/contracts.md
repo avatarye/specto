@@ -856,7 +856,7 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
     `specto_core.pathguard` before any filesystem call (SPEC-76): a network or device
     command never runs, and such a path is refused with a fix-it and offers no launcher.
     On a project that lives on a share, a cwd or a path under the project root passes, as
-    `output_refusal` accepts it (SPEC-91); a command never does.
+    `output_refusal` accepts it (SPEC-96); a command never does.
   The browsers' (role `browser`) Copy path and Copy relative path (`menu/paths.py`) copy
   one path per item, one per line, native separators; relative paths need every item
   under the project root (else the entry is disabled). A right-click is no pick: on a

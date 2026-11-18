@@ -18,7 +18,7 @@ from specto_app.launchers import menu as launcher_menu
 from specto_app.launchers import run as launcher_run
 from specto_app.launchers.book import LauncherBook, file_of
 from specto_app.menu import MenuItemRef, MenuTarget
-from specto_core.errors import InvalidArgs
+from specto_core.errors import InvalidArgs, NotFound
 
 #: a network or device path in each form a launcher file or a path argument can carry it
 HOSTILE = [
@@ -35,6 +35,15 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Windows path fo
 
 class Reached(AssertionError):
     """A filesystem call or a launch the guard should have stopped."""
+
+
+#: the filesystem calls a guarded path must never reach, ``(owner, names)``
+FS_CALLS = (
+    (Path, ("stat", "lstat", "is_file", "is_dir", "exists", "resolve", "open")),
+    (os, ("stat", "lstat", "open", "listdir", "scandir")),
+    (os.path, ("isdir", "isfile", "exists", "realpath", "getsize")),
+    (shutil, ("which",)),
+)
 
 
 @pytest.fixture
@@ -56,13 +65,9 @@ def reached(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
         monkeypatch.setattr(owner, name, guarded)
 
-    for name in ("stat", "lstat", "is_file", "is_dir", "exists", "resolve", "open"):
-        trap(Path, name)
-    for name in ("stat", "lstat", "open", "listdir", "scandir"):
-        trap(os, name)
-    for name in ("isdir", "isfile", "exists", "realpath", "getsize"):
-        trap(os.path, name)
-    trap(shutil, "which")
+    for owner, names in FS_CALLS:
+        for name in names:
+            trap(owner, name)
     trap(subprocess, "Popen", every=True)
     for name in ("spawn_program", "start_file", "reveal"):
         trap(launcher_run, name, every=True)
@@ -179,43 +184,52 @@ def test_the_menu_offers_nothing_for_a_network_item(tmp_path, reached, path):
     assert reached == []
 
 
-# -- SPEC-91: a project on a share opens its own files ------------------------------------------
+# -- SPEC-96: a project on a share opens its own files ------------------------------------------
 
 SHARE = r"\\fakehost\share\proj"
-ELSEWHERE = r"\\elsewhere\share\s.blend"
+ELSEWHERE = r"\\attacker\share\s.blend"
 
 
 @pytest.fixture
-def share(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+def share(monkeypatch: pytest.MonkeyPatch, reached: list[str]) -> list[str]:
     """Filesystem calls on the fake share answer from the test (nothing there is a
     launcher file; every other path under it exists and ``work`` is a folder) and are
-    recorded; a launch is recorded and answers a pid. Nothing reaches the network."""
+    recorded; a launch is recorded and answers a pid. Any other filesystem call on the
+    share is recorded in ``reached`` and raises, as every call on the attacker's host
+    does: nothing reaches the network."""
     asked: list[str] = []
 
     def under_share(p) -> bool:
-        return "fakehost" in str(p)
+        return "fakehost" in str(p).lower()
 
-    def fake(owner: object, name: str, answer) -> None:
+    def missing(_p):
+        raise FileNotFoundError(_p)
+
+    answers = {
+        (Path, "stat"): missing,
+        (Path, "read_bytes"): missing,
+        (os.path, "exists"): lambda p: not p.endswith("launchers.toml"),
+        (os.path, "isdir"): lambda p: p.rstrip("\\/").endswith("work"),
+        (os.path, "isfile"): lambda p: not p.endswith("launchers.toml"),
+    }
+
+    def fake(owner: object, name: str) -> None:
         orig = getattr(owner, name)
+        answer = answers.get((owner, name))
 
         def faked(*args, **kwargs):
-            if args and under_share(args[0]):
+            if answer is not None and args and under_share(args[0]):
                 asked.append(f"{name}({args[0]})")
                 return answer(str(args[0]))
-            if any("elsewhere" in str(a) for a in args):
+            if any(under_share(a) for a in (*args, *kwargs.values())):
+                reached.append(f"{name}{args}")
                 raise Reached(f"{name}{args}")
             return orig(*args, **kwargs)
 
         monkeypatch.setattr(owner, name, faked)
 
-    def missing(_p):
-        raise FileNotFoundError(_p)
-
-    fake(Path, "stat", missing)
-    fake(Path, "read_bytes", missing)
-    fake(os.path, "exists", lambda p: not p.endswith("launchers.toml"))
-    fake(os.path, "isdir", lambda p: p.rstrip("\\/").endswith("work"))
-    fake(os.path, "isfile", lambda p: not p.endswith("launchers.toml"))
+    for owner, name in {(o, n) for o, names in FS_CALLS for n in names} | set(answers):
+        fake(owner, name)
     monkeypatch.setattr(launcher_run, "spawn_program", lambda *a, **k: asked.append("spawn") or 7)
     return asked
 
@@ -228,7 +242,7 @@ def share_book(tmp_path: Path, extra: str = "") -> LauncherBook:
     return LauncherBook(SHARE, machine_path=machine, log=lambda _m: None)
 
 
-def test_a_share_project_opens_its_own_files_and_starts_in_its_own_folder(tmp_path, share):
+def test_a_share_project_opens_its_own_files_and_starts_in_its_own_folder(tmp_path, share, reached):
     book = share_book(tmp_path, f"cwd = '{SHARE}\\work'\n")
     inside = SHARE + "\\s.blend"
     assert book.resolve(["s.blend", inside]) == [inside, inside]
@@ -240,9 +254,12 @@ def test_a_share_project_opens_its_own_files_and_starts_in_its_own_folder(tmp_pa
         items=(MenuItemRef(key="x", path=inside),), root=SHARE,
     )  # fmt: skip
     assert launcher_menu.items(target) == [(inside, False)]
+    assert reached == []
 
 
-def test_a_share_project_still_refuses_another_share_and_a_network_command(tmp_path, share):
+def test_a_share_project_still_refuses_another_share_and_a_network_command(
+    tmp_path, share, reached
+):
     book = share_book(tmp_path)
     with pytest.raises(InvalidArgs):
         book.resolve([ELSEWHERE])
@@ -255,3 +272,46 @@ def test_a_share_project_still_refuses_another_share_and_a_network_command(tmp_p
     with pytest.raises(InvalidArgs) as e:
         book.launch("c", [SHARE + "\\s.blend"])
     assert "network" in e.value.message and "spawn" not in share
+    assert reached == []
+
+
+#: on a share project, what still never reaches the filesystem: ``(where, text)``
+ESCAPES = [
+    ("path", r"..\..\..\attacker\share\x"),
+    ("path", r"\\?\UNC\fakehost\share\proj\s.blend"),
+    ("cwd", SHARE + r"\..\other"),
+    ("cwd", r"\\attacker\share\work"),
+    ("cwd", r"\\?\UNC\fakehost\share\proj\work"),
+]
+
+
+@pytest.mark.parametrize(
+    ("where", "text"), ESCAPES, ids=["dotdot-path", "long-unc-path", "dotdot-cwd",
+                                     "other-share-cwd", "long-unc-cwd"],
+)  # fmt: skip
+def test_a_share_project_refuses_a_path_or_cwd_that_leaves_it(
+    tmp_path, share, reached, where, text
+):
+    """A path that leaves the project root by ``..``, names another share or spells the
+    project's share as a device path is refused (or not found, after nothing was looked
+    for); so is such a cwd."""
+    book = share_book(tmp_path, f"cwd = '{text}'\n" if where == "cwd" else "")
+    share.clear()
+    if where == "path":
+        with pytest.raises((InvalidArgs, NotFound)):
+            book.resolve([text])
+        assert share == []
+    else:
+        with pytest.raises(InvalidArgs) as e:
+            book.launch("b", ["s.blend"])
+        assert "cwd" in e.value.fix
+        assert all(a.endswith(("s.blend)", "launchers.toml)")) for a in share), share
+    assert reached == []
+
+
+def test_a_share_project_path_matches_its_root_without_case(tmp_path, share, reached):
+    book = share_book(tmp_path)
+    upper = r"\\FAKEHOST\SHARE\PROJ\s.blend"
+    assert book.resolve([upper]) == [upper]
+    assert book.launch("b", [upper]).pids == [7]
+    assert reached == []
