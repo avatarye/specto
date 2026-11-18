@@ -798,12 +798,13 @@ def test_a_dae_converted_into_the_cache_is_served(engine: Engine, tmp_path: Path
 def test_a_robot_file_that_cannot_be_served_is_listed_missing(
     engine: Engine, monkeypatch: pytest.MonkeyPatch
 ):
-    """A file the parse found but the host cannot serve when it loads the robot (gone, or
-    not a regular file by then) gets no URL and is listed in ``missing`` with its cause,
-    so the robot never carries a URL the items host answers not_found for."""
-    import specto_app.views.urdf_view as urdf_view
+    """A file the parse found but cannot be served when the robot loads (gone, or not a
+    regular file by then) gets no URL and is listed in ``missing`` with its cause, so the
+    robot never carries a URL the items host answers not_found for. The check runs in
+    the parse job (``served_robot``), after the parse."""
+    import specto_readers.urdf as urdf_mod
 
-    real = urdf_view.build_robot
+    real = urdf_mod.build_robot
 
     def then_gone(path, **kw):
         out = real(path, **kw)
@@ -812,7 +813,7 @@ def test_a_robot_file_that_cannot_be_served_is_listed_missing(
                 Path(p).unlink()
         return out
 
-    monkeypatch.setattr(urdf_view, "build_robot", then_gone)
+    monkeypatch.setattr(urdf_mod, "build_robot", then_gone)
     submit_robot(engine)
     ctx, host, sink = make_host(engine)
     model = sink.last("model")["model"]
@@ -941,3 +942,42 @@ def test_the_items_host_asks_for_the_requested_files_guard_root(
     enc = key.replace("/", "%2F")
     assert get_item(f"specto://items/l2/{enc}/m0/base.stl") is None
     assert seen == [(SHARE_PKG + r"\meshes\base.stl", SHARE_PKG)]
+
+
+def test_the_load_check_runs_in_the_parse_job_not_on_the_gui_thread(
+    engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Every robot file is resolved and stat'ed once when the robot loads (up to 2000,
+    each an SMB round trip on a share): that pass belongs to the parse job, so applying
+    its result on the GUI thread touches none of the robot's files."""
+    import pathlib
+
+    import specto_app.views.urdf_view as urdf_view
+
+    real_job = urdf_view.served_robot
+    touched: list[str] = []
+
+    def trap(owner, name):
+        real = getattr(owner, name)
+
+        def call(*a, **k):
+            if a and str(tmp_path) in str(a[0]):
+                touched.append(f"{name}({a[0]})")
+            return real(*a, **k)
+
+        monkeypatch.setattr(owner, name, call)
+
+    def job(path, **kw):
+        out = real_job(path, **kw)
+        for owner, names in ((pathlib.Path, ("resolve", "stat", "is_file")), (os, ("stat",))):
+            for name in names:
+                trap(owner, name)
+        return out
+
+    monkeypatch.setattr(urdf_view, "served_robot", job)
+    submit_robot(engine, {"package_paths": {"gripper": map_gripper(engine)}})
+    _ctx, _host, sink = make_host(engine)
+    monkeypatch.undo()
+    model = sink.last("model")["model"]
+    assert model["links"][0]["visuals"][0]["geometry"]["url"]  # served, and checked
+    assert touched == []

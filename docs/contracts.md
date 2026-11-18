@@ -879,11 +879,11 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   urdf resolver uses `path_refusal`, `file_uri_path` and `under`.
 - URDF view (SPEC-43, ADR 0029, `specto_app.views.urdf_view`): `UrdfHost` is a web host
   (`urdf/index.html`, Babylon.js) for one robot. It parses the shown `.urdf` item on the
-  job manager (`specto_readers.urdf.build_robot(path, package_paths, search_roots,
-  environ, text, cache_dir) -> {model, files, uses, converted, packages, scope,
-  actuated, parse_ms}`; `uses` lists per file role the references it answers,
-  `converted` the GLBs its DAEs converted to, `scope` the folders any other served file
-  lies in: `parse_urdf` on the
+  job manager (`specto_readers.urdf.served_robot`: `build_robot(path, package_paths,
+  search_roots, environ, text, cache_dir) -> {model, files, uses, converted, packages,
+  scope, actuated, parse_ms}`, then the load check below; `uses` lists per file role the
+  references it answers, `converted` the GLBs its DAEs converted to, `scope` the
+  folders any other served file lies in: `parse_urdf` on the
   standard library's `xml.etree`, refusing any DOCTYPE or entity declaration, the
   package resolver, `missing_notes` for health; `PackageResolver.folder(name)` is the
   picklable `$(find)` hook for xacro), serves the robot's files as extra roles of its
@@ -894,9 +894,10 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
   answering for the item once a path resolved; the others allow any), and no `@root/`
   paths (`root` is None). Served files lie under the project (`search_roots`) or a
   package folder the parse resolved, or are the GLBs its DAEs converted to (in the
-  cache too; nothing else there). Each file is checked by its resolved path when the
-  robot loads (one that cannot be served then is added to `missing` with its cause and
-  gets no URL) and again when a request serves it, that one file only; each robot
+  cache too; nothing else there). Each file is checked by its resolved path in the parse
+  job, off the GUI thread (`file_refusal`; one that cannot be served then is added to
+  `missing` with its cause and gets no URL), and again when a request serves it, that
+  one file only; each robot
   file's own path is judged against the scope folder it lies in (a package resolved to
   a share serves its own files under SPEC-91's rules);
   a reference is tested against that scope on its text (`os.path.abspath`) before it is

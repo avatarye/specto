@@ -36,7 +36,7 @@ import contextlib
 import copy
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -51,11 +51,10 @@ from specto_readers.urdf import (
     CLAMPED,
     SERVED_EXTS,
     SIDE_EXTS,
-    Cause,
-    build_robot,
     count_notes,
+    file_refusal,
     missing_notes,
-    servable,
+    served_robot,
     under,
 )
 
@@ -212,10 +211,6 @@ class ServedRobot:
     converted: frozenset[str] = frozenset()
 
 
-def _same_file_key(path: str | Path) -> str:
-    return os.path.normcase(str(path))
-
-
 class RobotMeshes:
     """An item resolver serving the shown robot's meshes as extra roles of its item
     (``.m0``, ``.m1``, ...) beside the item's own parts; first in the runtime's chain,
@@ -232,21 +227,9 @@ class RobotMeshes:
         self.robot = ServedRobot()
 
     def refusal(self, path: Path, allowed: frozenset[str]) -> str | None:
-        """Why a robot file may not be served now (None: it may): its resolved path
-        (links followed: a mesh swapped for a link after the parse is judged by its
-        target) must be a regular file of an ``allowed`` type under the cap, inside the
-        project or the robot's packages, or one of the GLBs its DAEs converted to."""
-        try:
-            real = path.resolve()
-        except OSError:
-            return "not found"
-        why = servable(real, allowed)
-        if why is not None:
-            return why
-        robot = self.robot
-        if under(real, robot.scope) or _same_file_key(real) in robot.converted:
-            return None
-        return Cause.OUTSIDE
+        """Why a robot file may not be served now (``file_refusal`` against this
+        robot's scope and converted GLBs); None: it may."""
+        return file_refusal(path, allowed, self.robot.scope, self.robot.converted)
 
     def _answers(self, link_id: str, key: str) -> bool:
         return bool(self.robot.table) and link_id == self.robot.link and key == self.robot.key
@@ -437,7 +420,7 @@ class UrdfHost(Stepping, WebViewHost):
         self._job = token
         self.ctx.engine.jobs.submit(
             JOB_KIND,
-            build_robot,
+            served_robot,
             self.path,
             package_paths=self._package_paths_abs(params.get("package_paths")),
             cache_dir=str(default_cache_root()),
@@ -486,44 +469,25 @@ class UrdfHost(Stepping, WebViewHost):
 
     def _serve(self) -> None:
         """Serve the robot's files as roles of its item and put their URLs in the model.
-        Each file is checked once, here (``RobotMeshes.refusal``): one the host cannot
-        serve (gone since the parse, outside the scope) gets no URL and joins the model's
-        ``missing`` with its cause, so the page never gets a URL the items host refuses."""
+        The parse job checked each file already (``served_robot``: one it could not
+        serve is in ``missing``, not in ``files``), so this runs on the GUI thread
+        without touching a file."""
         assert self.robot is not None
         key = self.key or ""
         it = self.items[self.index]
-        found: dict[str, str] = self.robot["files"]
-        self._meshes.set(
-            ServedRobot(
-                link=self.data_link,
-                key=key,
-                scope=tuple(self.robot.get("scope") or ()),
-                converted=frozenset(
-                    _same_file_key(Path(p).resolve()) for p in self.robot.get("converted") or ()
-                ),
-            )
-        )
-        files: dict[str, str] = {}
-        uses: dict[str, list[dict[str, Any]]] = self.robot.get("uses") or {}
-        missing: list[dict[str, Any]] = self.robot["model"]["missing"]
-        for role, p in found.items():
-            why = self._meshes.refusal(Path(p), SERVED_EXTS)
-            if why is None:
-                files[role] = p
-                continue
-            for use in uses.get(role, []):
-                noun = "texture file" if use.get("kind") == "texture" else "mesh file"
-                cause = why if why == Cause.OUTSIDE else f"{noun} {why}"
-                missing.append({**use, "cause": cause})
+        files: dict[str, str] = self.robot["files"]
         urls = {
             role: f"{item_url(self.data_link, key, role)}/{quote(Path(p).name, safe='')}"
             for role, p in files.items()
         }
         self._meshes.set(
-            replace(
-                self._meshes.robot,
+            ServedRobot(
+                link=self.data_link,
+                key=key,
                 table={**dict(it.parts), **{"." + r: p for r, p in files.items()}},
                 files={"." + r: Path(p).suffix.lower().lstrip(".") for r, p in files.items()},
+                scope=tuple(self.robot.get("scope") or ()),
+                converted=frozenset(self.robot.get("converted") or ()),
             )
         )
         model = copy.deepcopy(self.robot["model"])

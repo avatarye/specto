@@ -56,7 +56,7 @@ import re
 import stat
 import time
 import xml.etree.ElementTree as ET
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -923,6 +923,50 @@ def build_robot(
     }
 
 
+def file_refusal(
+    path: str | Path, allowed: frozenset[str], scope: Iterable[str], converted: Collection[str]
+) -> str | None:
+    """Why a robot file may not be served now (None: it may): its resolved path (links
+    followed: a mesh swapped for a link after the parse is judged by its target) must be
+    a regular file of an ``allowed`` type under the cap (``servable``), inside ``scope``
+    (the project and the robot's packages) or one of the ``converted`` GLBs (resolved,
+    ``os.path.normcase``: the cache included)."""
+    try:
+        real = Path(path).resolve()
+    except OSError:
+        return "not found"
+    why = servable(real, allowed)
+    if why is not None:
+        return why
+    if under(real, scope) or os.path.normcase(str(real)) in converted:
+        return None
+    return Cause.OUTSIDE
+
+
+def served_robot(path: str | Path, **kwargs: Any) -> dict[str, Any]:
+    """``build_robot`` and then the host's load check, both in the parse job (off the GUI
+    thread: each check resolves and stats a file, an SMB round trip on a share). Its
+    ``converted`` holds the GLBs resolved and ``os.path.normcase``'d; a file that
+    ``file_refusal`` refuses leaves ``files`` and joins the model's ``missing`` once per
+    reference it answers (``uses``), so the model never names a file the host will not
+    serve."""
+    robot = build_robot(path, **kwargs)
+    converted = sorted({os.path.normcase(str(Path(p).resolve())) for p in robot["converted"]})
+    robot["converted"] = converted
+    files: dict[str, str] = {}
+    missing: list[dict[str, Any]] = robot["model"]["missing"]
+    for role, p in robot["files"].items():
+        why = file_refusal(p, SERVED_EXTS, robot["scope"], set(converted))
+        if why is None:
+            files[role] = p
+            continue
+        for use in robot["uses"].get(role, []):
+            noun = "texture file" if use["kind"] == RefKind.TEXTURE else "mesh file"
+            missing.append({**use, "cause": why if why == Cause.OUTSIDE else f"{noun} {why}"})
+    robot["files"] = files
+    return robot
+
+
 def count_notes(entries: Iterable[Mapping[str, Any]], verb: str, key: str = "cause") -> list[str]:
     """Health notes, one per cause: ``"3 meshes missing: <cause>"`` (``verb``
     ``missing``, the model's ``missing``) or ``"1 mesh unreadable: <error>"`` (``verb``
@@ -969,11 +1013,13 @@ __all__ = [
     "build_robot",
     "count_notes",
     "dae_source",
+    "file_refusal",
     "missing_notes",
     "package_name_of",
     "package_ref",
     "parse_urdf",
     "safe_xml",
     "servable",
+    "served_robot",
     "under",
 ]
