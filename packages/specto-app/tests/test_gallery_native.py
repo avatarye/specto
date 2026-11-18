@@ -250,9 +250,9 @@ def test_a_clear_never_lets_an_old_collections_thumb_through(app):
         for i in range(3):
             g.pushThumb(100 + i, small, 32, 24)
         deadline = time.perf_counter() + 5
-        while g.queueSizes()["raw"] and time.perf_counter() < deadline:
+        while g.queueSizes()["prepared"] < 3 and time.perf_counter() < deadline:
             time.sleep(0.001)
-        time.sleep(0.01)  # the last one may be mid-prepare
+        time.sleep(0.02)  # room for a stray old thumb mid-prepare to (wrongly) land
         sizes = g.queueSizes()
         assert sizes == {"raw": 0, "prepared": 3}, (round_, sizes)
         g.clearThumbs()

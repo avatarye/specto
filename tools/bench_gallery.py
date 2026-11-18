@@ -627,9 +627,12 @@ def main() -> int:
         sys.stdout.flush()
         if not args.stay:
             # a close that never returns ends the run anyway: the numbers are written
-            # (Python slots on the render thread once deadlocked it on the GIL)
+            # (Python slots on the render thread once deadlocked it on the GIL); a
+            # clean close cancels it once the event loop returns
             done = 0 if result["pass"] else 1
-            threading.Timer(20.0, lambda: os._exit(done)).start()
+            watchdog["timer"] = threading.Timer(20.0, lambda: os._exit(done))
+            watchdog["timer"].daemon = True
+            watchdog["timer"].start()
             win.close()
             app.quit()
 
@@ -640,8 +643,11 @@ def main() -> int:
         print(f"[OK] {count} items, {columns} columns x {rows} rows; warmup {args.warmup:.0f} s")
         QTimer.singleShot(int(args.warmup * 1000), start_measure)
 
+    watchdog: dict[str, threading.Timer] = {}
     QTimer.singleShot(300, go)
     app.exec()
+    if "timer" in watchdog:
+        watchdog["timer"].cancel()
     return 0 if result.get("pass") else 1
 
 
