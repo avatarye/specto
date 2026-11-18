@@ -44,13 +44,18 @@ def copy_frames(dst: Path, n: int, series: str = "cam-a") -> Path:
     return dst
 
 
-def wait_for_watch_baseline(links: LinkRuntime, link: str = "l2") -> None:
-    deadline = time.monotonic() + 5
+def wait_for_watch_settled(links: LinkRuntime, link: str = "l2") -> None:
+    """The watcher's start is behind it: the baseline, and in notify mode the listing
+    after notifications armed (SPEC-83), which would otherwise catch a copy half done."""
+    deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        if (links.watch_status(link) or {}).get("polls", 0) >= 1:
+        status = links.watch_status(link) or {}
+        if status.get("decided") and status.get("polls", 0) >= (
+            2 if status.get("mode") == "notify" else 1
+        ):
             return
         time.sleep(0.01)
-    raise AssertionError(f"{link} never finished its watch baseline: {links.watch_status(link)}")
+    raise AssertionError(f"{link} never settled its watch: {links.watch_status(link)}")
 
 
 class FakeGallery:

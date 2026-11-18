@@ -18,7 +18,7 @@ from gallery_helpers import (
     FakeGallery,
     copy_frames,
     needs_testdata,
-    wait_for_watch_baseline,
+    wait_for_watch_settled,
 )
 from jobs_helpers import HeldJobs
 from test_ports_hosts import _gallery_from_folder
@@ -152,7 +152,7 @@ def _watched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, frames: int):
     engine.live.submit(doc, origin="agent:s1", label="w")
     while jobs.held:
         jobs.run_next()
-    wait_for_watch_baseline(ctx.links)
+    wait_for_watch_settled(ctx.links)
     return proj, engine, jobs, ctx, reg, fake
 
 
