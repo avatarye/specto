@@ -31,6 +31,7 @@ qt_add_qml_module(spectoqt
         gallerynode.h
         gallerynode.cpp
         atlas.h
+        atlascell.h
         atlas.cpp
         shm.h
         shm.cpp

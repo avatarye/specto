@@ -237,11 +237,16 @@ wheel's `Qt/lib`, never the SDK's, and an exported `CMAKE_PREFIX_PATH` (ROS, con
 ignored. A shell that sourced another stack's environment also leaks `PYTHONPATH` and
 `LD_LIBRARY_PATH` into the venv: unset them first.
 
-Two switches for measuring the gallery (`tools/bench_gallery.py`, SPEC-1):
+Three switches for measuring the gallery (`tools/bench_gallery.py`, SPEC-1). The two
+gallery ones are on when set to `1` (or `true`, `yes`, `on`); `0` or unset is off.
 `SPECTO_GALLERY_CPU_FILL=1` makes a new atlas page fill on the CPU and upload, as before
 `glClearTexImage` was used (the fallback for contexts without GL 4.4 or
-`ARB_clear_texture`); `SPECTO_WORKER_PRIORITY=normal` keeps the pool's decode workers at
-normal priority instead of below it.
+`ARB_clear_texture`). `SPECTO_GALLERY_INLINE_PREPARE=1` starts no prepare thread in a
+gallery item: the render thread builds the thumbnails' cells in its sync with no time
+budget, as before SPEC-1 (ADR 0004). `bench_gallery.py --before` sets both, which is how
+the "before" numbers of the SPEC-1 changelog entry were measured.
+`SPECTO_WORKER_PRIORITY=normal` keeps the pool's decode workers at normal priority
+instead of below it; an A/B of the native change alone sets it on both sides.
 
 Verified: `[OK] PySide6 Qt 6.12.0; SDK <build root>\Qt\6.12.0\msvc2022_64`,
 installed files `libmpv-2.dll, qmldir, spectoqt.dll, spectoqt.qmltypes, ...`.

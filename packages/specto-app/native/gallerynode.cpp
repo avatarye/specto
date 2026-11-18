@@ -277,21 +277,17 @@ bool GalleryNode::drainUploads(QOpenGLExtraFunctions *f, const GalleryItem::Fram
     // Prepared cells only (SPEC-1): the downsampling and mip chains were built on the
     // item's prepare thread, so this is cell allocation and glTexSubImage2D, within a
     // tile count and a time budget per frame; what is left waits for the next frame.
+    // With SPECTO_GALLERY_INLINE_PREPARE the item prepares each one here instead, with
+    // no time budget, as before SPEC-1 (bench_gallery.py --before).
     auto &tiles = m_item->tiles();
-    auto &queue = m_item->stagedQueue();
+    const qint64 budgetNs = m_item->uploadBudgetNs();
     QElapsedTimer budget;
     budget.start();
     int n = 0;
-    while (n < GalleryItem::kMaxUploadsPerFrame
-           && (n == 0 || budget.nsecsElapsed() < GalleryItem::kUploadBudgetNs)) {
+    while (n < GalleryItem::kMaxUploadsPerFrame && (n == 0 || budget.nsecsElapsed() < budgetNs)) {
         PreparedThumb pt;
-        {
-            QMutexLocker lock(&m_item->stagedMutex());
-            if (queue.empty())
-                break;
-            pt = std::move(queue.front());
-            queue.pop_front();
-        }
+        if (!m_item->takePrepared(pt))
+            break;
         if (pt.index < 0 || pt.index >= int(tiles.size()))
             continue;
         TileRec &t = tiles[size_t(pt.index)];
@@ -326,8 +322,7 @@ bool GalleryNode::drainUploads(QOpenGLExtraFunctions *f, const GalleryItem::Fram
         ++n;
     }
     uploads += n;
-    QMutexLocker lock(&m_item->stagedMutex());
-    return !queue.empty();
+    return m_item->uploadsPending();
 }
 
 void GalleryNode::buildGeometry(const GalleryItem::Frame &fp, int &drawCalls, int &quads)

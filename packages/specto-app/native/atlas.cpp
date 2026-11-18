@@ -1,5 +1,6 @@
 #include "atlas.h"
 
+#include <QtCore/QByteArray>
 #include <QtCore/QDebug>
 #include <QtGui/QOpenGLContext>
 #include <QtGui/QOpenGLExtraFunctions>
@@ -12,6 +13,17 @@
 #include <cstring>
 
 namespace specto {
+
+namespace {
+// the placeholder tone a fresh page starts as (straight RGBA)
+constexpr uint8_t kPlaceholderTone[4] = {0xe9, 0xe3, 0xd9, 0xff};
+} // namespace
+
+bool envSwitch(const char *name)
+{
+    const QByteArray v = qgetenv(name).trimmed().toLower();
+    return v == "1" || v == "true" || v == "yes" || v == "on";
+}
 
 void boxDownsample(const uint8_t *src, int sw, int sh, uint8_t *dst, int dw, int dh)
 {
@@ -94,7 +106,7 @@ ClearTexImageFn clearTexImageFn()
         return nullptr;
     const QSurfaceFormat fmt = ctx->format();
     const bool has = fmt.version() >= qMakePair(4, 4) || ctx->hasExtension("GL_ARB_clear_texture");
-    if (!has || qEnvironmentVariableIsSet("SPECTO_GALLERY_CPU_FILL"))
+    if (!has || envSwitch("SPECTO_GALLERY_CPU_FILL"))
         return nullptr;
     return reinterpret_cast<ClearTexImageFn>(ctx->getProcAddress("glClearTexImage"));
 }
@@ -115,18 +127,13 @@ AtlasPage::AtlasPage(QOpenGLExtraFunctions *f, QQuickWindow *window, int size, i
     // black if it is ever sampled: cleared on the GPU where the context can (SPEC-1: the
     // CPU fill and its upload, 21 MiB for a 2048 px page with its mips, stalled the
     // frame that opened a page), else filled.
-    static const uint8_t kTone[4] = {0xe9, 0xe3, 0xd9, 0xff};
     if (ClearTexImageFn clear = clearTexImageFn()) {
         for (int lv = 0; lv < levels; ++lv)
-            clear(m_tex, lv, GL_RGBA, GL_UNSIGNED_BYTE, kTone);
+            clear(m_tex, lv, GL_RGBA, GL_UNSIGNED_BYTE, kPlaceholderTone);
     } else {
         std::vector<uint8_t> fill(size_t(size) * size * 4);
-        for (size_t i = 0; i < fill.size(); i += 4) {
-            fill[i] = 0xe9;
-            fill[i + 1] = 0xe3;
-            fill[i + 2] = 0xd9;
-            fill[i + 3] = 0xff;
-        }
+        for (size_t i = 0; i < fill.size(); i += 4)
+            std::memcpy(&fill[i], kPlaceholderTone, 4);
         for (int lv = 0; lv < levels; ++lv)
             f->glTexSubImage2D(GL_TEXTURE_2D, lv, 0, 0, size >> lv, size >> lv, GL_RGBA,
                                GL_UNSIGNED_BYTE, fill.data());
@@ -182,8 +189,11 @@ void AtlasPage::releaseAll()
 
 void AtlasPage::upload(QOpenGLExtraFunctions *f, int cellIdx, const PreparedTier &tier)
 {
-    if (int(tier.levels.size()) < m_levels)
+    if (int(tier.levels.size()) < m_levels) {
+        qWarning() << "[ERROR] GalleryItem atlas: a prepared cell has" << tier.levels.size()
+                   << "mip levels, the page needs" << m_levels << "; not uploaded";
         return;
+    }
     const int cx = (cellIdx % m_cols) * m_cell;
     const int cy = (cellIdx / m_cols) * m_cell;
     f->glBindTexture(GL_TEXTURE_2D, m_tex);

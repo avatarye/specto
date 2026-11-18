@@ -112,6 +112,22 @@ def _export(obj: Any, held: dict[str, shared_memory.SharedMemory]) -> tuple[str,
     return ("value", obj)
 
 
+_BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+_IDLE_PRIORITY_CLASS = 0x00000040
+
+
+def _kernel32() -> Any:
+    """kernel32 with the priority calls typed (Windows only)."""
+    import ctypes
+
+    k32 = ctypes.windll.kernel32
+    k32.GetCurrentProcess.restype = ctypes.c_void_p
+    k32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    k32.GetPriorityClass.argtypes = [ctypes.c_void_p]
+    k32.GetPriorityClass.restype = ctypes.c_uint32
+    return k32
+
+
 def lower_priority() -> bool:
     """Run this process below normal priority (SPEC-1): a pool of decoders on every
     core must never take the CPU from the GUI and render threads, or scrolling stalls
@@ -120,17 +136,21 @@ def lower_priority() -> bool:
         return False
     try:
         if os.name == "nt":
-            import ctypes
-
-            BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
-            k32 = ctypes.windll.kernel32
-            k32.GetCurrentProcess.restype = ctypes.c_void_p
-            k32.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-            return bool(k32.SetPriorityClass(k32.GetCurrentProcess(), BELOW_NORMAL_PRIORITY_CLASS))
+            k32 = _kernel32()
+            return bool(k32.SetPriorityClass(k32.GetCurrentProcess(), _BELOW_NORMAL_PRIORITY_CLASS))
         os.nice(5)
         return True
     except (OSError, AttributeError):
         return False
+
+
+def runs_below_normal() -> bool:
+    """This process runs below normal priority, as ``lower_priority`` leaves it."""
+    if os.name == "nt":
+        k32 = _kernel32()
+        cls = k32.GetPriorityClass(k32.GetCurrentProcess())
+        return cls in (_BELOW_NORMAL_PRIORITY_CLASS, _IDLE_PRIORITY_CLASS)
+    return os.nice(0) > 0
 
 
 def _worker_main(conn: Connection, worker_id: int) -> None:

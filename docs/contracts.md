@@ -771,6 +771,16 @@ register_factory(SimpleFactory("gallery", GalleryHost, plugin=GALLERY_PLUGIN))
 - `HostBridge(host)` is handed to QML as `host` so an item can `host.emit(port, value)`,
   `host.setHealth(status, message)`, `host.call(name, args)`; plain objects become the
   port value models (`port_value`).
+- Gallery item diagnostics (`Specto.Native` `GalleryItem`): diagnostic and test-only,
+  read by `tools/bench_gallery.py` and the tests (`syncMs` also lands in the host's
+  `stats()`); no behaviour depends on them, and they may change with the item.
+  `resetStats()` starts a measurement;
+  `syncMs` (mean sync per frame) and `syncMaxMs` (the longest) since then;
+  `pagesCreated` (atlas pages made); `frameTimes()` (the window's frames since
+  `resetStats`, timed on the render thread, each `[swap to swap, sync start to swap,
+  sync start to end of render]` in ms, the newest 16,384; SPEC-1); `queueSizes()`
+  (`{raw, prepared}`: thumbnails waiting for the prepare thread and for an upload;
+  ADR 0004).
 - Stepping (#107, `specto_app.hosts.stepping`): viewers and players (image, markdown,
   json, html, pdf, video) mix in `Stepping` and name `step_keys()` (collection order),
   `step_key()` and `show_step(key)`; `step_item(delta)` moves through the collection and

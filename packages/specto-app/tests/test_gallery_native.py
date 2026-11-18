@@ -261,6 +261,30 @@ def test_a_clear_never_lets_an_old_collections_thumb_through(app):
 
 
 @gui_test
+def test_the_inline_prepare_switch_leaves_thumbs_to_the_render_thread(app, monkeypatch):
+    """SPEC-1 review: ``SPECTO_GALLERY_INLINE_PREPARE=1`` (``bench_gallery.py --before``)
+    starts no prepare thread, so pushed thumbs wait raw for the render thread as they did
+    before SPEC-1. The switch reads its value: ``0`` keeps the prepare thread."""
+    import time
+
+    from PySide6.QtCore import QByteArray
+
+    small = QByteArray(bytes([64]) * (32 * 24 * 4))
+    for value, want in (("1", {"raw": 5, "prepared": 0}), ("0", {"raw": 0, "prepared": 5})):
+        monkeypatch.setenv("SPECTO_GALLERY_INLINE_PREPARE", value)
+        engine, comp, g = _item(app, GRID % (40, 1000, 600, 4))
+        for i in range(5):
+            assert g.pushThumb(i, small, 32, 24)
+        deadline = time.perf_counter() + 5
+        while g.queueSizes() != want and time.perf_counter() < deadline:
+            time.sleep(0.005)
+        time.sleep(0.2)  # and it stays so: no thread takes the raw thumbs later
+        assert g.queueSizes() == want, value
+        del g, comp, engine
+        app.processEvents()
+
+
+@gui_test
 def test_reflow_scroll_and_anchored_zoom(app):
     engine, comp, g = _item(app, GRID % (200, 1000, 600, 4))
     # scrolling is clamped to the content and reported in rows too

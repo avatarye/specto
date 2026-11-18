@@ -87,17 +87,9 @@ def until_cancelled(marker: str, progress) -> str:
 
 def below_normal(progress) -> bool:
     """This process runs below normal priority (SPEC-1: decoders never starve the GUI)."""
-    if os.name == "nt":
-        import ctypes
+    from specto_readers.pool import runs_below_normal
 
-        k32 = ctypes.windll.kernel32
-        IDLE_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS = 0x40, 0x4000
-        k32.GetCurrentProcess.restype = ctypes.c_void_p
-        k32.GetPriorityClass.argtypes = [ctypes.c_void_p]
-        k32.GetPriorityClass.restype = ctypes.c_uint32
-        cls = k32.GetPriorityClass(k32.GetCurrentProcess())
-        return cls in (BELOW_NORMAL_PRIORITY_CLASS, IDLE_PRIORITY_CLASS)
-    return os.nice(0) > 0
+    return runs_below_normal()
 
 
 def qt_loaded(progress) -> bool:

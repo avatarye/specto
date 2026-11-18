@@ -4,6 +4,7 @@
 #include "shm.h"
 
 #include <QtCore/QDebug>
+#include <QtCore/QThread>
 #include <QtGui/QFocusEvent>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QStyleHints>
@@ -37,7 +38,7 @@ qreal easeOut(qreal t)
 } // namespace
 
 GalleryItem::GalleryItem(QQuickItem *parent)
-    : QQuickItem(parent)
+    : QQuickItem(parent), m_inlinePrepare(specto::envSwitch("SPECTO_GALLERY_INLINE_PREPARE"))
 {
     setFlag(ItemHasContents, true);
     setAcceptedMouseButtons(Qt::LeftButton | Qt::RightButton);
@@ -56,19 +57,23 @@ GalleryItem::GalleryItem(QQuickItem *parent)
     m_anim.setInterval(16);
     m_anim.setTimerType(Qt::PreciseTimer);
     connect(&m_anim, &QTimer::timeout, this, &GalleryItem::animTick);
-    m_prep = std::thread([this] { prepareLoop(); });
+    if (!m_inlinePrepare) {
+        m_prep.reset(QThread::create([this] { prepareLoop(); }));
+        m_prep->setObjectName(QStringLiteral("gallery-prepare"));
+        m_prep->start();
+    }
 }
 
 GalleryItem::~GalleryItem()
 {
     {
-        std::lock_guard<std::mutex> lock(m_rawMutex);
+        QMutexLocker lock(&m_rawMutex);
         m_prepStop = true;
         m_raw.clear();
     }
-    m_rawCv.notify_all();
-    if (m_prep.joinable())
-        m_prep.join();
+    m_rawCv.wakeAll();
+    if (m_prep)
+        m_prep->wait();   // a thumb mid-prepare finishes (milliseconds), then it ends
 }
 
 // ---------------------------------------------------------------------------------
@@ -1182,7 +1187,7 @@ bool GalleryItem::pushThumbShm(int index, const QString &shmName, int offset, in
     if (index < 0 || index >= m_count || w <= 0 || h <= 0 || w > kMaxThumbEdge || h > kMaxThumbEdge
         || offset < 0)
         return false;
-    StagedThumb st;
+    RawThumb st;
     st.index = index;
     st.w = w;
     st.h = h;
@@ -1205,7 +1210,7 @@ bool GalleryItem::pushThumb(int index, const QByteArray &rgba, int w, int h)
     const size_t need = size_t(w) * h * 4;
     if (size_t(rgba.size()) < need)
         return false;
-    StagedThumb st;
+    RawThumb st;
     st.index = index;
     st.w = w;
     st.h = h;
@@ -1215,41 +1220,42 @@ bool GalleryItem::pushThumb(int index, const QByteArray &rgba, int w, int h)
     return true;
 }
 
-void GalleryItem::enqueueRaw(StagedThumb &&st)
+void GalleryItem::enqueueRaw(RawThumb &&st)
 {
     const int index = st.index;
     {
-        std::lock_guard<std::mutex> lock(m_rawMutex);
+        QMutexLocker lock(&m_rawMutex);
         // stamped with the collection it was pushed for: clearThumbs bumps the generation
         // under this lock, so a thumb is either cleared from the queue or stamped old
         st.generation = m_generation.load();
         m_raw.push_back(std::move(st));
     }
-    m_rawCv.notify_one();
+    m_rawCv.wakeOne();
     m_tiles[size_t(index)].staged = true;
     m_tiles[size_t(index)].failed = false;
     update();
 }
 
-PreparedThumb GalleryItem::prepare(const StagedThumb &in)
+PreparedThumb GalleryItem::prepare(const RawThumb &in)
 {
     // What the render thread used to do in updatePaintNode (SPEC-1): the decoded size
     // picks the top tier it fills (> the full tier's size is a large decode), an
     // oversized thumb shrinks to the large tier, and each tier down to mini gets its
-    // downsample, its cell with the gutter replicated and the cell's mip chain.
+    // downsample, its cell with the gutter replicated and the cell's mip chain. Every
+    // tier rounds its size to the nearest pixel; before SPEC-1 the shrink of an
+    // oversized thumb to the large tier truncated, so such a thumb may be 1 px larger.
     PreparedThumb out;
     out.index = in.index;
     if (in.w <= 0 || in.h <= 0) {
         out.failed = true;
         return out;
     }
-    const int largeMax = tierPx(TierLarge), fullMax = tierPx(TierFull);
-    out.topTier = std::max(in.w, in.h) > fullMax ? TierLarge : TierFull;
+    out.topTier = std::max(in.w, in.h) > tierPx(TierFull) ? TierLarge : TierFull;
     std::vector<uint8_t> cur, scratch;
     const uint8_t *src = in.rgba.data();
     int sw = in.w, sh = in.h;
     for (int tier = out.topTier; tier >= TierMini; --tier) {
-        const int maxPx = tier == TierLarge ? largeMax : tierPx(tier);
+        const int maxPx = tierPx(tier);
         if (std::max(sw, sh) > maxPx) {
             const double s = double(maxPx) / std::max(sw, sh);
             const int nw = std::max(1, int(sw * s + 0.5)), nh = std::max(1, int(sh * s + 0.5));
@@ -1269,10 +1275,11 @@ PreparedThumb GalleryItem::prepare(const StagedThumb &in)
 void GalleryItem::prepareLoop()
 {
     for (;;) {
-        StagedThumb st;
+        RawThumb st;
         {
-            std::unique_lock<std::mutex> lock(m_rawMutex);
-            m_rawCv.wait(lock, [this] { return m_prepStop || !m_raw.empty(); });
+            QMutexLocker lock(&m_rawMutex);
+            while (!m_prepStop && m_raw.empty())
+                m_rawCv.wait(&m_rawMutex);
             if (m_prepStop)
                 return;
             st = std::move(m_raw.front());
@@ -1282,11 +1289,11 @@ void GalleryItem::prepareLoop()
         PreparedThumb pt = prepare(st);
         bool wake = false;
         {
-            QMutexLocker lock(&m_stagedMutex);
+            QMutexLocker lock(&m_preparedMutex);
             if (gen != m_generation.load())
                 continue;   // cleared meanwhile: the thumb belongs to another collection
-            wake = m_staged.empty();
-            m_staged.push_back(std::move(pt));
+            wake = m_prepared.empty();
+            m_prepared.push_back(std::move(pt));
         }
         // a frame to upload it in; only the GUI thread asks for frames (spike S1)
         if (wake)
@@ -1305,13 +1312,13 @@ void GalleryItem::setFailed(int index, bool failed)
 void GalleryItem::clearThumbs()
 {
     {
-        std::lock_guard<std::mutex> lock(m_rawMutex);
+        QMutexLocker lock(&m_rawMutex);
         ++m_generation;   // under the lock: no thumb in between gets the new stamp
         m_raw.clear();
     }
     {
-        QMutexLocker lock(&m_stagedMutex);
-        m_staged.clear();
+        QMutexLocker lock(&m_preparedMutex);
+        m_prepared.clear();
     }
     for (TileRec &t : m_tiles)
         t = TileRec{};
@@ -1464,14 +1471,14 @@ void GalleryItem::reportStats(const int resident[TierCount], int uploads, int ev
     m_statSyncMaxNs = std::max(m_statSyncMaxNs, syncNs);
     m_statPagesCreated = m_pagesCreatedRt;
     {
-        QMutexLocker lock(&m_stagedMutex);
-        m_statStaged = int(m_staged.size());
+        QMutexLocker lock(&m_preparedMutex);
+        m_statStaged = int(m_prepared.size());
     }
-    m_lastSyncMs = m_clock.elapsed();
     {
-        std::lock_guard<std::mutex> lock(m_rawMutex);
+        QMutexLocker lock(&m_rawMutex);
         m_statStaged += int(m_raw.size());
     }
+    m_lastSyncMs = m_clock.elapsed();
     if (uploads > 0) {
         m_lastUploadMs = m_clock.elapsed();
         m_uploadsSinceAspect += uint32_t(uploads);
@@ -1488,11 +1495,7 @@ void GalleryItem::publishStats()
     m_statsDirty = false;
     m_statSyncMs = m_statSyncSamples > 0 ? double(m_statSyncNsAccum) / 1e6 / m_statSyncSamples : 0.0;
     m_statSyncMaxMs = double(m_statSyncMaxNs) / 1e6;
-    bool more = false;
-    {
-        QMutexLocker lock(&m_stagedMutex);
-        more = !m_staged.empty();
-    }
+    const bool more = uploadsPending();
     if (m_uploadsSinceAspect > 0) {
         m_uploadsSinceAspect = 0;
         maybeUpdateAspect();
@@ -1551,7 +1554,7 @@ void GalleryItem::itemChange(ItemChange change, const ItemChangeData &value)
                                          : 0.0f;
                 if (int(log->frames.size()) >= FrameLog::kMax)
                     log->frames.erase(log->frames.begin(), log->frames.begin() + FrameLog::kMax / 4);
-                log->frames.push_back({gap, tail, render});
+                log->frames.push_back(FrameTime{gap, tail, render});
             }
             log->lastSwapNs = now;
             log->syncStartNs = log->renderEndNs = 0;
@@ -1559,16 +1562,53 @@ void GalleryItem::itemChange(ItemChange change, const ItemChangeData &value)
         Qt::DirectConnection);
 }
 
-QVariantMap GalleryItem::queueSizes()
+QVariantMap GalleryItem::queueSizes() const
 {
     QVariantMap out;
     {
-        std::lock_guard<std::mutex> lock(m_rawMutex);
+        QMutexLocker lock(&m_rawMutex);
         out.insert(QStringLiteral("raw"), int(m_raw.size()));
     }
-    QMutexLocker lock(&m_stagedMutex);
-    out.insert(QStringLiteral("prepared"), int(m_staged.size()));
+    QMutexLocker lock(&m_preparedMutex);
+    out.insert(QStringLiteral("prepared"), int(m_prepared.size()));
     return out;
+}
+
+bool GalleryItem::takePrepared(PreparedThumb &out)
+{
+    if (m_inlinePrepare) {
+        // as before SPEC-1: the render thread builds the cells in its sync (GUI blocked,
+        // so no clearThumbs can come between the take and the upload)
+        RawThumb st;
+        {
+            QMutexLocker lock(&m_rawMutex);
+            if (m_raw.empty())
+                return false;
+            st = std::move(m_raw.front());
+            m_raw.pop_front();
+        }
+        out = prepare(st);
+        return true;
+    }
+    QMutexLocker lock(&m_preparedMutex);
+    if (m_prepared.empty())
+        return false;
+    out = std::move(m_prepared.front());
+    m_prepared.pop_front();
+    return true;
+}
+
+bool GalleryItem::uploadsPending() const
+{
+    {
+        QMutexLocker lock(&m_preparedMutex);
+        if (!m_prepared.empty())
+            return true;
+    }
+    if (!m_inlinePrepare)
+        return false;
+    QMutexLocker lock(&m_rawMutex);
+    return !m_raw.empty();
 }
 
 QVariantList GalleryItem::frameTimes() const
@@ -1576,8 +1616,9 @@ QVariantList GalleryItem::frameTimes() const
     QVariantList out;
     QMutexLocker lock(&m_frameLog->mutex);
     out.reserve(int(m_frameLog->frames.size()));
-    for (const auto &f : m_frameLog->frames)
-        out.append(QVariant(QVariantList{double(f[0]), double(f[1]), double(f[2])}));
+    for (const FrameTime &f : m_frameLog->frames)
+        out.append(QVariant(
+            QVariantList{double(f.swapGap), double(f.syncToSwap), double(f.syncToRender)}));
     return out;
 }
 
@@ -1585,8 +1626,7 @@ void GalleryItem::resetStats()
 {
     {
         QMutexLocker lock(&m_frameLog->mutex);
-        m_frameLog->frames.clear();
-        m_frameLog->lastSwapNs = 0;   // the next frame starts a fresh interval
+        m_frameLog->restart();   // the next frame starts a fresh interval
     }
     m_statUploads = 0;
     m_statEvictions = 0;

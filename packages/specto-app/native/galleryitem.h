@@ -25,12 +25,15 @@
 //
 // Data path: a worker decodes a thumbnail (uint8 RGBA, HWC) into shared memory; the
 // GUI thread calls pushThumbShm(index, shm name, offset, w, h) (or pushThumb with the
-// bytes), which copies the pixels into a raw queue. The item's own prepare thread turns
-// each into upload-ready cells (SPEC-1): every tier's downsample, its gutter and its mip
-// chain, then asks for a frame. The render thread only uploads prepared cells into
-// atlas pages in updatePaintNode (GUI blocked, GL context current), up to
-// kMaxUploadsPerFrame tiles and kUploadBudgetNs per frame, so a burst of thumbnails
-// spreads over frames instead of stalling one.
+// bytes), which copies the pixels into the raw queue (RawThumb). The item's own prepare
+// thread turns each into upload-ready cells (PreparedThumb, SPEC-1, ADR 0004): every
+// tier's downsample, its gutter and its mip chain, then asks for a frame. The render
+// thread only uploads prepared cells into atlas pages in updatePaintNode (GUI blocked,
+// GL context current), up to kMaxUploadsPerFrame tiles and kUploadBudgetNs per frame,
+// so a burst of thumbnails spreads over frames instead of stalling one. With
+// SPECTO_GALLERY_INLINE_PREPARE on (bench_gallery.py --before) there is no prepare
+// thread: the render thread prepares raw thumbs itself, with no time budget, as it did
+// before SPEC-1.
 //
 // Tiers: mini (48 px in a 56 px cell, all resident), full (176 px in 192 px, LRU over
 // `fullPages` pages) and large (384 px in 400 px, LRU over `largePages` pages, used when
@@ -51,20 +54,17 @@
 #include <QtCore/QStringList>
 #include <QtCore/QTimer>
 #include <QtCore/QVariant>
+#include <QtCore/QWaitCondition>
 #include <QtGui/QColor>
 #include <QtGui/QFont>
 #include <QtQuick/QQuickItem>
 
-#include "atlas.h"
+#include "atlascell.h"
 
-#include <array>
 #include <atomic>
-#include <memory>
-#include <condition_variable>
 #include <cstdint>
 #include <deque>
-#include <mutex>
-#include <thread>
+#include <memory>
 #include <vector>
 
 #if defined(SPECTONATIVE_BUILD)
@@ -74,6 +74,7 @@
 #endif
 
 class GalleryNode;
+class QThread;
 
 enum GalleryTier : int { TierMini = 0, TierFull = 1, TierLarge = 2, TierCount = 3 };
 
@@ -100,11 +101,19 @@ struct TileRec {
     }
 };
 
-struct StagedThumb {
+// A pushed thumb as decoded, waiting for the prepare thread.
+struct RawThumb {
     int index;
     int w, h;
     std::vector<uint8_t> rgba;   // w*h*4, straight alpha
     uint32_t generation = 0;     // the collection it was pushed for (clearThumbs bumps it)
+};
+
+// One frame as the render thread timed it (ms).
+struct FrameTime {
+    float swapGap;        // swap to swap
+    float syncToSwap;     // the frame's sync start to its swap
+    float syncToRender;   // the frame's sync start to the end of its render
 };
 
 // The window's frames as the render thread timed them (SPEC-1). Shared with the
@@ -113,8 +122,7 @@ struct StagedThumb {
 struct FrameLog {
     static constexpr int kMax = 16384;
     QMutex mutex;
-    // per frame: swap-to-swap, sync-to-swap, sync-to-end-of-render (ms)
-    std::vector<std::array<float, 3>> frames;
+    std::vector<FrameTime> frames;
     QElapsedTimer clock;
     qint64 lastSwapNs = 0, syncStartNs = 0, renderEndNs = 0;
     void restart()
@@ -125,7 +133,7 @@ struct FrameLog {
     }
 };
 
-// A staged thumb after the prepare thread (SPEC-1): one upload-ready cell per tier it
+// A raw thumb after the prepare thread (SPEC-1): one upload-ready cell per tier it
 // fills, from `topTier` (by its decoded size) down to mini.
 struct PreparedThumb {
     int index = -1;
@@ -402,17 +410,22 @@ public:
     Q_INVOKABLE void setView(int columns, qreal scrollRows, bool fromUser);
     Q_INVOKABLE void resetStats();
     // The window's frames since resetStats, timed on the render thread (SPEC-1): each
-    // as [swap-to-swap ms, sync-to-swap ms, sync-to-end-of-render ms], the newest
-    // FrameLog::kMax. No Python runs on the
-    // render thread for it, so a busy interpreter cannot stretch what it measures.
+    // a FrameTime as [swapGap, syncToSwap, syncToRender] (ms), the newest
+    // FrameLog::kMax. No Python runs on the render thread for it, so a busy interpreter
+    // cannot stretch what it measures. Diagnostic (docs/contracts.md section 11).
     Q_INVOKABLE QVariantList frameTimes() const;
-    // thumbs waiting for the prepare thread ("raw") and for an upload ("prepared")
-    Q_INVOKABLE QVariantMap queueSizes();
+    // thumbs waiting for the prepare thread ("raw") and for an upload ("prepared");
+    // diagnostic
+    Q_INVOKABLE QVariantMap queueSizes() const;
 
     // render-thread entry points (called from GalleryNode during sync)
     std::vector<TileRec> &tiles() { return m_tiles; }
-    std::deque<PreparedThumb> &stagedQueue() { return m_staged; }
-    QMutex &stagedMutex() { return m_stagedMutex; }
+    // The next thumb to upload, false when none waits. Inline prepare: the render thread
+    // prepares the next raw thumb here.
+    bool takePrepared(PreparedThumb &out);
+    bool uploadsPending() const;
+    // the per-frame upload time budget (none with inline prepare, as before SPEC-1)
+    qint64 uploadBudgetNs() const { return m_inlinePrepare ? INT64_MAX : kUploadBudgetNs; }
     void notePageCreated() { ++m_pagesCreatedRt; }
     bool takeResetFlag() { return m_resetAtlas.exchange(false); }
     qint64 nowMs() const { return m_clock.elapsed(); }
@@ -489,9 +502,9 @@ protected:
     void itemChange(ItemChange change, const ItemChangeData &value) override;
 
 private:
-    void prepareLoop();                                  // the prepare thread
-    void enqueueRaw(StagedThumb &&st);                   // GUI thread
-    static PreparedThumb prepare(const StagedThumb &st); // any thread, CPU only
+    void prepareLoop();                               // the prepare thread
+    void enqueueRaw(RawThumb &&st);                   // GUI thread
+    static PreparedThumb prepare(const RawThumb &st); // any thread, CPU only
     qreal targetCellWidth() const;
     qreal targetCellWidth(int cols) const;
     void relayout();
@@ -554,15 +567,17 @@ private:
     qreal m_radius = 8.0, m_borderWidth = 2.0;
 
     std::vector<TileRec> m_tiles;
-    // pushed thumbs waiting for the prepare thread, and prepared ones for the render thread
-    std::deque<StagedThumb> m_raw;
-    std::mutex m_rawMutex;
-    std::condition_variable m_rawCv;
+    // pushed thumbs waiting for the prepare thread (m_rawCv wakes it), and prepared ones
+    // for the render thread
+    std::deque<RawThumb> m_raw;
+    mutable QMutex m_rawMutex;
+    QWaitCondition m_rawCv;
     bool m_prepStop = false;
-    std::thread m_prep;
+    const bool m_inlinePrepare;              // SPECTO_GALLERY_INLINE_PREPARE: no thread
+    std::unique_ptr<QThread> m_prep;
     std::atomic<uint32_t> m_generation{0};   // clearThumbs drops what was in flight
-    std::deque<PreparedThumb> m_staged;
-    QMutex m_stagedMutex;
+    std::deque<PreparedThumb> m_prepared;
+    mutable QMutex m_preparedMutex;
     std::atomic<bool> m_resetAtlas{false};
     QElapsedTimer m_clock;
 
