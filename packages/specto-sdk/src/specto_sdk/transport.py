@@ -148,7 +148,7 @@ class SocketTransport:
 class PipeTransport:
     """Windows named pipe client. ``QLocalServer`` creates byte-mode pipes, which the C
     runtime opens like a file; reads block until data arrives (no timeout). Only a local
-    pipe is opened (``specto_core.rpc.local_pipe_path``, SPEC-74): a remote one would
+    pipe is opened (``specto_core.pathguard.local_pipe_path``, SPEC-74): a remote one would
     connect out over SMB."""
 
     def __init__(self, name: str) -> None:
