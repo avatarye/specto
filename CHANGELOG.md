@@ -302,20 +302,28 @@ the release and move on their own schedule.
   **New runtime dependency:** watchdog.
 - The gallery's render thread no longer builds thumbnails while the GUI waits (SPEC-1).
   A pushed thumbnail goes to the item's own prepare thread (every tier's downsample, its
-  gutter, its mip chain). The render thread only uploads prepared cells, at most 24
-  tiles and 3 ms per frame. A new atlas page is cleared on the GPU (`glClearTexImage`)
-  instead of a CPU fill uploaded to every mip level (21 MiB for a 2048 px page). Over
-  13,200 images scrolled at 40 rows/s, with the decode workers at the same priority in
-  both builds, the item's sync averages 0.76 ms (was 2.0) with a worst of 17.7 ms (was
-  24-26), sync to end of render peaks at 18 ms (was 24-26), and the frame p99 is 18 ms
-  (was 24-31). The frames still over 33 ms (1 to 3 in 30 s, was 1 to 4) are a gen-2
-  collection on the GUI thread in every run (55-63 ms, once per run with 13k items;
-  SPEC-54), and in one run a 67 ms swap and a 38 ms GUI-thread delay on the shared
-  machine. Decode workers now run below normal priority.
-  `tools/bench_gallery.py` reports frames over 33 ms and the worst frame from the item's
-  own render-thread timing (`GalleryItem.frameTimes`), beside the gen-2 collections, and
-  fails its criterion when a frame is over 33 ms; `--trace-stalls` names GUI-thread
-  stalls.
+  gutter, its mip chain; ADR 0004). The render thread only uploads prepared cells, at
+  most 24 tiles and 3 ms per frame. A new atlas page is cleared on the GPU
+  (`glClearTexImage`) instead of a CPU fill uploaded to every mip level (21 MiB for a
+  2048 px page). Measured with `tools/bench_gallery.py` against its `--before` mode
+  (the same build preparing on the render thread and filling pages on the CPU, as
+  before), six interleaved 30 s runs each, 13,200 images scrolled at 40 rows/s, decode
+  workers at normal priority on both sides, on a machine shared with other work. In
+  five of the six runs after the change the item's sync averages 1.1-1.2 ms (was
+  3.8-4.6) with a worst of 3-5 ms (was 15-23), the frame p99 is 26-33 ms (was 33-40)
+  and the window draws 60-64 fps (was 47-56). Frames over 33 ms fell from 19-64 per run
+  to 1-14; one per run on both sides is a gen-2 collection on the GUI thread (105-156
+  ms with 13k items; SPEC-54), and the rest after the change waited on the GUI thread
+  or the swap, never on the render thread's own work (about 5 ms at most). The sixth
+  run had a 2 s burst of long frames, three of them 35-54 ms from sync to the end of
+  render, that no other run showed (69 frames over 33 ms). Decode workers now run below
+  normal priority; it made no measurable difference to these numbers. A thumbnail
+  larger than the large tier now rounds its shrunk size to the nearest pixel, as the
+  other tiers do, where it truncated (at most 1 px larger). `tools/bench_gallery.py`
+  reports frames over 33 ms and the worst frame from the item's own render-thread
+  timing (`GalleryItem.frameTimes`), beside the gen-2 collections; its criterion fails
+  on a frame over 33 ms that no gen-2 collection overlapped (that exemption goes when
+  SPEC-54 lands); `--trace-stalls` names GUI-thread stalls.
 - After a project slash command (`/layout review`), the agent's next turn gets the
   canvas document and the project's commands again (SPEC-30). A slash command goes to
   the agent without the canvas context, yet the bar counted the document as seen, so the
