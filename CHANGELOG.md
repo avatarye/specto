@@ -15,6 +15,12 @@ the release and move on their own schedule.
 
 ## Unreleased
 
+- Specto and its test suite run on Ubuntu (SPEC-101). On Linux a source at an absolute
+  path, `/` included, lists in the file tree under that path (`/data/a.txt`, never
+  `//a.txt`, which reads as a network path), and a whole-drive source on Windows (`C:\`)
+  lists the drive's contents under `C:` instead of an empty `/` folder. An NT object path
+  (`/??/...`, `\??\...`) is refused as a device path on every platform, not only on
+  Windows. Child interpreters keep the locale's character type (`LC_CTYPE`).
 - Closing a usd view while its stage is still drawing its first frame no longer freezes
   the window (SPEC-87): the view hands its frame source a stop and returns; the source
   ends on its own once the frame is done, or is killed after 5 s, also when the app quits.
