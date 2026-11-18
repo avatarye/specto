@@ -34,6 +34,31 @@ def test_a_non_ascii_port_is_refused_not_raised(address, remote_ok):
 def test_an_ascii_port_is_taken():
     assert endpoint_refusal("tcp", "127.0.0.1:80") is None
     assert endpoint_refusal("tcp", "[::1]:65535") is None
+    assert endpoint_refusal("tcp", "127.0.0.1:0080") is None
+
+
+@pytest.mark.parametrize(
+    "port",
+    [
+        "0",
+        "65536",
+        " 80",
+        "",
+        # past CPython's int-string limit: int() raises ValueError
+        pytest.param("9" * 4301, id="4301-digits"),
+    ],
+)
+@pytest.mark.parametrize("remote_ok", [False, True])
+def test_a_port_out_of_range_is_refused_not_raised(port, remote_ok):
+    assert "port" in endpoint_refusal("tcp", f"127.0.0.1:{port}", remote_ok=remote_ok)
+
+
+def test_a_huge_port_in_an_endpoint_url_is_invalid_args():
+    from specto_core.errors import InvalidArgs
+    from specto_core.rpc import EndpointInfo
+
+    with pytest.raises(InvalidArgs):
+        EndpointInfo.from_url("tcp://127.0.0.1:" + "9" * 4301)
 
 
 def test_pathguard_imports_with_the_standard_library_alone():
