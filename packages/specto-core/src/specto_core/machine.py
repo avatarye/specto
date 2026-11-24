@@ -38,6 +38,11 @@ STORM_HINT = (
     f"build OpenUSD with imaging (tools/parked/build_openusd.py) or point {OPENUSD_ENV} at "
     "an install; PyOpenGL comes with specto-app"
 )
+#: lifts the macOS gate on Storm (the usd view is off on macOS until Storm runs reliably there)
+MACOS_STORM_ENV = "SPECTO_MACOS_STORM"
+MACOS_STORM_GATE = (
+    f"the usd view is not yet supported on macOS (set {MACOS_STORM_ENV}=1 to try Storm)"
+)
 DETECT_TIMEOUT_S = 30.0
 HARDWARE_TIMEOUT_S = 5.0
 
@@ -164,7 +169,10 @@ def openusd_site_packages(prefix: str) -> str:
 
 def detect_storm(prefix: str | None = None) -> MachineCapability:
     """Whether the OpenUSD build at ``prefix`` (default :func:`openusd_prefix`) has
-    UsdImagingGL and this Python has PyOpenGL; by the files, without importing either."""
+    UsdImagingGL and this Python has PyOpenGL; by the files, without importing either.
+    On macOS Storm is absent unless ``SPECTO_MACOS_STORM=1`` (:data:`MACOS_STORM_GATE`)."""
+    if sys.platform == "darwin" and os.environ.get(MACOS_STORM_ENV, "").strip() != "1":
+        return MachineCapability(name="storm", present=False, reason=MACOS_STORM_GATE)
     prefix = prefix or openusd_prefix()
     imaging = os.path.join(openusd_site_packages(prefix), "pxr", "UsdImagingGL")
     if not os.path.isdir(imaging):
