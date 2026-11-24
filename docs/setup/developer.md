@@ -751,12 +751,14 @@ replaced before it starts, a failed load and the next one, camera, environment a
 mode changes between switches, and closes during a load. It closes a source the way the
 view does since SPEC-87 (`close_in_background`, killed after `--close-timeout` s; the
 view's is 5 s) and samples the frame source's private bytes and its dedicated GPU memory
-after each load (Windows' GPU Process Memory counter; nvidia-smi says N/A under WDDM). It
+after each load (Windows' GPU Process Memory counter; nvidia-smi says N/A under WDDM; on
+macOS the physical footprint, since RSS misses the GPU memory a process owns there). It
 counts faults, a close that times out or leaves any of the source's processes running
 among them (it kills what is left) and, when a load neither finishes nor fails in
 `--timeout` s, writes the hung process's stacks (`--py-spy`) and spinning threads before
 it kills its tree. `--plan isolate --op ...` repeats one operation to see what it keeps.
-It runs the view's explicit-rtx command line, so it needs an RTX GPU. Dev-only; nothing
+It runs the view's explicit-rtx command line, so it needs an RTX GPU; `--renderer storm`
+runs Storm's instead (any GPU, macOS). Dev-only; nothing
 in `packages/` imports it. Run it on the GPU tier like the bench, one run at a time in the
 heavy-run slot (the board repository's `tools/heavy_slot.py`) and under
 `tools/gpu_guard.py`, with psutil:

@@ -27,6 +27,13 @@ the release and move on their own schedule.
   to the new amber `warn`, with one note per cause; `snap` lists each one. The agent
   poses the robot through `params.joints` (radians and metres), and a slider release is
   one undo step.
+- On macOS a usd view no longer keeps most of Storm's GPU memory for every stage it
+  loaded: about 60 MB of physical footprint per Kitchen_set load (none of it in RSS),
+  now about 4 MB. The frame
+  source renders on its main thread but runs no Cocoa event loop, so nothing drained the
+  Metal objects Storm's engines autorelease. It now drains an autorelease pool around
+  every turn of its loop. `tools/soak_usd_switch.py` samples the physical footprint on
+  macOS, where RSS misses the GPU memory a process owns.
 - Specto builds and runs on macOS (Apple silicon), with the setup steps in
   `docs/setup/developer.md`. The usd view renders with Storm there. Storm on macOS used
   to crash its frame source on `import pxr` (exit -11): OpenUSD linked its Python modules

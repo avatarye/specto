@@ -28,8 +28,9 @@ its 1x1-texture copy does), a prop and a small stage. Plans:
 A source is closed the way the view closes it (SPEC-87): ``close_in_background`` asks it
 to stop and kills it after ``--close-timeout`` s (the view's is 5 s); the row says how
 long the caller waited (``returned_s``) and how long the source took (``close_s``).
-Each load is sampled: the source's private bytes (with psutil) and, on Windows, its
-dedicated GPU memory (the GPU Process Memory counter; nvidia-smi says N/A under WDDM).
+Each load is sampled: the source's private bytes (with psutil; on macOS its physical
+footprint, which counts the GPU memory it owns) and, on Windows, its dedicated GPU
+memory (the GPU Process Memory counter; nvidia-smi says N/A under WDDM).
 A fault is the source exiting, an error where none is expected, a call failing, or a
 close that times out or leaves any of the source's tree running (the tool kills what is
 left). A load that sees neither ``ok`` nor an error in ``--timeout`` s is a hang: the
@@ -88,6 +89,23 @@ def gpu_mb(pid: int) -> float:
         return -1.0 if value < 0 else round(value / 2**20, 1)
     except (OSError, ValueError, subprocess.SubprocessError):
         return -1.0
+
+
+def footprint_mb(pid: int) -> float:
+    """macOS: a process's physical footprint (``proc_pid_rusage``), which counts the GPU
+    memory it owns on a unified-memory Mac; RSS does not. -1 when it cannot be read."""
+    import ctypes
+
+    class Rusage(ctypes.Structure):  # rusage_info_v2's head, up to ri_phys_footprint
+        _fields_ = [("uuid", ctypes.c_uint8 * 16)]
+        _fields_ += [(f"f{i}", ctypes.c_uint64) for i in range(7)]
+        _fields_ += [("phys_footprint", ctypes.c_uint64), ("rest", ctypes.c_uint64 * 24)]
+
+    ru = Rusage()
+    libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    if libc.proc_pid_rusage(pid, 2, ctypes.byref(ru)) != 0:
+        return -1.0
+    return round(ru.phys_footprint / 2**20, 1)
 
 
 class Source:
@@ -180,7 +198,9 @@ class Source:
 
     def sample(self) -> dict[str, float]:
         private = -1.0
-        if psutil is not None:
+        if sys.platform == "darwin":
+            private = footprint_mb(self.pid)  # RSS misses the GPU memory a Mac process owns
+        elif psutil is not None:
             try:
                 mem = psutil.Process(self.pid).memory_info()
                 private = round(getattr(mem, "private", mem.rss) / 2**20, 1)
