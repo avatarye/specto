@@ -3,7 +3,8 @@
 How to get a Specto checkout building, running and tested. Windows 11 is the verified
 platform: every step below was run in a fresh worktree on 2026-10-27 (#214). The Ubuntu
 24.04 steps come from #206's README and `packages/specto-app/native/build.py`, verified
-on Ubuntu 24.04 on a second machine. macOS is untested.
+on Ubuntu 24.04 on a second machine. The macOS steps were run on an Apple silicon
+MacBook Pro (macOS 27, 2026-11-23); on macOS the usd view is gated off (below).
 
 The user guide, for running Specto once it is built, is [user.md](user.md).
 
@@ -42,6 +43,20 @@ Ubuntu 24.04:
 ```text
 sudo apt install build-essential cmake libgl-dev libglu1-mesa-dev libx11-dev libxt-dev libxrandr-dev libmpv-dev libxcb-cursor0 ffmpeg
 ```
+
+macOS (Apple silicon):
+
+```text
+xcode-select --install                 # Apple clang, git
+brew install cmake mpv ffmpeg node     # Homebrew from brew.sh
+```
+
+`build.py` compiles against Homebrew's mpv (`/opt/homebrew/include/mpv`, loading
+`libmpv.2.dylib` at runtime), so `tools/fetch_libmpv.py` is not needed. The usd view is
+gated off on macOS until Storm runs reliably there: its Storm capability is absent with
+that reason, so the view shows the test pattern and says why. `SPECTO_MACOS_STORM=1`
+lifts the gate (it still needs an OpenUSD imaging build, below). Everything (the
+Windows file index) never loads, so its tests skip and the file tree's search walks.
 
 g++ 11 or newer and CMake 3.21 or newer; Ninja is optional (Makefiles otherwise). The
 distribution's `nodejs` package is older than 20: use the NodeSource repository or nvm.
@@ -224,6 +239,15 @@ Linux (the SDK goes to `~/specto-build/Qt`):
 uv tool run --no-config --from git+https://github.com/miurahr/aqtinstall aqt \
     install-qt linux desktop 6.12.0 linux_gcc_64 \
     -O ~/specto-build/Qt --archives qtbase qtdeclarative icu
+uv run python packages/specto-app/native/build.py
+```
+
+macOS (the SDK goes to `~/specto-build/Qt/6.12.0/macos`; aqt's arch is `clang_64`):
+
+```text
+uv tool run --no-config --from git+https://github.com/miurahr/aqtinstall aqt \
+    install-qt mac desktop 6.12.0 clang_64 \
+    -O ~/specto-build/Qt --archives qtbase qtdeclarative
 uv run python packages/specto-app/native/build.py
 ```
 

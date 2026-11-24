@@ -27,6 +27,12 @@ the release and move on their own schedule.
   to the new amber `warn`, with one note per cause; `snap` lists each one. The agent
   poses the robot through `params.joints` (radians and metres), and a slider release is
   one undo step.
+- Specto builds and runs on macOS (Apple silicon), with the setup steps in
+  `docs/setup/developer.md`. The usd view is gated off there until Storm runs reliably:
+  its Storm capability is absent with that reason, so the view shows the test pattern
+  and says why; `SPECTO_MACOS_STORM=1` lifts the gate. The Everything search tests are
+  marked Windows-only, and the child-environment test allows the variable macOS adds to
+  every process (`__CF_USER_TEXT_ENCODING`).
 - Specto and its test suite run on Ubuntu (SPEC-101). On Linux a source at an absolute
   path, `/` included, lists in the file tree under that path (`/data/a.txt`, never
   `//a.txt`, which reads as a network path), and a whole-drive source on Windows (`C:\`)
