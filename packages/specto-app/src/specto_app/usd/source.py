@@ -126,6 +126,7 @@ from specto_core.machine import INSTALL_HINT, STORM_HINT, openusd_prefix
 
 from . import environment as env
 from . import skies
+from .autorelease import autorelease_pool
 from .load_timings import LoadTimings
 from .nav import CameraState, Nav, usd_camera
 
@@ -467,13 +468,19 @@ class UsdSource:
             height=self.height,
             pid=os.getpid(),
         )
+        # one autorelease pool per step: nothing else drains what Storm's Metal autoreleases
+        # on this thread, which never runs a Cocoa event loop (macOS; a no-op elsewhere)
         try:
-            self._start_renderer()
-            while self._next():
-                pass
+            with autorelease_pool():
+                self._start_renderer()
+            while True:
+                with autorelease_pool():
+                    if not self._next():
+                        break
         finally:
             self._end_overlay()
-            self._close_renderer()
+            with autorelease_pool():
+                self._close_renderer()
             self.frames.close()
         self.control.wait_eof()
         return 0
