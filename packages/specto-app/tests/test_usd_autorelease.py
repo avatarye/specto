@@ -107,12 +107,14 @@ def cubes(path: Path, n: int) -> Path:
     return path
 
 
-@pytest.mark.skipif(not storm_present(), reason="macOS with an OpenUSD imaging build")
-def test_stage_loads_do_not_keep_storms_metal_memory(tmp_path):
+def footprint_growth(tmp_path: Path, big_cubes: int, loads: int) -> float:
+    """MB a Storm source's physical footprint grows over ``loads`` pairs of loads (a
+    ``big_cubes`` stage, then a 1-cube one), after one pair of warm-up."""
     from specto_app.frames import control
     from specto_app.views.usd_view import storm_launcher
 
-    big, small = cubes(tmp_path / "big.usda", 200), cubes(tmp_path / "small.usda", 1)
+    big = cubes(tmp_path / "big.usda", big_cubes)
+    small = cubes(tmp_path / "small.usda", 1)
     src = control.FrameSourceProcess.spawn(storm_launcher(640, 360), env=dict(os.environ))
 
     def load(path: Path) -> None:
@@ -126,11 +128,29 @@ def test_stage_loads_do_not_keep_storms_metal_memory(tmp_path):
         load(big), load(small)
         time.sleep(1)
         before = footprint_mb(src.proc.pid)
-        for _ in range(10):
+        for _ in range(loads):
             load(big), load(small)
         time.sleep(1)
-        grown = footprint_mb(src.proc.pid) - before
+        return footprint_mb(src.proc.pid) - before
     finally:
         src.close()
+
+
+@pytest.mark.skipif(not storm_present(), reason="macOS with an OpenUSD imaging build")
+def test_stage_loads_do_not_keep_storms_metal_memory(tmp_path):
+    grown = footprint_growth(tmp_path, 200, 10)
     # without the pools: about 115 MB here; with them about 10
     assert grown < 40, f"the footprint grew {grown:.0f} MB over 10 loads"
+
+
+@pytest.mark.skipif(not storm_present(), reason="macOS with an OpenUSD imaging build")
+def test_an_engine_releases_its_metal_objects_with_the_patched_openusd(tmp_path):
+    """tools/parked/openusd-patches/0001: HgiMetal's indirect command encoder (the ICB
+    and argument buffer pools), its compute pipelines and the Metal-GL interop released
+    nothing on destruction. Each engine makes its own Hgi, so each stage load left them:
+    about 6.6 MB a load here with an unpatched build, about 1 MB with the patch."""
+    grown = footprint_growth(tmp_path, 2000, 8)
+    assert grown < 25, (
+        f"the footprint grew {grown:.0f} MB over 8 loads: is the OpenUSD build patched? "
+        "rebuild it with tools/parked/build_openusd.py"
+    )

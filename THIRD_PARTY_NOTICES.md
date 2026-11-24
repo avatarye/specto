@@ -163,7 +163,7 @@ Installed from public PyPI only (the workspace pins the index). Versions are in 
 |---|---|---|
 | `ovrtx` 0.6.0, `ovstage` 0.3.0 (`uv sync --extra rtx`) | **NVIDIA proprietary.** The PyPI package is a stub that downloads the binary from `pypi.nvidia.com` at install under NVIDIA's software licence agreement; it is not redistributable by Specto | The RTX renderer of the usd view (`specto_app/usd/`). Specto only imports the installed module through its public API; the repository holds no NVIDIA code or data. Without the extra the view falls back to Storm or a test pattern. |
 | `usd-core` 26.11 | Apache-2.0 (Pixar's OpenUSD, with its modified-Apache notice) | Stage bounds for the RTX source. |
-| OpenUSD imaging build (`tools/parked/build_openusd.py`, built locally, found through `SPECTO_OPENUSD`) | Apache-2.0 (OpenUSD and its build dependencies: TBB Apache-2.0, OpenSubdiv Apache-2.0, OpenImageIO BSD-3-Clause, among others) | The Hydra Storm renderer. Built by the developer from source; nothing of it is in the repository. |
+| OpenUSD imaging build (`tools/parked/build_openusd.py`, built locally, found through `SPECTO_OPENUSD`) | Apache-2.0 (OpenUSD and its build dependencies: TBB Apache-2.0, OpenSubdiv Apache-2.0, OpenImageIO BSD-3-Clause, among others) | The Hydra Storm renderer. Built by the developer from source; nothing of it is in the repository except `tools/parked/openusd-patches/`, changes to OpenUSD's sources under its licence, applied to the clone before the build. |
 
 ## 5. Tooling that fetches but ships nothing
 

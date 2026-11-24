@@ -74,6 +74,8 @@ BUILD = ROOT / "openusd-build"
 DEPS = ROOT / "openusd-deps"
 INST = ROOT / "openusd"
 LOG = ROOT / "openusd-build.log"
+#: fixes to the pinned tag, applied to the clone in name order (see each patch's notes)
+PATCHES = Path(__file__).resolve().parent / "openusd-patches"
 
 
 # uv's CPython links libpython into the interpreter itself, yet its sysconfig LDLIBRARY
@@ -167,6 +169,31 @@ def ensure_clone() -> None:
         return
     print(f"[RUN] git clone --depth 1 --branch {TAG} {REPO} {SRC}")
     subprocess.check_call(["git", "clone", "--depth", "1", "--branch", TAG, REPO, str(SRC)])
+
+
+def apply_patches(src: Path = SRC, patches: Path = PATCHES) -> list[str]:
+    """Apply each ``*.patch`` under ``patches`` to the clone at ``src`` that is not in it
+    yet; returns the names applied. One that neither applies nor is already applied (the
+    source moved) stops the build: building without it would bring back what it fixes.
+    0001: HgiMetal's indirect command encoder, compute pipelines and the Metal-GL interop
+    released nothing they made on destruction, so every UsdImagingGL engine (each makes
+    its own Hgi) left its Metal and GL objects behind (about 4 MB per Kitchen_set load)."""
+    applied = []
+    for patch in sorted(patches.glob("*.patch")):
+
+        def check(*extra: str, patch: Path = patch) -> bool:
+            cmd = ["git", "-C", str(src), "apply", "--check", *extra, str(patch)]
+            return subprocess.run(cmd, capture_output=True).returncode == 0
+
+        if check("--reverse"):
+            print(f"[OK] patch {patch.name} is in {src}")
+            continue
+        if not check():
+            sys.exit(f"[ERROR] patch {patch.name} does not apply to {src}: update it for {TAG}")
+        subprocess.check_call(["git", "-C", str(src), "apply", str(patch)])
+        print(f"[OK] applied {patch.name}")
+        applied.append(patch.name)
+    return applied
 
 
 def ensure_venv() -> Path:
@@ -279,6 +306,7 @@ def main() -> int:
     args = ap.parse_args()
 
     ensure_clone()
+    apply_patches()
     python = ensure_venv()
     vcvars = find_vcvars() if WINDOWS else None
 

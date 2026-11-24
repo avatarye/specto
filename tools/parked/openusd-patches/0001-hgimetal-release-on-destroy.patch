@@ -1,0 +1,99 @@
+HgiMetal: release what it made when it is destroyed (OpenUSD v26.08).
+
+Each UsdImagingGL engine without an HdDriver makes its own Hgi (HgiMetal on macOS), and
+destroying it left behind:
+- HgiMetalIndirectCommandEncoder: every pooled indirect command buffer and argument
+  buffer, the ICB generation pipelines (function, pipeline state, argument encoder) and
+  their library;
+- HgiMetalComputePipeline: its MTLComputePipelineState;
+- HgiInteropMetal: its compute pipelines, functions and Metal library, and its GL
+  programs, vertex arrays and buffers.
+On an M-series Mac that was about 4-6 MB of physical footprint per stage load in
+Specto's usd view (one engine per stage). Measured with heap(1) class counts and
+proc_pid_rusage; see Specto's CHANGELOG. Applied by tools/parked/build_openusd.py.
+
+diff --git a/pxr/imaging/hgiInterop/metal.mm b/pxr/imaging/hgiInterop/metal.mm
+index 4d9ddae..d873b54 100644
+--- a/pxr/imaging/hgiInterop/metal.mm
++++ b/pxr/imaging/hgiInterop/metal.mm
+@@ -419,6 +419,34 @@
+ HgiInteropMetal::~HgiInteropMetal()
+ {
+ 	_FreeTransientTextureCacheRefs();
++
++    // The GL objects and Metal objects made once per interop (the constructor's
++    // shader contexts and compute pipelines). The GL context the interop was made
++    // with is current here, as it is for the textures above.
++    for (ShaderContext &shader : _shaderProgramContext) {
++        if (shader.vbo) {
++            glDeleteBuffers(1, &shader.vbo);
++            shader.vbo = 0;
++        }
++        if (shader.vao) {
++            glDeleteVertexArrays(1, &shader.vao);
++            shader.vao = 0;
++        }
++        if (shader.program) {
++            glDeleteProgram(shader.program);
++            shader.program = 0;
++        }
++    }
++    [_computePipelineStateColor release];
++    _computePipelineStateColor = nil;
++    [_computePipelineStateDepth release];
++    _computePipelineStateDepth = nil;
++    [_computeColorCopyProgram release];
++    _computeColorCopyProgram = nil;
++    [_computeDepthCopyProgram release];
++    _computeDepthCopyProgram = nil;
++    [_defaultLibrary release];
++    _defaultLibrary = nil;
+ }
+ 
+ void
+diff --git a/pxr/imaging/hgiMetal/computePipeline.mm b/pxr/imaging/hgiMetal/computePipeline.mm
+index b46523b..4dff4bc 100644
+--- a/pxr/imaging/hgiMetal/computePipeline.mm
++++ b/pxr/imaging/hgiMetal/computePipeline.mm
+@@ -50,6 +50,10 @@
+ 
+ HgiMetalComputePipeline::~HgiMetalComputePipeline()
+ {
++    if (_computePipelineState) {
++        [_computePipelineState release];
++        _computePipelineState = nil;
++    }
+ }
+ 
+ void
+diff --git a/pxr/imaging/hgiMetal/indirectCommandEncoder.mm b/pxr/imaging/hgiMetal/indirectCommandEncoder.mm
+index 91284ce..7b35e50 100644
+--- a/pxr/imaging/hgiMetal/indirectCommandEncoder.mm
++++ b/pxr/imaging/hgiMetal/indirectCommandEncoder.mm
+@@ -119,6 +119,26 @@
+ #if !__has_feature(objc_arc)
+     [_triangleTessFactors release];
+     [_quadTessFactors release];
++
++    // The pooled indirect command buffers and argument buffers, and the ICB
++    // generation pipelines, are owned here: release them with the encoder (one
++    // per HgiMetal, so one per engine that made its own Hgi).
++    for (auto &entry : _commandBufferPool) {
++        [entry.second release];
++    }
++    _commandBufferPool.clear();
++    for (auto &entry : _argumentBufferPool) {
++        [entry.second release];
++    }
++    _argumentBufferPool.clear();
++    for (FunctionState &state : _functions) {
++        [state.argumentEncoder release];
++        [state.pipelineState release];
++        [state.function release];
++        state = FunctionState();
++    }
++    [_library release];
++    _library = nil;
+ #endif // !__has_feature(objc_arc)
+ }
+ 

@@ -59,7 +59,10 @@ build must resolve Python's symbols from the process: uv's CPython links libpyth
 its executable, so a `pxr` module that links `libpython3.12.dylib` loads a second,
 uninitialised interpreter and the frame source crashes on `import pxr` (exit -11). The
 script passes `PXR_PY_UNDEFINED_DYNAMIC_LOOKUP=ON` on macOS for that, and Storm detection
-refuses a build that links libpython anyway, naming the rebuild. Everything (the
+refuses a build that links libpython anyway, naming the rebuild. The script also applies
+`tools/parked/openusd-patches/` to its clone (0001: HgiMetal releases its Metal objects
+with each engine); `test_usd_autorelease.py` fails on an unpatched build, so rebuild
+after pulling a new patch. Everything (the
 Windows file index) never loads, so its tests skip and the file tree's search walks.
 
 g++ 11 or newer and CMake 3.21 or newer; Ninja is optional (Makefiles otherwise). The

@@ -27,9 +27,16 @@ the release and move on their own schedule.
   to the new amber `warn`, with one note per cause; `snap` lists each one. The agent
   poses the robot through `params.joints` (radians and metres), and a slider release is
   one undo step.
+- `tools/parked/build_openusd.py` applies the repository's OpenUSD patches
+  (`tools/parked/openusd-patches/`) to its clone, once, and stops when one no longer fits.
+  0001 makes HgiMetal release what it made: its indirect command encoder kept every pooled
+  indirect command buffer and argument buffer, its compute pipelines their pipeline
+  states, and the Metal-GL interop its compute pipelines, Metal library and GL programs.
+  Each Storm engine makes its own Hgi, so every stage load left them behind (about 4 MB
+  per Kitchen_set load on macOS). Rebuild OpenUSD to pick it up.
 - On macOS a usd view no longer keeps most of Storm's GPU memory for every stage it
   loaded: about 60 MB of physical footprint per Kitchen_set load (none of it in RSS),
-  now about 4 MB. The frame
+  now under 1 MB with the patched OpenUSD build. The frame
   source renders on its main thread but runs no Cocoa event loop, so nothing drained the
   Metal objects Storm's engines autorelease. It now drains an autorelease pool around
   every turn of its loop. `tools/soak_usd_switch.py` samples the physical footprint on
