@@ -27,6 +27,17 @@ the release and move on their own schedule.
   to the new amber `warn`, with one note per cause; `snap` lists each one. The agent
   poses the robot through `params.joints` (radians and metres), and a slider release is
   one undo step.
+- Web views on macOS no longer grow the app's memory with every frame. Qt Quick draws
+  through OpenGL there, on Apple's OpenGL-over-Metal driver, and each GPU-composited
+  web-view frame it drew left one more render pipeline state in that driver, never
+  freed: about 60 a second, 85-145 MB of physical footprint a minute while a 3D or map
+  view animated, and 9 MB (map) or 3 MB (3D) each time a view was opened, switched
+  between two files four times and closed, kept after the view closed. On macOS under
+  the OpenGL backend Chromium now composites in software
+  (`--disable-gpu-compositing`, `qt_setup.web_engine_flags`); WebGL still renders on the
+  GPU. A large animated web view costs more CPU this way (a 1180 x 880 3D view spinning
+  at 120 fps: about 80 % of a core for the app and its renderer, against 40 %).
+  `SPECTO_WEB_GPU_COMPOSITING=1` keeps GPU compositing.
 - `tools/parked/build_openusd.py` applies the repository's OpenUSD patches
   (`tools/parked/openusd-patches/`) to its clone, once, and stops when one no longer fits.
   0001 makes HgiMetal release what it made: its indirect command encoder kept every pooled

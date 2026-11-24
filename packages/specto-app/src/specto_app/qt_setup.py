@@ -65,12 +65,51 @@ def prepare(*, backend: str = "opengl", web: bool | None = None, offscreen: bool
                 register_scheme()
             except ImportError:
                 pass
+            apply_web_engine_flags()
             QtWebEngineQuick.initialize()
             ok = True
         except ImportError as e:  # pragma: no cover - depends on the wheel
             print(f"[WARN] QtWebEngine unavailable, web views disabled: {e}")
     _prepared = "web" if ok else "plain"
     return ok
+
+
+#: Chromium hands its frames to Qt Quick as images instead of GPU textures
+NO_GPU_COMPOSITING = "--disable-gpu-compositing"
+
+
+def web_engine_flags(
+    flags: str, *, platform: str, backend: str, gpu_compositing: bool = False
+) -> str:
+    """``QTWEBENGINE_CHROMIUM_FLAGS`` for this process: ``flags`` plus, on macOS under the
+    OpenGL RHI, ``--disable-gpu-compositing``. There Qt Quick draws through Apple's
+    OpenGL-over-Metal driver, and every GPU-composited web-view frame it draws leaves one
+    more render pipeline state in that driver that is never freed (about 60 a second,
+    70-145 MB of physical footprint a minute while a 3D or map view animates). Software
+    compositing keeps the driver at its ~20 pipelines; WebGL still renders on the GPU.
+    ``gpu_compositing`` (``SPECTO_WEB_GPU_COMPOSITING=1``) keeps Chromium's default."""
+    parts = flags.split()
+    if (
+        platform == "darwin"
+        and backend == "opengl"
+        and not gpu_compositing
+        and NO_GPU_COMPOSITING not in parts
+    ):
+        parts.append(NO_GPU_COMPOSITING)
+    return " ".join(parts)
+
+
+def apply_web_engine_flags() -> None:
+    """Write ``web_engine_flags`` into the environment; before ``QtWebEngineQuick``
+    initialises (Chromium reads its flags once, at start)."""
+    flags = web_engine_flags(
+        os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", ""),
+        platform=sys.platform,
+        backend=os.environ.get("QSG_RHI_BACKEND", ""),
+        gpu_compositing=os.environ.get("SPECTO_WEB_GPU_COMPOSITING", "") not in ("", "0"),
+    )
+    if flags:
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = flags
 
 
 def use_core_profile() -> None:
