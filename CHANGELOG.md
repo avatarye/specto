@@ -28,11 +28,15 @@ the release and move on their own schedule.
   poses the robot through `params.joints` (radians and metres), and a slider release is
   one undo step.
 - Specto builds and runs on macOS (Apple silicon), with the setup steps in
-  `docs/setup/developer.md`. The usd view is gated off there until Storm runs reliably:
-  its Storm capability is absent with that reason, so the view shows the test pattern
-  and says why; `SPECTO_MACOS_STORM=1` lifts the gate. The Everything search tests are
-  marked Windows-only, and the child-environment test allows the variable macOS adds to
-  every process (`__CF_USER_TEXT_ENCODING`).
+  `docs/setup/developer.md`. The usd view renders with Storm there. Storm on macOS used
+  to crash its frame source on `import pxr` (exit -11): OpenUSD linked its Python modules
+  to `libpython3.12.dylib`, a second copy of the interpreter that uv's CPython, which
+  has libpython built in, never initialises. `tools/parked/build_openusd.py` now builds
+  with `PXR_PY_UNDEFINED_DYNAMIC_LOOKUP=ON` on macOS, and Storm detection refuses a build
+  whose `pxr` links a libpython the running interpreter does not load, naming the
+  rebuild. `tools/soak_usd_switch.py --renderer storm` soaks Storm's stage switches.
+  The Everything search tests are marked Windows-only, and the child-environment test
+  allows the variable macOS adds to every process (`__CF_USER_TEXT_ENCODING`).
 - Specto and its test suite run on Ubuntu (SPEC-101). On Linux a source at an absolute
   path, `/` included, lists in the file tree under that path (`/data/a.txt`, never
   `//a.txt`, which reads as a network path), and a whole-drive source on Windows (`C:\`)

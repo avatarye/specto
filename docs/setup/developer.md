@@ -4,7 +4,7 @@ How to get a Specto checkout building, running and tested. Windows 11 is the ver
 platform: every step below was run in a fresh worktree on 2026-10-27 (#214). The Ubuntu
 24.04 steps come from #206's README and `packages/specto-app/native/build.py`, verified
 on Ubuntu 24.04 on a second machine. The macOS steps were run on an Apple silicon
-MacBook Pro (macOS 27, 2026-11-23); on macOS the usd view is gated off (below).
+MacBook Pro (macOS 27, 2026-11-23); on macOS the usd view renders with Storm (below).
 
 The user guide, for running Specto once it is built, is [user.md](user.md).
 
@@ -52,10 +52,14 @@ brew install cmake mpv ffmpeg node     # Homebrew from brew.sh
 ```
 
 `build.py` compiles against Homebrew's mpv (`/opt/homebrew/include/mpv`, loading
-`libmpv.2.dylib` at runtime), so `tools/fetch_libmpv.py` is not needed. The usd view is
-gated off on macOS until Storm runs reliably there: its Storm capability is absent with
-that reason, so the view shows the test pattern and says why. `SPECTO_MACOS_STORM=1`
-lifts the gate (it still needs an OpenUSD imaging build, below). Everything (the
+`libmpv.2.dylib` at runtime), so `tools/fetch_libmpv.py` is not needed. The usd view
+renders with Storm (auto is Storm alone on macOS) from the OpenUSD imaging build
+`tools/parked/build_openusd.py` makes (about 7 minutes on an M-series MacBook Pro). The
+build must resolve Python's symbols from the process: uv's CPython links libpython into
+its executable, so a `pxr` module that links `libpython3.12.dylib` loads a second,
+uninitialised interpreter and the frame source crashes on `import pxr` (exit -11). The
+script passes `PXR_PY_UNDEFINED_DYNAMIC_LOOKUP=ON` on macOS for that, and Storm detection
+refuses a build that links libpython anyway, naming the rebuild. Everything (the
 Windows file index) never loads, so its tests skip and the file tree's search walks.
 
 g++ 11 or newer and CMake 3.21 or newer; Ninja is optional (Makefiles otherwise). The

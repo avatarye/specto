@@ -19,10 +19,12 @@ looking at the files; nothing is imported.
 
 from __future__ import annotations
 
+import glob
 import importlib.util
 import json
 import os
 import re
+import struct
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -37,11 +39,6 @@ OPENUSD_ENV = "SPECTO_OPENUSD"
 STORM_HINT = (
     f"build OpenUSD with imaging (tools/parked/build_openusd.py) or point {OPENUSD_ENV} at "
     "an install; PyOpenGL comes with specto-app"
-)
-#: lifts the macOS gate on Storm (the usd view is off on macOS until Storm runs reliably there)
-MACOS_STORM_ENV = "SPECTO_MACOS_STORM"
-MACOS_STORM_GATE = (
-    f"the usd view is not yet supported on macOS (set {MACOS_STORM_ENV}=1 to try Storm)"
 )
 DETECT_TIMEOUT_S = 30.0
 HARDWARE_TIMEOUT_S = 5.0
@@ -167,12 +164,63 @@ def openusd_site_packages(prefix: str) -> str:
     return os.path.join(prefix, "lib", version, "site-packages")
 
 
+MACOS_REBUILD_HINT = (
+    "Rebuild it with tools/parked/build_openusd.py (PXR_PY_UNDEFINED_DYNAMIC_LOOKUP=ON)"
+)
+_MH_MAGIC_64 = 0xFEEDFACF
+_FAT_MAGIC = 0xCAFEBABE
+_LOAD_DYLIBS = {0xC, 0x18 | 0x80000000, 0x1F | 0x80000000}  # LOAD, LOAD_WEAK, REEXPORT
+
+
+def macho_dylibs(path: str) -> list[str]:
+    """The dylibs a Mach-O file links (its ``LC_LOAD_DYLIB`` family, what ``otool -L``
+    lists), from its first 64-bit slice; [] for anything else or an unreadable file."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return []
+    base = 0
+    if len(data) >= 8 and struct.unpack_from(">I", data)[0] == _FAT_MAGIC:
+        for i in range(struct.unpack_from(">I", data, 4)[0]):
+            offset = struct.unpack_from(">I", data, 8 + i * 20 + 8)[0]
+            if struct.unpack_from("<I", data, offset)[0] == _MH_MAGIC_64:
+                base = offset
+                break
+    if len(data) < base + 32 or struct.unpack_from("<I", data, base)[0] != _MH_MAGIC_64:
+        return []
+    ncmds = struct.unpack_from("<I", data, base + 16)[0]
+    at, names = base + 32, []
+    for _ in range(ncmds):
+        cmd, size = struct.unpack_from("<II", data, at)
+        if cmd in _LOAD_DYLIBS:
+            start = at + struct.unpack_from("<I", data, at + 8)[0]
+            names.append(data[start : at + size].split(b"\0", 1)[0].decode("utf-8", "replace"))
+        at += size
+    return names
+
+
+def foreign_libpython(module: str, executable: str | None = None) -> str | None:
+    """The libpython ``module`` links when this interpreter (``executable``, default
+    ``sys.executable``) links none: uv's CPython builds libpython into the executable, so
+    such a module loads a second, uninitialised interpreter and its first Python call
+    crashes (exit -11). None when it links none, or the interpreter links one itself."""
+    linked = [d for d in macho_dylibs(module) if "libpython" in os.path.basename(d)]
+    if not linked:
+        return None
+    exe = os.path.realpath(executable or sys.executable)
+    if any(
+        "libpython" in os.path.basename(d) or "Python.framework" in d for d in macho_dylibs(exe)
+    ):
+        return None
+    return linked[0]
+
+
 def detect_storm(prefix: str | None = None) -> MachineCapability:
     """Whether the OpenUSD build at ``prefix`` (default :func:`openusd_prefix`) has
     UsdImagingGL and this Python has PyOpenGL; by the files, without importing either.
-    On macOS Storm is absent unless ``SPECTO_MACOS_STORM=1`` (:data:`MACOS_STORM_GATE`)."""
-    if sys.platform == "darwin" and os.environ.get(MACOS_STORM_ENV, "").strip() != "1":
-        return MachineCapability(name="storm", present=False, reason=MACOS_STORM_GATE)
+    On macOS also that its ``pxr`` modules can load in this interpreter
+    (:func:`foreign_libpython`)."""
     prefix = prefix or openusd_prefix()
     imaging = os.path.join(openusd_site_packages(prefix), "pxr", "UsdImagingGL")
     if not os.path.isdir(imaging):
@@ -181,6 +229,15 @@ def detect_storm(prefix: str | None = None) -> MachineCapability:
     if importlib.util.find_spec("OpenGL") is None:
         reason = f"PyOpenGL is not installed: {STORM_HINT}"
         return MachineCapability(name="storm", present=False, reason=reason)
+    if sys.platform == "darwin":
+        tf = glob.glob(os.path.join(openusd_site_packages(prefix), "pxr", "Tf", "_tf*.so"))
+        foreign = foreign_libpython(tf[0]) if tf else None
+        if foreign:
+            reason = (
+                f"the OpenUSD build at {prefix} links {foreign}, which this Python does not "
+                f"load: importing it crashes. {MACOS_REBUILD_HINT}"
+            )
+            return MachineCapability(name="storm", present=False, reason=reason)
     return MachineCapability(name="storm", present=True, reason=f"OpenUSD imaging at {prefix}")
 
 

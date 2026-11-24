@@ -76,6 +76,13 @@ INST = ROOT / "openusd"
 LOG = ROOT / "openusd-build.log"
 
 
+# uv's CPython links libpython into the interpreter itself, yet its sysconfig LDLIBRARY
+# names libpython3.12.dylib, so OpenUSD's check (cmake/defaults/Packages.cmake) links every
+# pxr module to that dylib. Imported, it loads a second, uninitialised interpreter and the
+# first Python call segfaults (pxr.Tf, exit -11). Resolve Python symbols from the process.
+MACOS_PY_ARGS = ["--build-args", "USD,-DPXR_PY_UNDEFINED_DYNAMIC_LOOKUP=ON"] if MACOS else []
+
+
 def build_usd_args(jobs: int, python_info: list[str]) -> list[str]:
     # Imaging + usdview (Storm, GL), Python bindings, release, no examples /
     # tutorials / docs / tests. MaterialX stays at its default (on): Storm's
@@ -93,6 +100,7 @@ def build_usd_args(jobs: int, python_info: list[str]) -> list[str]:
         "--no-docs",
         "--no-tests",
         "--no-vulkan",
+        *MACOS_PY_ARGS,
         "--jobs",
         str(jobs),
         "--build",
