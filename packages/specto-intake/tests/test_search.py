@@ -99,9 +99,17 @@ def fake_everything(index: FakeIndex) -> fs.EverythingSearch:
     return fs.EverythingSearch(index, probe_ttl_s=0)  # type: ignore[arg-type]
 
 
-def backends() -> list[tuple[str, fs.FileSearch]]:
+#: Everything indexes Windows paths and only loads on Windows; its backend builds
+#: backslashed, case-folded paths, so its tests run there alone
+WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Everything is Windows-only")
+
+
+def backends() -> list:
     index = FakeIndex([fs.SearchHit(p, p.rpartition("/")[2]) for p in FILES])
-    return [("scan", fs.ScanSearch()), ("everything", fake_everything(index))]
+    return [
+        ("scan", fs.ScanSearch()),
+        pytest.param("everything", fake_everything(index), marks=WINDOWS_ONLY),
+    ]
 
 
 CASES = [
@@ -221,6 +229,7 @@ def test_the_scan_stops_between_folders_when_cancelled(root: Path):
     assert result.cancelled and len(result.hits) < 4
 
 
+@WINDOWS_ONLY
 def test_everything_answers_when_up_and_indexed_the_scan_when_not(root: Path):
     index = FakeIndex([fs.SearchHit("runs/cam-a/00001.jpg", "00001.jpg", 5, 7)])
     everything = fake_everything(index)
@@ -249,6 +258,7 @@ def test_everything_answers_when_up_and_indexed_the_scan_when_not(root: Path):
     assert result.backend == "scan" and "README.md" in paths(result)
 
 
+@WINDOWS_ONLY
 def test_everything_hits_are_filtered_like_the_scans(root: Path):
     index = FakeIndex(
         [
@@ -268,6 +278,7 @@ def test_everything_hits_are_filtered_like_the_scans(root: Path):
     assert paths(result) == ["notes/readme.txt"]  # through its folder; notes.json is not text
 
 
+@WINDOWS_ONLY
 def test_words_in_the_roots_own_path_go_to_the_index_as_regexes_anchored_below_it(
     root: Path,
 ):
@@ -294,6 +305,7 @@ def test_words_in_the_roots_own_path_go_to_the_index_as_regexes_anchored_below_i
     assert paths(fs.ScanSearch().search(str(root), "zebra", 10)) == []  # not on disk
 
 
+@WINDOWS_ONLY
 def test_the_index_is_read_in_two_pages_up_to_the_bound_then_the_scan_answers(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ):

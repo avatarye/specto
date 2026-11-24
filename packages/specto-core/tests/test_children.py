@@ -82,7 +82,10 @@ def test_the_minimal_environment_carries_only_what_an_interpreter_needs(monkeypa
     )
     seen = set(run.stdout.decode().split(","))
     assert "SPECTO_TEST_SECRET" not in seen
-    assert {k.upper() for k in seen if k} <= set(MINIMAL_ENV_KEYS)
+    # macOS's CoreFoundation sets __CF_USER_TEXT_ENCODING in every process, even one
+    # started with an empty environment; it never comes from the parent
+    os_added = {"__CF_USER_TEXT_ENCODING"} if sys.platform == "darwin" else set()
+    assert {k.upper() for k in seen if k} - os_added <= set(MINIMAL_ENV_KEYS)
 
 
 def test_the_child_runs_in_the_folder_it_is_given(tmp_path: Path):
