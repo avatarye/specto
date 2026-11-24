@@ -10,6 +10,8 @@ Every open and connect is trapped here.
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
 import socket
 import sys
 from pathlib import Path
@@ -100,12 +102,15 @@ def test_a_bare_unix_name_connects_in_the_temp_dir(trapped, monkeypatch):
 
 
 @pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="this Python has no AF_UNIX")
-def test_a_local_unix_socket_is_reached(tmp_path, monkeypatch):
+def test_a_local_unix_socket_is_reached(monkeypatch):
     """A real round trip: a listener on a socket path, a line each way."""
+    import tempfile
     import threading
 
     monkeypatch.setattr(sys, "platform", "linux")
-    path = str(tmp_path / "s")
+    # a short folder: macOS's pytest tmp_path runs past AF_UNIX's 104-byte path limit
+    short = tempfile.mkdtemp(prefix="sp-", dir="/tmp")
+    path = os.path.join(short, "s")
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(path)
     server.listen(1)
@@ -125,3 +130,4 @@ def test_a_local_unix_socket_is_reached(tmp_path, monkeypatch):
     finally:
         t.join(5)
         server.close()
+        shutil.rmtree(short, ignore_errors=True)

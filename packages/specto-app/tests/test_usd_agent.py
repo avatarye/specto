@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -118,7 +119,9 @@ def test_the_system_prompt_says_when_to_use_a_usd_view_and_what_it_never_does():
         assert param in usd
 
 
-def test_snap_of_a_usd_view_reports_the_stage_renderer_frame_and_camera():
+def test_snap_of_a_usd_view_reports_the_stage_renderer_frame_and_camera(monkeypatch):
+    # auto picks rtx only where rtx comes first (Windows, Linux); macOS is Storm alone
+    monkeypatch.setattr(sys, "platform", "win32")
     engine = machine(ovrtx=True)
     vid = add_usd(engine, {"look_through": "/World/Cameras/Front"})
     engine.host.shell.hosts[vid] = FakeUsdHost(

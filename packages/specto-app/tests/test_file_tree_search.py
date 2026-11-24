@@ -13,6 +13,7 @@ engine."""
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -99,6 +100,11 @@ class Index:
         return [h for h in page if keep is None or keep(h.path, h.is_dir)], len(out)
 
 
+#: Everything indexes Windows paths and only loads on Windows: tests where it answers run
+#: there alone (the ones where it is down, and the scan answers, run everywhere)
+WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Everything is Windows-only")
+
+
 def everything(index: Index) -> fs.EverythingSearch:
     return fs.EverythingSearch(index, probe_ttl_s=0)  # type: ignore[arg-type]
 
@@ -141,6 +147,7 @@ def picks(ctx: HostContext) -> FilesValue:
 
 
 # -- the latest keystroke -------------------------------------------------------------------
+@WINDOWS_ONLY
 def test_only_the_latest_keystrokes_hits_show_and_the_query_in_flight_is_cancelled(
     qapp, spin, project: Project
 ):
@@ -169,6 +176,7 @@ def test_only_the_latest_keystrokes_hits_show_and_the_query_in_flight_is_cancell
     jobs.shutdown()
 
 
+@WINDOWS_ONLY
 def test_hits_pass_the_trees_screener_and_the_note_says_when_there_are_more(project: Project):
     engine = Engine(project=project, jobs=InlineJobManager())
     doc = engine.live.document()
@@ -194,7 +202,7 @@ def test_hits_pass_the_trees_screener_and_the_note_says_when_there_are_more(proj
 
 
 # -- the hits in their folders --------------------------------------------------------------
-@pytest.mark.parametrize("backend", ["scan", "everything"])
+@pytest.mark.parametrize("backend", ["scan", pytest.param("everything", marks=WINDOWS_ONLY)])
 def test_the_tree_shows_the_hits_inside_their_folders_built_from_the_hits_alone(
     project: Project, backend: str
 ):
