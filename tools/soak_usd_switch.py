@@ -10,9 +10,10 @@ stage switches"). Dev-only; nothing in packages/ imports it.
 One run at a time on the GPU tier: the heavy-run slot (the board repository's
 ``tools/heavy_slot.py``) around ``tools/gpu_guard.py``. Runs ``specto_app.usd.source``
 with the usd view's explicit-rtx command line (``rtx_launcher``, so an RTX GPU is needed;
-``--fresh`` adds ``--fresh-renderer``), no app and no window. The stages are roles: a
-large world (``--big``), a second large one (``--big-alt``, its 1x1-texture copy does),
-a prop and a small stage. Plans:
+``--fresh`` adds ``--fresh-renderer``), or with ``--renderer storm`` its Storm one
+(``storm_launcher``: the OpenUSD imaging build, any GPU, macOS), no app and no window.
+The stages are roles: a large world (``--big``), a second large one (``--big-alt``,
+its 1x1-texture copy does), a prop and a small stage. Plans:
 
 - ``baseline``: ``--big`` alone, ``--rounds`` loads, each settled (``ok``, then 2 s).
 - ``interactive``: per round, in one process: big settled, then a camera cut, wireframe,
@@ -92,15 +93,18 @@ def gpu_mb(pid: int) -> float:
 class Source:
     """One ``specto_app.usd.source`` process and the events it sends."""
 
-    def __init__(self, work: Path, fresh: bool, tag: str, timeout: float) -> None:
+    def __init__(
+        self, work: Path, fresh: bool, tag: str, timeout: float, renderer: str = "rtx"
+    ) -> None:
         import specto_core  # noqa: F401  (pydantic before PySide6, as the bench does)
         from specto_app.frames.control import FrameSourceProcess
-        from specto_app.views.usd_view import rtx_launcher
+        from specto_app.views.usd_view import rtx_launcher, storm_launcher
 
-        argv = rtx_launcher(1280, 720)
+        launcher = storm_launcher if renderer == "storm" else rtx_launcher
+        argv = launcher(1280, 720)
         if fresh and "--fresh-renderer" not in argv:
             argv.append("--fresh-renderer")
-        argv += ["--log-file", str(work / f"ovrtx-{tag}.log")]
+        argv += ["--log-file", str(work / f"{renderer}-{tag}.log")]
         self.timeout = timeout
         self.stderr = open(work / f"source-stderr-{tag}.log", "w", encoding="utf-8")  # noqa: SIM115
         self.t0 = time.monotonic()
@@ -367,7 +371,7 @@ class Soak:
         ns = self.ns
         for rnd in range(1, ns.rounds + 1):
             tag = f"close{rnd}"
-            src = Source(ns.work, ns.fresh, tag, ns.timeout)
+            src = Source(ns.work, ns.fresh, tag, ns.timeout, ns.renderer)
             try:
                 src.start()
                 src.send("load", path=ns.big)
@@ -383,7 +387,7 @@ class Soak:
 
     def run_one_source(self) -> None:
         ns = self.ns
-        src = Source(ns.work, ns.fresh, ns.plan, ns.timeout)
+        src = Source(ns.work, ns.fresh, ns.plan, ns.timeout, ns.renderer)
         try:
             src.start()
             for rnd in range(1, ns.rounds + 1):
@@ -417,6 +421,12 @@ def main() -> int:
     )
     ap.add_argument("--op", choices=OPS, help="isolate: the operation repeated")
     ap.add_argument("--fresh", action="store_true", help="a new renderer per stage")
+    ap.add_argument(
+        "--renderer",
+        choices=("rtx", "storm"),
+        default="rtx",
+        help="the usd view's explicit command line for this renderer (storm: macOS, any GPU)",
+    )
     ap.add_argument("--rounds", type=int, default=15)
     ap.add_argument("--seed", type=int, default=78)
     ap.add_argument("--timeout", type=float, default=300.0, help="seconds before a load is a hang")
