@@ -1,6 +1,8 @@
-# Specto design (draft, 2026-10-12)
+# Specto design (background, 2026-10-12)
 
-Status: draft from the design discussion. Open to refinement; nothing is built yet.
+Status: the original design from the 2026-10-12 discussion, kept as background. v2 is built
+and released (0.2.0, `CHANGELOG.md`); where this file and the ADRs in `docs/adr/` disagree,
+the ADRs win (0011-0017 are the v2 set).
 
 ## Vision: agentic GUI
 
@@ -441,22 +443,22 @@ running code. Pure-`layout.json` recipes need no trust.
 
 ## Open questions
 
-- Canvas: since content never renders scaled, a Widgets shell (real widgets in the
-  normal view, a `QGraphicsView` of snapshots in the overworld) is also possible and
-  would let usdview's `StageView` drop in. Keep Qt Quick unless Storm-in-Quick
-  proves painful.
+Settled since this draft:
+
+- Canvas toolkit and Storm into Qt Quick: Qt Quick on the OpenGL RHI (ADR 0001).
+- Session document format and schema: the canvas document, a pydantic model (ADRs 0012, 0013).
+- Command API transport: `QLocalServer` only; no localhost WebSocket (ADR 0003).
+- ovrtx and Qt's GL context: the usd view renders in a separate frame-source process
+  (ADRs 0026, 0031).
+- Thumbnail cache: under `<project>/.specto/cache/thumbs/` (`docs/contracts.md`, SPEC-17).
+- First milestone scope: v2, released as 0.2.0 (`CHANGELOG.md`).
+
+Still open:
+
 - How many live 3D panels in visible frames fit the GPU budget.
-- Storm into a Qt Quick texture: Qt Quick on Windows defaults to Direct3D 11, so the
-  canvas either runs Qt Quick on OpenGL or Storm output is shared across APIs.
 - Intake screener syntax: exact rule grammar, and whether type aliases come from
   readers (a reader declares the patterns it can handle).
 - Reader plugin API shape.
-- Session document format (JSON vs TOML) and its schema versioning.
 - Channel value types and frame-transform API; how dataset poses are supplied.
 - Recipe role type system: how specific (e.g. `pointcloud` vs `las`), and matching rules.
-- Command API: is a localhost WebSocket needed beside `QLocalServer` (e.g. for
-  remote or browser clients), and how is it authenticated?
-- Does ovrtx coexist in-process with Qt's GL context, or run as a separate process?
 - Video compare and frame-accurate scrubbing requirements.
-- Thumbnail cache location and format.
-- First milestone scope.
