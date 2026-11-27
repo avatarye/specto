@@ -489,6 +489,10 @@ _Avoid_: frame (bare), update, cycle
 A named clock that `time` values are measured on (stamps, video time, item index); each collection declares its timeline and offset.
 _Avoid_: clock (as the term), track, time base
 
+**Placement**:
+How one item sits in a scene view: its up, rotation, position and scale there, chosen in that view and not part of the item's data.
+_Avoid_: transform, pose, scene graph (for an item in a view)
+
 **Space**:
 A coordinate frame that collections and views declare: a map projection, a local east-north-up origin, or a sensor pose over time.
 _Avoid_: frame, coordinate frame, CRS (for the general case)
