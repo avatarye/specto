@@ -27,6 +27,12 @@ the release and move on their own schedule.
   to the new amber `warn`, with one note per cause; `snap` lists each one. The agent
   poses the robot through `params.joints` (radians and metres), and a slider release is
   one undo step.
+- The agent icon's idle blink runs only while the Specto window is the active one. Every
+  blink made the idle window draw, and on macOS the GPU driver holds a render pool for
+  each burst: about 290 MB of physical footprint for a second, every 4-7 s, in an app no
+  one was using (any Qt Quick window does it; a bare one reproduces it). In the
+  background an idle window now draws nothing; the agent's working and thinking motions
+  still show there.
 - Web views on macOS no longer grow the app's memory with every frame. Qt Quick draws
   through OpenGL there, on Apple's OpenGL-over-Metal driver, and each GPU-composited
   web-view frame it drew left one more render pipeline state in that driver, never

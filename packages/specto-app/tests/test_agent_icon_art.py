@@ -214,6 +214,24 @@ def test_idle_blinks_by_closing_the_eyes(icon, spin):
     assert art.property("lid") == pytest.approx(1)
 
 
+def test_the_idle_blink_rests_while_the_window_is_not_active(icon, spin):
+    """An idle window renders nothing: each blink made it draw a burst, and on macOS the GPU
+    driver holds a ~290 MB render pool for every burst (a footprint spike every 4-7 s).
+    The blink runs only while the window is the active one; the agent's own motions
+    (working, thinking) still show in the background."""
+    _, art, _ = icon
+    blinks = art.findChild(QObject, "blinkTimer")
+    art.setProperty("windowActive", False)
+    spin(20)
+    assert not blinks.property("running")
+    art.setProperty("windowActive", True)
+    spin(20)
+    assert blinks.property("running")
+    art.setProperty("windowActive", False)
+    set_state(art, spin, "working", 100)
+    assert art.property("motionRunning")  # an agent at work still shows it
+
+
 def test_a_filled_outline_body_is_painted_as_a_fill(qapp, spin, tmp_path):
     """Design files whose body is a filled outline (here a square ring): the icon paints
     the ring in ink and leaves its hole the tile's colour."""

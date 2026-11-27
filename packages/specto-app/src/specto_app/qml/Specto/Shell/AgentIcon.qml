@@ -52,6 +52,10 @@ Item {
 
     // the window shows: motion runs only then
     readonly property bool live: Window.window !== null && Window.visibility !== Window.Hidden
+    // the idle blink runs only in the active window: every blink makes the window draw, and
+    // an idle window in the background should draw nothing (on macOS each burst costs a
+    // ~290 MB GPU render pool for about a second)
+    property bool windowActive: Window.active
                                  && Window.visibility !== Window.Minimized
     readonly property bool motionRunning: lookAnim.running || scanAnim.running || blinkTimer.running
 
@@ -95,7 +99,7 @@ Item {
         objectName: "blinkTimer"
         interval: root.nextBlink()
         repeat: true
-        running: root.live && root.motion === "blink"
+        running: root.live && root.windowActive && root.motion === "blink"
         onTriggered: {
             root.blink()
             interval = root.nextBlink()
